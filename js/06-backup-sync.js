@@ -471,7 +471,7 @@ function restoreFromFile(file){
 var gdriveTokenClient = null;
 var gdriveAccessToken = null;
 var gdrivePickerLoaded = false;
-var GDRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file';
+var GDRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email';
 
 /* ---------- How long a Drive connection stays good for ----------
    Google's own access tokens last about an hour regardless of what's
@@ -533,6 +533,44 @@ function gdriveAuthStillValid(){
   return true;
 }
 
+/* ---------- Remembering which Google account to use ----------
+   Without a login_hint, Google can't tell which of the person's signed-in
+   accounts a request is for, so it shows the "choose an account" picker
+   on *every* request — silent ones included — even with only one account
+   signed in, and even inside the reconnect window above. The window only
+   controls whether Nexus is allowed to try at all; it has no say over
+   whether Google's own picker appears once it does.
+
+   The fix is to learn the email once (via the small extra
+   userinfo.email scope on GDRIVE_SCOPES) and hand it back as login_hint
+   on every future request. Stored in localStorage, not memory, so it
+   survives reloads — it's implied by having already granted that scope,
+   not new information being kept around. */
+var GDRIVE_EMAIL_KEY = STORAGE_KEY + '_gdrive_email';
+function gdriveStoredEmail(){
+  try{ return localStorage.getItem(GDRIVE_EMAIL_KEY) || ''; }catch(e){ return ''; }
+}
+function gdriveRememberEmailFromToken(token){
+  if(gdriveStoredEmail()) return; /* already known — no need to ask again every time */
+  fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(res){ return res.ok ? res.json() : null; })
+    .then(function(info){
+      if(info && info.email){ try{ localStorage.setItem(GDRIVE_EMAIL_KEY, info.email); }catch(e){} }
+    }).catch(function(){ /* non-critical — the hint just stays off next time too */ });
+}
+/* Builds the {prompt, login_hint?} object passed to requestAccessToken.
+   login_hint is applied as a per-call override rather than baked into
+   initTokenClient once, so it takes effect the very first moment the
+   email becomes known without needing to recreate the token client
+   mid-session. */
+function gdriveTokenRequestOpts(promptValue){
+  var opts = { prompt: promptValue };
+  var email = gdriveStoredEmail();
+  if(email) opts.login_hint = email;
+  return opts;
+}
+
 function gdriveCredentialsConfigured(){
   return GOOGLE_DRIVE_CLIENT_ID && GOOGLE_DRIVE_CLIENT_ID.indexOf('YOUR_OAUTH_CLIENT_ID') === -1
       && GOOGLE_DRIVE_API_KEY && GOOGLE_DRIVE_API_KEY.indexOf('YOUR_API_KEY') === -1;
@@ -591,7 +629,18 @@ function gdriveDownloadAndRestore(fileId){
 }
 
 /* Shared token-acquisition step for both import and export. onReady is
-   called once gdriveAccessToken is set. */
+   called once gdriveAccessToken is set.
+
+   Whether this can renew quietly must be judged purely by the saved
+   timestamp (gdriveAuthStillValid), never by whether gdriveAccessToken
+   is currently set in memory — that variable resets to null on every
+   page load/app launch, so gating on it here would force the full
+   consent screen on literally the first click of every session even
+   when well inside the person's chosen reconnect window. So: if the
+   window hasn't lapsed, try a silent renewal first (prompt:''), and
+   only fall back to the interactive consent screen if that silent
+   attempt itself comes back with an error (e.g. the Google session
+   cookie is also gone). Past the window, go straight to consent. */
 function gdriveWithToken(onReady){
   if(gdriveBlockedByOrigin()) return;
   if(!gdriveCredentialsConfigured()){
@@ -602,28 +651,40 @@ function gdriveWithToken(onReady){
     toast('Google sign-in is still loading — try again in a moment.');
     return;
   }
-  /* Past the configured window, the cached token is deliberately thrown
-     away so the request below asks for consent again rather than
-     renewing off the existing Google session. */
-  var expired = gdriveAuthExpired();
-  if(expired) clearGdriveAuth();
+  var withinWindow = gdriveAuthStillValid();
+  if(!withinWindow) clearGdriveAuth();
 
-  function onToken(resp){
-    if(resp.error){ toast('Google Drive sign-in was cancelled or failed.'); return; }
-    gdriveAccessToken = resp.access_token;
-    markGdriveAuthNow(); /* interactive connection — this is what starts the clock */
-    onReady();
-  }
   if(!gdriveTokenClient){
     gdriveTokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_DRIVE_CLIENT_ID,
       scope: GDRIVE_SCOPES,
-      callback: onToken
+      callback: function(){} /* replaced per-request just below */
     });
-  } else {
-    gdriveTokenClient.callback = onToken;
   }
-  gdriveTokenClient.requestAccessToken({ prompt: (gdriveAccessToken && !expired) ? '' : 'consent' });
+
+  function succeed(resp){
+    gdriveAccessToken = resp.access_token;
+    markGdriveAuthNow(); /* click-driven connection (silent or not) — this is what starts/extends the clock */
+    gdriveRememberEmailFromToken(resp.access_token); /* so the picker has nothing left to ask, from here on */
+    onReady();
+  }
+  function requestConsent(){
+    gdriveTokenClient.callback = function(resp){
+      if(resp.error){ toast('Google Drive sign-in was cancelled or failed.'); return; }
+      succeed(resp);
+    };
+    gdriveTokenClient.requestAccessToken(gdriveTokenRequestOpts('consent'));
+  }
+
+  if(withinWindow){
+    gdriveTokenClient.callback = function(resp){
+      if(!resp.error){ succeed(resp); return; }
+      requestConsent(); /* silent renewal failed — ask properly instead */
+    };
+    gdriveTokenClient.requestAccessToken(gdriveTokenRequestOpts(''));
+  } else {
+    requestConsent();
+  }
 }
 
 function gdriveStartImport(){
@@ -807,6 +868,7 @@ function gdriveGetTokenSilently(onReady, onFail){
       callback: function(resp){
         if(resp.error){ onFail && onFail(); return; }
         gdriveAccessToken = resp.access_token;
+        gdriveRememberEmailFromToken(resp.access_token);
         onReady();
       }
     });
@@ -814,10 +876,11 @@ function gdriveGetTokenSilently(onReady, onFail){
     gdriveTokenClient.callback = function(resp){
       if(resp.error){ onFail && onFail(); return; }
       gdriveAccessToken = resp.access_token;
+      gdriveRememberEmailFromToken(resp.access_token);
       onReady();
     };
   }
-  try{ gdriveTokenClient.requestAccessToken({ prompt: '' }); }
+  try{ gdriveTokenClient.requestAccessToken(gdriveTokenRequestOpts('')); }
   catch(e){ onFail && onFail(); }
 }
 

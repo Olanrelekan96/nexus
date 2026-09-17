@@ -225,16 +225,21 @@ function bootNotebook(){
     handleIncomingShare();
     checkTodoDueReminders();
     setGdriveAutoSyncToggleUI();
+    setGdriveAuthTtlUI();
+    updateGdriveAuthTtlStatus();
     if(gdriveAutoSyncEnabled()){
       /* Reconnecting after a reload can only ever be silent (prompt:'') —
          there's no server here to hold a refresh token — so if Google's
-         session has lapsed this just asks for one click rather than
-         popping a sign-in window unprompted. */
+         session has lapsed, or the reconnect window from Settings has
+         run out, this just asks for one click rather than popping a
+         sign-in window unprompted. */
       gdriveGetTokenSilently(function(){
         startGdriveAutoSyncTimer();
         runGdriveSyncCycle();
       }, function(){
-        setGdriveAutoSyncStatus('Needs sign-in — open Settings and click "On" again to reconnect.');
+        setGdriveAutoSyncStatus(gdriveAuthExpired()
+          ? 'Drive connection expired after ' + gdriveAuthTtlHours() + 'h — click "Sync now" to reconnect.'
+          : 'Needs sign-in — click "Sync now" to reconnect.');
       });
     }
   }).catch(function(){
