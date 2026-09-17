@@ -729,16 +729,24 @@ function renderBlockRow(block){
       openQueryBuilder(qbClickMatch[1].toLowerCase(), block.id, qbClickMatch[2].trim());
       return;
     }
+    /* Land the caret where the user actually tapped/clicked, rather
+       than at the start (or, as this used to do, selecting the whole
+       line — see below). caretRangeFromPoint only makes sense against
+       the DOM as it is right now (read-mode markup), and enterEditMode
+       is about to tear that DOM down and rebuild it for editing, so
+       the raw-text offset has to be captured *before* that happens;
+       afterwards there'd be nothing left to measure against. */
     var range = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
-    enterEditMode(0);
+    var clickOffset = null;
     if(range){
       try{
-        var tempSel = window.getSelection();
-        var r2 = document.createRange();
-        r2.selectNodeContents(content);
-        tempSel.removeAllRanges(); tempSel.addRange(r2);
-      }catch(err){}
+        var probeSel = window.getSelection();
+        probeSel.removeAllRanges();
+        probeSel.addRange(range);
+        clickOffset = getCaretOffset(content);
+      }catch(err){ clickOffset = null; }
     }
+    enterEditMode(clickOffset !== null ? clickOffset : 0);
   });
 
   content.addEventListener('blur', function(){

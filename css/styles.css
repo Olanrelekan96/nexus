@@ -133,7 +133,8 @@
 
   .trash-row{display:flex; align-items:center; gap:2px; padding:2px 4px 2px 8px; border-radius:6px;}
   .trash-row:hover{background:var(--paper-raised);}
-  .trash-row a{flex:1; padding:5px 0; font-size:0.8438rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ink); text-decoration:none;}
+  .trash-row a{flex:1; padding:5px 0; font-size:0.8438rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ink); text-decoration:none;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;}
   .trash-row button{background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:0.8125rem; padding:3px 5px; border-radius:4px; line-height:1;}
   .trash-row button:hover{background:var(--border); color:var(--ink);}
   .trash-row a.active{background:var(--link-bg); color:var(--focus); font-weight:600;}
@@ -327,7 +328,20 @@
     flex:1; min-height:26px; padding:4px 4px; outline:none; word-wrap:break-word; white-space:pre-wrap;
     font-size:0.9062rem; border-radius:4px;
   }
-  .block-content.editing{background:var(--paper-raised); box-shadow: inset 0 0 0 1px var(--border);}
+  /* Not-yet-editing block text is view-only, so a long-press on it should
+     open our own context menu (see the 'contextmenu' listener), not the
+     browser's native "select word" gesture and its Copy/Look Up bubble —
+     the two were fighting each other and made a long-press feel stuck
+     with text selected and no obvious way out. Once a line IS being
+     edited, normal text selection comes back so people can still select
+     text to format it or bring up the selection menu. */
+  .block-content:not(.editing){
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+  }
+  .block-content.editing{
+    background:var(--paper-raised); box-shadow: inset 0 0 0 1px var(--border);
+    -webkit-user-select:text; user-select:text; -webkit-touch-callout:default;
+  }
   .block-content:empty:before{content:"Type something…"; color:#BEB6A3;}
   .block-content a.link, .block-content span.link{color:var(--link); background:var(--link-bg); border-radius:3px; padding:0 3px; text-decoration:none; cursor:pointer;}
   .block-content span.tag{color:var(--tag); background:var(--tag-bg); border-radius:3px; padding:0 3px; cursor:pointer;}
