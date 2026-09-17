@@ -471,7 +471,22 @@ function restoreFromFile(file){
 var gdriveTokenClient = null;
 var gdriveAccessToken = null;
 var gdrivePickerLoaded = false;
+var GDRIVE_AUTH_SESSION_KEY = STORAGE_KEY + '_gdrive_auth_session';
 var GDRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file';
+
+function gdriveAuthSessionValid(){
+  var raw = null;
+  try{ raw = localStorage.getItem(GDRIVE_AUTH_SESSION_KEY); }catch(e){}
+  var ts = parseInt(raw, 10);
+  if(!ts) return false;
+  var hours = (typeof currentSettings !== 'undefined' && currentSettings.reauthInterval) || '24';
+  hours = parseInt(hours, 10);
+  if(hours !== 1 && hours !== 6 && hours !== 12 && hours !== 24) hours = 24;
+  return Date.now() - ts < hours * 60 * 60 * 1000;
+}
+function markGdriveAuthSession(){
+  try{ localStorage.setItem(GDRIVE_AUTH_SESSION_KEY, String(Date.now())); }catch(e){}
+}
 
 function gdriveCredentialsConfigured(){
   return GOOGLE_DRIVE_CLIENT_ID && GOOGLE_DRIVE_CLIENT_ID.indexOf('YOUR_OAUTH_CLIENT_ID') === -1
@@ -542,24 +557,34 @@ function gdriveWithToken(onReady){
     toast('Google sign-in is still loading — try again in a moment.');
     return;
   }
-  if(!gdriveTokenClient){
-    gdriveTokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_DRIVE_CLIENT_ID,
-      scope: GDRIVE_SCOPES,
-      callback: function(resp){
-        if(resp.error){ toast('Google Drive sign-in was cancelled or failed.'); return; }
-        gdriveAccessToken = resp.access_token;
-        onReady();
+  var needsInteractive = !gdriveAuthSessionValid();
+  function requestToken(promptMode, allowConsentFallback){
+    var finish = function(resp){
+      if(resp.error){
+        if(allowConsentFallback){ requestToken('consent', false); return; }
+        toast('Google Drive sign-in was cancelled or failed.');
+        return;
       }
-    });
-  } else {
-    gdriveTokenClient.callback = function(resp){
-      if(resp.error){ toast('Google Drive sign-in was cancelled or failed.'); return; }
       gdriveAccessToken = resp.access_token;
+      if(promptMode === 'consent') markGdriveAuthSession();
       onReady();
     };
+    if(!gdriveTokenClient){
+      gdriveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_DRIVE_CLIENT_ID,
+        scope: GDRIVE_SCOPES,
+        callback: finish
+      });
+    } else {
+      gdriveTokenClient.callback = finish;
+    }
+    try{ gdriveTokenClient.requestAccessToken({ prompt: promptMode }); }
+    catch(e){
+      if(allowConsentFallback){ requestToken('consent', false); return; }
+      toast('Google Drive sign-in was cancelled or failed.');
+    }
   }
-  gdriveTokenClient.requestAccessToken({ prompt: gdriveAccessToken ? '' : 'consent' });
+  requestToken(needsInteractive ? 'consent' : '', !needsInteractive);
 }
 
 function gdriveStartImport(){
@@ -694,10 +719,19 @@ function gdriveGetTokenSilently(onReady, onFail){
    won't ask again unless the passcode turns out to be wrong. */
 function ensureGdriveSyncMode(){
   if(!isLockEnabled() || gdriveSyncEncryptionDeclined) return Promise.resolve('plain');
+  if(gdriveSyncPasscode && typeof getActivePasscode === 'function' && !getActivePasscode()){
+    gdriveSyncPasscode = null;
+    gdriveSyncKeyCache = { salt: null, key: null };
+  }
   if(gdriveSyncPasscode) return Promise.resolve('encrypted');
   if(!confirm('This notebook has a passcode lock set up.\n\nEncrypt Google Drive sync data with your passcode too?\n\nOK = encrypted (every device you sync with must use this same passcode).\nCancel = keep sync data as plain, readable JSON, same as before.')){
     gdriveSyncEncryptionDeclined = true;
     return Promise.resolve('plain');
+  }
+  var cachedPasscode = typeof getActivePasscode === 'function' ? getActivePasscode() : null;
+  if(cachedPasscode){
+    gdriveSyncPasscode = cachedPasscode;
+    return Promise.resolve('encrypted');
   }
   var passcode = promptForPasscode('Enter your passcode:');
   if(passcode === null) return Promise.resolve('cancelled');
@@ -826,6 +860,14 @@ function gdrivePushSyncState(fileId){
    whether auto-sync is turned on — callers decide that. */
 function gdrivePerformSyncCycle(){
   if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin()) return;
+  if(isLockEnabled() && !gdriveSyncEncryptionDeclined){
+    var cachedPasscode = typeof getActivePasscode === 'function' ? getActivePasscode() : null;
+    if(cachedPasscode) gdriveSyncPasscode = cachedPasscode;
+    else if(gdriveSyncPasscode){
+      gdriveSyncPasscode = null;
+      gdriveSyncKeyCache = { salt: null, key: null };
+    }
+  }
   gdriveFindSyncFile(function(fileId){
     if(!fileId){ setGdriveAutoSyncStatus('Could not reach the Google Drive sync file — will retry.'); return; }
     gdrivePullSyncState(fileId).then(function(result){
@@ -883,6 +925,10 @@ function gdrivePerformSyncCycle(){
 function runGdriveSyncCycle(){
   if(!gdriveAutoSyncEnabled()) return;
   if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin()) return;
+  if(!gdriveAuthSessionValid()){
+    setGdriveAutoSyncStatus('Needs sign-in — click "Sync now" to reconnect.');
+    return;
+  }
   if(gdriveAccessToken){ gdrivePerformSyncCycle(); return; }
   gdriveGetTokenSilently(gdrivePerformSyncCycle, function(){
     setGdriveAutoSyncStatus('Needs sign-in — click "On" again to reconnect.');

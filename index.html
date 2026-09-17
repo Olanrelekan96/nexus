@@ -310,6 +310,16 @@
         <div class="hint" id="gdrive-autosync-status"></div>
       </div>
       <div>
+        <div class="settings-label">Re-authentication interval</div>
+        <div class="settings-row" id="settings-reauth-row">
+          <button type="button" class="settings-opt" data-reauth="1">1 hour</button>
+          <button type="button" class="settings-opt" data-reauth="6">6 hours</button>
+          <button type="button" class="settings-opt" data-reauth="12">12 hours</button>
+          <button type="button" class="settings-opt" data-reauth="24">24 hours</button>
+        </div>
+        <div class="hint">After this interval, Nexus requires re-authentication again. Google Drive sync uses silent sign-in within the selected interval when Google allows it.</div>
+      </div>
+      <div>
         <div class="settings-label">Deleting a page</div>
         <div class="settings-row" id="settings-confirmtrash-row">
           <button type="button" class="settings-opt" data-confirmtrash="off">Move to Trash right away</button>

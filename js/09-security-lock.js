@@ -67,6 +67,9 @@ function validatePasscode(passcode){
 var LOCK_VERIFIER_TEXT = 'nexus-unlock-ok';
 var RECOVERY_CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; /* 32 chars; excludes 0/O/1/I/L to avoid transcription mistakes */
 var lockCryptoKey = null; /* CryptoKey (the DEK) while unlocked this session, else null */
+var activePasscode = null; /* raw passcode kept only in memory for the selected re-auth session */
+var passcodeSessionStartedAt = 0;
+var passcodeReauthTimer = null;
 
 function loadLockMeta(){
   try{ return JSON.parse(localStorage.getItem(LOCK_KEY)); }catch(e){ return null; }
@@ -78,6 +81,43 @@ function clearLockMeta(){
   try{ localStorage.removeItem(LOCK_KEY); }catch(e){}
 }
 function isLockEnabled(){ return !!loadLockMeta(); }
+function getReauthIntervalMs(){
+  var hours = (typeof currentSettings !== 'undefined' && currentSettings.reauthInterval) || '24';
+  hours = parseInt(hours, 10);
+  if(hours !== 1 && hours !== 6 && hours !== 12 && hours !== 24) hours = 24;
+  return hours * 60 * 60 * 1000;
+}
+function clearPasscodeSession(){
+  activePasscode = null;
+  passcodeSessionStartedAt = 0;
+  clearTimeout(passcodeReauthTimer);
+  passcodeReauthTimer = null;
+}
+function startPasscodeSession(passcode){
+  activePasscode = passcode || null;
+  passcodeSessionStartedAt = Date.now();
+  schedulePasscodeReauth();
+}
+function getActivePasscode(){
+  if(!activePasscode || !passcodeSessionStartedAt) return null;
+  if(Date.now() - passcodeSessionStartedAt >= getReauthIntervalMs()){
+    clearPasscodeSession();
+    return null;
+  }
+  return activePasscode;
+}
+function schedulePasscodeReauth(){
+  clearTimeout(passcodeReauthTimer);
+  if(!isLockEnabled() || !lockCryptoKey || !passcodeSessionStartedAt) return;
+  var remaining = (passcodeSessionStartedAt + getReauthIntervalMs()) - Date.now();
+  if(remaining <= 0){
+    lockNow();
+    return;
+  }
+  passcodeReauthTimer = setTimeout(function(){
+    if(isLockEnabled() && lockCryptoKey) lockNow();
+  }, remaining);
+}
 
 /* ---------- Portable encryption for exports/backups/sync ----------
    The everyday DEK (lockCryptoKey) is randomly generated once per
@@ -227,6 +267,7 @@ function setPasscode(passcode){
               salt: pcSalt, iterations: PBKDF2_ITERATIONS, wrappedDEK: wrapped[0], verifier: verifier,
               recoverySalt: recSalt, recoveryIterations: PBKDF2_ITERATIONS, wrappedDEKRecovery: wrapped[1]
             });
+            startPasscodeSession(passcode);
             if(currentJson) return putNotebookState(currentJson);
           });
         });
@@ -260,6 +301,7 @@ function rewrapPasscodeOnly(newPasscode){
         meta.version = 2;
         meta.salt = newSalt; meta.iterations = PBKDF2_ITERATIONS; meta.wrappedDEK = wrapped;
         saveLockMeta(meta);
+        startPasscodeSession(newPasscode);
       });
     });
   });
@@ -298,6 +340,7 @@ function tryUnlock(passcode){
       return decryptWithKey(dek, meta.verifier).then(function(text){
         if(text !== LOCK_VERIFIER_TEXT) return {ok:false, legacy:false};
         lockCryptoKey = dek;
+        startPasscodeSession(passcode);
         return {ok:true, legacy:false};
       });
     }).catch(function(){ return {ok:false, legacy:false}; });
@@ -308,6 +351,7 @@ function tryUnlock(passcode){
     return decryptWithKey(key, meta.verifier).then(function(text){
       if(text !== LOCK_VERIFIER_TEXT) return {ok:false, legacy:true};
       lockCryptoKey = key;
+      startPasscodeSession(passcode);
       return {ok:true, legacy:true};
     });
   }).catch(function(){ return {ok:false, legacy:true}; });
@@ -327,6 +371,8 @@ function tryUnlockWithRecovery(code){
     return decryptWithKey(dek, meta.verifier).then(function(text){
       if(text !== LOCK_VERIFIER_TEXT) return false;
       lockCryptoKey = dek;
+      passcodeSessionStartedAt = Date.now();
+      schedulePasscodeReauth();
       return true;
     });
   }).catch(function(){ return false; });
@@ -354,6 +400,7 @@ function removePasscode(){
       return Promise.all(encRecords.map(function(r){ return getAttachment(r.id); }));
     }).then(function(decrypted){
       lockCryptoKey = null;
+      clearPasscodeSession();
       clearLockMeta();
       var writes = [];
       if(currentJson) writes.push(putNotebookState(currentJson));
@@ -371,6 +418,7 @@ function removePasscodeConfirmed(passcode){
 function lockNow(){
   closeSettings();
   lockCryptoKey = null;
+  clearPasscodeSession();
   showLockScreen();
 }
 
@@ -409,6 +457,9 @@ function attemptUnlockFromScreen(){
 document.getElementById('lock-submit').onclick = attemptUnlockFromScreen;
 document.getElementById('lock-input').addEventListener('keydown', function(e){
   if(e.key === 'Enter') attemptUnlockFromScreen();
+});
+Array.prototype.slice.call(document.querySelectorAll('#settings-reauth-row .settings-opt')).forEach(function(btn){
+  btn.addEventListener('click', function(){ schedulePasscodeReauth(); });
 });
 /* Erases the (encrypted, otherwise unreadable) notebook on this
    device and its passcode, then reloads into a fresh notebook. Last
