@@ -67,13 +67,6 @@ function validatePasscode(passcode){
 var LOCK_VERIFIER_TEXT = 'nexus-unlock-ok';
 var RECOVERY_CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; /* 32 chars; excludes 0/O/1/I/L to avoid transcription mistakes */
 var lockCryptoKey = null; /* CryptoKey (the DEK) while unlocked this session, else null */
-var activePasscode = null; /* raw passcode kept only in memory for the selected re-auth session */
-var passcodeSessionStartedAt = 0;
-var passcodeReauthTimer = null;
-var PASSCODE_REAUTH_KEY_ID = 'passcodeReauthKey';
-var PASSCODE_REAUTH_STATE_ID = 'passcodeReauthState';
-var passcodeAutoUnlockPromise = null;
-var suppressPasscodeAutoUnlockOnce = false;
 
 function loadLockMeta(){
   try{ return JSON.parse(localStorage.getItem(LOCK_KEY)); }catch(e){ return null; }
@@ -85,92 +78,6 @@ function clearLockMeta(){
   try{ localStorage.removeItem(LOCK_KEY); }catch(e){}
 }
 function isLockEnabled(){ return !!loadLockMeta(); }
-function getReauthIntervalMs(){
-  var hours = (typeof currentSettings !== 'undefined' && currentSettings.reauthInterval) || '24';
-  hours = parseInt(hours, 10);
-  if(hours !== 1 && hours !== 6 && hours !== 12 && hours !== 24) hours = 24;
-  return hours * 60 * 60 * 1000;
-}
-function clearPasscodeSession(){
-  activePasscode = null;
-  passcodeSessionStartedAt = 0;
-  clearTimeout(passcodeReauthTimer);
-  passcodeReauthTimer = null;
-}
-function startPasscodeSession(passcode){
-  activePasscode = passcode || null;
-  passcodeSessionStartedAt = Date.now();
-  schedulePasscodeReauth();
-  persistPasscodeReauthSession().catch(function(){});
-}
-function getActivePasscode(){
-  if(!activePasscode || !passcodeSessionStartedAt) return null;
-  if(Date.now() - passcodeSessionStartedAt >= getReauthIntervalMs()){
-    clearPasscodeSession();
-    return null;
-  }
-  return activePasscode;
-}
-function schedulePasscodeReauth(){
-  clearTimeout(passcodeReauthTimer);
-  if(!isLockEnabled() || !lockCryptoKey || !passcodeSessionStartedAt) return;
-  var remaining = (passcodeSessionStartedAt + getReauthIntervalMs()) - Date.now();
-  if(remaining <= 0){
-    lockNow();
-    return;
-  }
-  passcodeReauthTimer = setTimeout(function(){
-    if(isLockEnabled() && lockCryptoKey) lockNow();
-  }, remaining);
-}
-function persistPasscodeReauthSession(){
-  if(!isLockEnabled() || !lockCryptoKey || !passcodeSessionStartedAt || typeof idbGetGeneric !== 'function') return Promise.resolve();
-  return idbGetGeneric(PASSCODE_REAUTH_KEY_ID).then(function(existingKey){
-    if(existingKey){
-      return existingKey;
-    }
-    return crypto.subtle.generateKey({name:'AES-GCM', length:256}, false, ['encrypt','decrypt']).then(function(key){
-      return idbSetGeneric(PASSCODE_REAUTH_KEY_ID, key).then(function(){ return key; });
-    });
-  }).then(function(sessionKey){
-    return crypto.subtle.exportKey('raw', lockCryptoKey).then(function(dekRaw){
-      var iv = crypto.getRandomValues(new Uint8Array(12));
-      return crypto.subtle.encrypt({name:'AES-GCM', iv:iv}, sessionKey, dekRaw).then(function(cipher){
-        return idbSetGeneric(PASSCODE_REAUTH_STATE_ID, {startedAt:passcodeSessionStartedAt, iv:bufToB64(iv.buffer), ct:bufToB64(cipher)});
-      });
-    });
-  });
-}
-function clearPersistedPasscodeReauthSession(){
-  if(typeof idbDeleteGeneric !== 'function') return Promise.resolve();
-  return idbDeleteGeneric(PASSCODE_REAUTH_STATE_ID).catch(function(){});
-}
-function tryAutoUnlockFromReauthSession(){
-  if(passcodeAutoUnlockPromise) return passcodeAutoUnlockPromise;
-  passcodeAutoUnlockPromise = Promise.resolve().then(function(){
-    if(!isLockEnabled() || typeof idbGetGeneric !== 'function') return false;
-    return idbGetGeneric(PASSCODE_REAUTH_STATE_ID).then(function(session){
-      if(!session || !session.startedAt || Date.now() - session.startedAt >= getReauthIntervalMs()){
-        return clearPersistedPasscodeReauthSession().then(function(){ return false; });
-      }
-      return idbGetGeneric(PASSCODE_REAUTH_KEY_ID).then(function(sessionKey){
-        if(!sessionKey) return false;
-        return crypto.subtle.decrypt({name:'AES-GCM', iv:new Uint8Array(b64ToBuf(session.iv))}, sessionKey, b64ToBuf(session.ct)).then(function(dekRaw){
-          return crypto.subtle.importKey('raw', dekRaw, {name:'AES-GCM'}, true, ['encrypt','decrypt']);
-        }).then(function(dek){
-          lockCryptoKey = dek;
-          activePasscode = null;
-          passcodeSessionStartedAt = session.startedAt;
-          schedulePasscodeReauth();
-          return true;
-        }).catch(function(){
-          return clearPersistedPasscodeReauthSession().then(function(){ return false; });
-        });
-      });
-    });
-  }).catch(function(){ return false; });
-  return passcodeAutoUnlockPromise;
-}
 
 /* ---------- Portable encryption for exports/backups/sync ----------
    The everyday DEK (lockCryptoKey) is randomly generated once per
@@ -320,7 +227,6 @@ function setPasscode(passcode){
               salt: pcSalt, iterations: PBKDF2_ITERATIONS, wrappedDEK: wrapped[0], verifier: verifier,
               recoverySalt: recSalt, recoveryIterations: PBKDF2_ITERATIONS, wrappedDEKRecovery: wrapped[1]
             });
-            startPasscodeSession(passcode);
             if(currentJson) return putNotebookState(currentJson);
           });
         });
@@ -354,7 +260,6 @@ function rewrapPasscodeOnly(newPasscode){
         meta.version = 2;
         meta.salt = newSalt; meta.iterations = PBKDF2_ITERATIONS; meta.wrappedDEK = wrapped;
         saveLockMeta(meta);
-        startPasscodeSession(newPasscode);
       });
     });
   });
@@ -393,7 +298,6 @@ function tryUnlock(passcode){
       return decryptWithKey(dek, meta.verifier).then(function(text){
         if(text !== LOCK_VERIFIER_TEXT) return {ok:false, legacy:false};
         lockCryptoKey = dek;
-        startPasscodeSession(passcode);
         return {ok:true, legacy:false};
       });
     }).catch(function(){ return {ok:false, legacy:false}; });
@@ -404,7 +308,6 @@ function tryUnlock(passcode){
     return decryptWithKey(key, meta.verifier).then(function(text){
       if(text !== LOCK_VERIFIER_TEXT) return {ok:false, legacy:true};
       lockCryptoKey = key;
-      startPasscodeSession(passcode);
       return {ok:true, legacy:true};
     });
   }).catch(function(){ return {ok:false, legacy:true}; });
@@ -424,10 +327,6 @@ function tryUnlockWithRecovery(code){
     return decryptWithKey(dek, meta.verifier).then(function(text){
       if(text !== LOCK_VERIFIER_TEXT) return false;
       lockCryptoKey = dek;
-      activePasscode = null;
-      passcodeSessionStartedAt = Date.now();
-      schedulePasscodeReauth();
-      persistPasscodeReauthSession().catch(function(){});
       return true;
     });
   }).catch(function(){ return false; });
@@ -455,7 +354,6 @@ function removePasscode(){
       return Promise.all(encRecords.map(function(r){ return getAttachment(r.id); }));
     }).then(function(decrypted){
       lockCryptoKey = null;
-      clearPasscodeSession();
       clearLockMeta();
       var writes = [];
       if(currentJson) writes.push(putNotebookState(currentJson));
@@ -472,10 +370,7 @@ function removePasscodeConfirmed(passcode){
 }
 function lockNow(){
   closeSettings();
-  suppressPasscodeAutoUnlockOnce = true;
   lockCryptoKey = null;
-  clearPasscodeSession();
-  clearPersistedPasscodeReauthSession();
   showLockScreen();
 }
 
@@ -484,19 +379,7 @@ function showLockScreen(){
   document.getElementById('lock-overlay').style.display = 'flex';
   document.getElementById('lock-input').value = '';
   document.getElementById('lock-error').textContent = '';
-  if(suppressPasscodeAutoUnlockOnce){
-    suppressPasscodeAutoUnlockOnce = false;
-    setTimeout(function(){ document.getElementById('lock-input').focus(); }, 50);
-    return;
-  }
-  tryAutoUnlockFromReauthSession().then(function(unlocked){
-    if(!unlocked) {
-      setTimeout(function(){ document.getElementById('lock-input').focus(); }, 50);
-      return;
-    }
-    hideLockScreen();
-    if(!state) bootNotebook();
-  });
+  setTimeout(function(){ document.getElementById('lock-input').focus(); }, 50);
 }
 function hideLockScreen(){
   appLocked = false;
@@ -513,7 +396,6 @@ function attemptUnlockFromScreen(){
     btn.disabled = false;
     if(!res.ok){ errEl.textContent = 'Incorrect passcode.'; input.value=''; input.focus(); return; }
     hideLockScreen();
-    persistPasscodeReauthSession().catch(function(){});
     if(!state) bootNotebook(); /* first unlock of this page load */
     if(res.legacy){
       /* One-time background upgrade: adds a recovery key to a
@@ -527,17 +409,6 @@ function attemptUnlockFromScreen(){
 document.getElementById('lock-submit').onclick = attemptUnlockFromScreen;
 document.getElementById('lock-input').addEventListener('keydown', function(e){
   if(e.key === 'Enter') attemptUnlockFromScreen();
-});
-Array.prototype.slice.call(document.querySelectorAll('#settings-reauth-row .settings-opt')).forEach(function(btn){
-  btn.addEventListener('click', function(){
-    /* Changing the shared interval starts a fresh re-auth window from the
-       moment the person selected it, rather than keeping the old expiry. */
-    if(isLockEnabled() && lockCryptoKey){
-      passcodeSessionStartedAt = Date.now();
-      schedulePasscodeReauth();
-      persistPasscodeReauthSession().catch(function(){});
-    }
-  });
 });
 /* Erases the (encrypted, otherwise unreadable) notebook on this
    device and its passcode, then reloads into a fresh notebook. Last

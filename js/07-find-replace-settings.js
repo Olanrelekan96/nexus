@@ -118,8 +118,7 @@ var SETTINGS_DEFAULTS = {
   backupReminderDays: '7',
   confirmTrash: 'off',
   autoBackupInterval: 'off',
-  gdriveAutoSync: 'off',
-  reauthInterval: '24'
+  gdriveAutoSync: 'off'
 };
 /* [rowId, data-attribute name, settings key] */
 var SETTINGS_ROWS = [
@@ -130,8 +129,7 @@ var SETTINGS_ROWS = [
   ['settings-backupdays-row', 'backupdays', 'backupReminderDays'],
   ['settings-autobackup-row', 'autobackup', 'autoBackupInterval'],
   ['settings-confirmtrash-row', 'confirmtrash', 'confirmTrash'],
-  ['settings-gdriveautosync-row', 'gdriveautosync', 'gdriveAutoSync'],
-  ['settings-reauth-row', 'reauth', 'reauthInterval']
+  ['settings-gdriveautosync-row', 'gdriveautosync', 'gdriveAutoSync']
 ];
 SETTINGS_ROWS.filter(function(r){ return r[0] === 'settings-autobackup-row'; }).forEach(function(row){
   Array.prototype.slice.call(document.querySelectorAll('#'+row[0]+' .settings-opt')).forEach(function(btn){
