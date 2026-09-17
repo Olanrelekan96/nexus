@@ -473,6 +473,66 @@ var gdriveAccessToken = null;
 var gdrivePickerLoaded = false;
 var GDRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file';
 
+/* ---------- How long a Drive connection stays good for ----------
+   Google's own access tokens last about an hour regardless of what's
+   set here; what this controls is how long Nexus keeps *silently*
+   renewing them off the back of the person's Google session before it
+   stops and asks for a deliberate click again. So it can only ever
+   shorten the effective session, never extend it past what Google
+   allows — picking 24h doesn't keep a token alive for a day, it means
+   background renewals are allowed to continue for a day since the last
+   time the person actually chose to connect.
+
+   The timestamp is the moment of the last *interactive* connection
+   (a real click through gdriveWithToken), and it's kept in
+   localStorage rather than memory so closing and reopening the tab
+   doesn't quietly reset the clock. Silent renewals deliberately do
+   not touch it — otherwise a device left open would never re-ask. */
+var GDRIVE_AUTH_AT_KEY = STORAGE_KEY + '_gdrive_auth_at';
+var GDRIVE_AUTH_TTL_DEFAULT = '24';
+var GDRIVE_AUTH_TTL_CHOICES = ['1', '6', '12', '24'];
+
+function gdriveAuthTtlHours(){
+  var v = (typeof currentSettings !== 'undefined' && currentSettings.gdriveAuthTtlHours) || GDRIVE_AUTH_TTL_DEFAULT;
+  return GDRIVE_AUTH_TTL_CHOICES.indexOf(String(v)) === -1 ? GDRIVE_AUTH_TTL_DEFAULT : String(v);
+}
+function gdriveAuthTtlMs(){
+  return parseInt(gdriveAuthTtlHours(), 10) * 60 * 60 * 1000;
+}
+function gdriveAuthAt(){
+  var raw = localStorage.getItem(GDRIVE_AUTH_AT_KEY);
+  var ts = raw ? parseInt(raw, 10) : 0;
+  return isNaN(ts) ? 0 : ts;
+}
+function markGdriveAuthNow(){
+  try{ localStorage.setItem(GDRIVE_AUTH_AT_KEY, String(Date.now())); }catch(e){}
+  updateGdriveAuthTtlStatus();
+}
+/* Drops the in-memory token and the connection timestamp, so the next
+   attempt has to go through an interactive sign-in. Used both when the
+   window lapses and when the person shortens it to something already
+   exceeded. */
+function clearGdriveAuth(){
+  gdriveAccessToken = null;
+  try{ localStorage.removeItem(GDRIVE_AUTH_AT_KEY); }catch(e){}
+}
+function gdriveAuthExpired(){
+  var at = gdriveAuthAt();
+  if(!at) return true;
+  return (Date.now() - at) >= gdriveAuthTtlMs();
+}
+/* Single gate the background paths ask before doing anything with a
+   token: expires the connection in place (so the status line and the
+   next silent attempt agree with each other) and reports whether the
+   caller may proceed. */
+function gdriveAuthStillValid(){
+  if(gdriveAuthExpired()){
+    if(gdriveAccessToken) clearGdriveAuth();
+    return false;
+  }
+  return true;
+}
+
 function gdriveCredentialsConfigured(){
   return GOOGLE_DRIVE_CLIENT_ID && GOOGLE_DRIVE_CLIENT_ID.indexOf('YOUR_OAUTH_CLIENT_ID') === -1
       && GOOGLE_DRIVE_API_KEY && GOOGLE_DRIVE_API_KEY.indexOf('YOUR_API_KEY') === -1;
@@ -542,24 +602,28 @@ function gdriveWithToken(onReady){
     toast('Google sign-in is still loading — try again in a moment.');
     return;
   }
+  /* Past the configured window, the cached token is deliberately thrown
+     away so the request below asks for consent again rather than
+     renewing off the existing Google session. */
+  var expired = gdriveAuthExpired();
+  if(expired) clearGdriveAuth();
+
+  function onToken(resp){
+    if(resp.error){ toast('Google Drive sign-in was cancelled or failed.'); return; }
+    gdriveAccessToken = resp.access_token;
+    markGdriveAuthNow(); /* interactive connection — this is what starts the clock */
+    onReady();
+  }
   if(!gdriveTokenClient){
     gdriveTokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_DRIVE_CLIENT_ID,
       scope: GDRIVE_SCOPES,
-      callback: function(resp){
-        if(resp.error){ toast('Google Drive sign-in was cancelled or failed.'); return; }
-        gdriveAccessToken = resp.access_token;
-        onReady();
-      }
+      callback: onToken
     });
   } else {
-    gdriveTokenClient.callback = function(resp){
-      if(resp.error){ toast('Google Drive sign-in was cancelled or failed.'); return; }
-      gdriveAccessToken = resp.access_token;
-      onReady();
-    };
+    gdriveTokenClient.callback = onToken;
   }
-  gdriveTokenClient.requestAccessToken({ prompt: gdriveAccessToken ? '' : 'consent' });
+  gdriveTokenClient.requestAccessToken({ prompt: (gdriveAccessToken && !expired) ? '' : 'consent' });
 }
 
 function gdriveStartImport(){
@@ -659,6 +723,70 @@ function setGdriveAutoSyncToggleUI(){
   });
 }
 
+/* ---- "Reconnect to Google Drive every…" setting UI ----
+   Same shape as the auto-sync toggle row above: a row of .settings-opt
+   buttons, each carrying data-gdriveauthttl="1|6|12|24". */
+function setGdriveAuthTtlUI(){
+  var row = document.getElementById('settings-gdriveauthttl-row');
+  if(!row) return;
+  var cur = gdriveAuthTtlHours();
+  Array.prototype.slice.call(row.querySelectorAll('.settings-opt')).forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.gdriveauthttl === cur);
+  });
+}
+function updateGdriveAuthTtlStatus(){
+  var el = document.getElementById('gdrive-authttl-status');
+  if(!el) return;
+  var hours = gdriveAuthTtlHours();
+  var at = gdriveAuthAt();
+  if(!at){
+    el.textContent = 'Not connected to Google Drive right now. Once you connect, Nexus will keep the connection alive in the background for ' + hours + 'h before asking you to reconnect.';
+    return;
+  }
+  var remaining = (at + gdriveAuthTtlMs()) - Date.now();
+  if(remaining <= 0){
+    el.textContent = 'Connection expired — click "Sync now" to reconnect to Google Drive.';
+    return;
+  }
+  var mins = Math.round(remaining / 60000);
+  var left = mins >= 60 ? (Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm') : (mins + 'm');
+  el.textContent = 'Connected ' + timeAgo(at) + '. Reconnect needed in about ' + left + '. ' +
+    'Google\'s own tokens expire hourly regardless; this controls how long Nexus may renew them quietly before asking you again.';
+}
+/* Changing the window re-evaluates the existing connection immediately,
+   so shortening it to something already exceeded drops the token there
+   and then rather than at the next tick. */
+function setGdriveAuthTtl(hours){
+  hours = String(hours);
+  if(GDRIVE_AUTH_TTL_CHOICES.indexOf(hours) === -1) return;
+  currentSettings.gdriveAuthTtlHours = hours;
+  saveSettings(currentSettings);
+  setGdriveAuthTtlUI();
+  if(gdriveAuthExpired()){
+    clearGdriveAuth();
+    if(gdriveAutoSyncEnabled()) setGdriveAutoSyncStatus('Drive connection expired — click "Sync now" to reconnect.');
+  }
+  updateGdriveAuthTtlStatus();
+  toast('Google Drive will ask you to reconnect every ' + hours + ' hour' + (hours === '1' ? '' : 's') + '.');
+}
+/* Wired on DOMContentLoaded rather than inline, so that if
+   07-find-replace-settings.js (which loads after this file) assigns its
+   own handlers across .settings-opt buttons, it can't clobber this row's
+   onclick — by then every script has run. */
+(function wireGdriveAuthTtlRow(){
+  function wire(){
+    var row = document.getElementById('settings-gdriveauthttl-row');
+    if(!row) return;
+    Array.prototype.slice.call(row.querySelectorAll('.settings-opt')).forEach(function(btn){
+      btn.onclick = function(){ setGdriveAuthTtl(btn.dataset.gdriveauthttl); };
+    });
+    setGdriveAuthTtlUI();
+    updateGdriveAuthTtlStatus();
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
+  else wire();
+})();
+
 /* Acquires an access token without ever showing a consent popup —
    used for background/periodic attempts so a stale session doesn't
    nag the person with sign-in windows they didn't ask for right now.
@@ -666,6 +794,12 @@ function setGdriveAutoSyncToggleUI(){
    interactive version, gdriveWithToken. */
 function gdriveGetTokenSilently(onReady, onFail){
   if(!window.google || !google.accounts || !google.accounts.oauth2){ onFail && onFail(); return; }
+  /* The whole point of the setting: once the window since the last
+     deliberate connection has passed, background renewal stops and the
+     caller falls through to its "needs sign-in" status instead. Note
+     this never marks the auth time — only an interactive connect does,
+     so a machine left running still comes back and asks on schedule. */
+  if(!gdriveAuthStillValid()){ onFail && onFail(); return; }
   if(!gdriveTokenClient){
     gdriveTokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_DRIVE_CLIENT_ID,
@@ -883,9 +1017,12 @@ function gdrivePerformSyncCycle(){
 function runGdriveSyncCycle(){
   if(!gdriveAutoSyncEnabled()) return;
   if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin()) return;
-  if(gdriveAccessToken){ gdrivePerformSyncCycle(); return; }
+  if(gdriveAccessToken && gdriveAuthStillValid()){ gdrivePerformSyncCycle(); return; }
   gdriveGetTokenSilently(gdrivePerformSyncCycle, function(){
-    setGdriveAutoSyncStatus('Needs sign-in — click "On" again to reconnect.');
+    setGdriveAutoSyncStatus(gdriveAuthExpired()
+      ? 'Drive connection expired after ' + gdriveAuthTtlHours() + 'h — click "Sync now" to reconnect.'
+      : 'Needs sign-in — click "On" again to reconnect.');
+    updateGdriveAuthTtlStatus();
   });
 }
 
@@ -913,6 +1050,7 @@ function gdriveSyncNow(){
    skips (the next "Sync now" or periodic tick picks it up once it has). */
 function scheduleGdriveAutoPush(){
   if(!gdriveAutoSyncEnabled() || !gdriveAccessToken) return;
+  if(!gdriveAuthStillValid()){ setGdriveAutoSyncStatus('Drive connection expired — click "Sync now" to reconnect.'); return; }
   if(isLockEnabled() && !gdriveSyncEncryptionDeclined && !gdriveSyncPasscode) return;
   clearTimeout(gdriveAutoPushTimer);
   gdriveAutoPushTimer = setTimeout(function(){
@@ -927,7 +1065,9 @@ function scheduleGdriveAutoPush(){
 function startGdriveAutoSyncTimer(){
   clearInterval(gdriveAutoSyncTimer);
   gdriveAutoSyncTimer = setInterval(function(){
-    if(!document.hidden) runGdriveSyncCycle();
+    if(document.hidden) return;
+    updateGdriveAuthTtlStatus();
+    runGdriveSyncCycle();
   }, 60000);
 }
 function stopGdriveAutoSyncTimer(){

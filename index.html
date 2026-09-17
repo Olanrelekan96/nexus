@@ -310,6 +310,17 @@
         <div class="hint" id="gdrive-autosync-status"></div>
       </div>
       <div>
+        <div class="settings-label">Reconnect to Google Drive every</div>
+        <div class="settings-row" id="settings-gdriveauthttl-row">
+          <button type="button" class="settings-opt" data-gdriveauthttl="1">1 hour</button>
+          <button type="button" class="settings-opt" data-gdriveauthttl="6">6 hours</button>
+          <button type="button" class="settings-opt" data-gdriveauthttl="12">12 hours</button>
+          <button type="button" class="settings-opt" data-gdriveauthttl="24">24 hours</button>
+        </div>
+        <div class="hint" id="gdrive-authttl-hint">How long Nexus may keep your Google Drive connection alive in the background before asking you to sign in again by hand. Google's own tokens expire about hourly whatever you pick here — a shorter setting means Nexus stops quietly renewing them sooner, which is the safer choice on a shared or borrowed computer.</div>
+        <div class="hint" id="gdrive-authttl-status"></div>
+      </div>
+      <div>
         <div class="settings-label">Deleting a page</div>
         <div class="settings-row" id="settings-confirmtrash-row">
           <button type="button" class="settings-opt" data-confirmtrash="off">Move to Trash right away</button>
