@@ -802,6 +802,59 @@
   --danger:#a64e3d;
   --focus:#624322;
 }
+/* ---------- Additional themes ---------- */
+:root[data-theme="ocean"]{
+  --paper:#eaf4f6;
+  --paper-raised:#ffffff;
+  --ink:#0f2d33;
+  --ink-soft:#4f6f76;
+  --border:#cfe3e7;
+  --link:#0e7c86;
+  --link-bg:#def1f1;
+  --tag:#b5651d;
+  --tag-bg:#fbeedd;
+  --danger:#c0392b;
+  --focus:#0b5e66;
+}
+:root[data-theme="rose"]{
+  --paper:#fbf0ef;
+  --paper-raised:#ffffff;
+  --ink:#3a2226;
+  --ink-soft:#8a6469;
+  --border:#f0d9d6;
+  --link:#b34b5b;
+  --link-bg:#fbe4e8;
+  --tag:#8a5a2e;
+  --tag-bg:#f6e8d4;
+  --danger:#a5473a;
+  --focus:#7a2e3b;
+}
+:root[data-theme="contrast"]{
+  --paper:#ffffff;
+  --paper-raised:#ffffff;
+  --ink:#000000;
+  --ink-soft:#333333;
+  --border:#4d4d4d;
+  --link:#0000ee;
+  --link-bg:#e0e0ff;
+  --tag:#7a4b00;
+  --tag-bg:#fff0cc;
+  --danger:#b00020;
+  --focus:#000000;
+}
+:root[data-theme="midnight"]{
+  --paper:#0b0f1a;
+  --paper-raised:#141b2b;
+  --ink:#e7ecf5;
+  --ink-soft:#8c96ad;
+  --border:#232c42;
+  --link:#6fa8dc;
+  --link-bg:#16233a;
+  --tag:#d9a441;
+  --tag-bg:#2e2410;
+  --danger:#e5766b;
+  --focus:#6fa8dc;
+}
 
 html,body{
   background:
