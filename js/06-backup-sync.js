@@ -584,9 +584,13 @@ function gdriveWithToken(onReady){
       toast('Google Drive sign-in was cancelled or failed.');
     }
   }
-  /* Within the selected re-authentication interval, never fall back to an
-     interactive Google sign-in if silent renewal fails. The interval itself
-     is the boundary at which interactive authentication is allowed. */
+  /* Reuse a token that is already live in this page. Otherwise, while the
+     selected interval is still valid, ask Google for a fresh token silently.
+     Only an expired Nexus auth window is allowed to start interactive sign-in. */
+  if(!needsInteractive && gdriveAccessToken){
+    onReady();
+    return;
+  }
   requestToken(needsInteractive ? 'consent' : '', false);
 }
 
@@ -693,6 +697,8 @@ function setGdriveAutoSyncToggleUI(){
    Only the explicit "On" click (enableGdriveAutoSync) uses the
    interactive version, gdriveWithToken. */
 function gdriveGetTokenSilently(onReady, onFail){
+  if(typeof gdriveAuthSessionValid === 'function' && !gdriveAuthSessionValid()){ onFail && onFail(); return; }
+  if(gdriveAccessToken){ onReady(); return; }
   if(!window.google || !google.accounts || !google.accounts.oauth2){ onFail && onFail(); return; }
   if(!gdriveTokenClient){
     gdriveTokenClient = google.accounts.oauth2.initTokenClient({

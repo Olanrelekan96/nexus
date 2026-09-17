@@ -515,7 +515,7 @@
   /* ---------- Settings ---------- */
   #settings-modal{width:420px; max-width:90vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden;}
   .settings-head{padding:14px 18px; border-bottom:1px solid var(--border); font-size:0.875rem; font-weight:600;}
-  .settings-body{padding:16px 18px; display:flex; flex-direction:column; gap:18px;}
+  .settings-body{padding:16px 18px; display:flex; flex-direction:column; gap:18px; max-height:calc(100vh - 220px); overflow-y:auto;}
   .settings-label{font-size:0.8125rem; color:var(--ink-soft); margin-bottom:8px;}
   .settings-row{display:flex; gap:8px; flex-wrap:wrap;}
   .settings-opt{

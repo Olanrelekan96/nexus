@@ -529,7 +529,15 @@ document.getElementById('lock-input').addEventListener('keydown', function(e){
   if(e.key === 'Enter') attemptUnlockFromScreen();
 });
 Array.prototype.slice.call(document.querySelectorAll('#settings-reauth-row .settings-opt')).forEach(function(btn){
-  btn.addEventListener('click', function(){ schedulePasscodeReauth(); });
+  btn.addEventListener('click', function(){
+    /* Changing the shared interval starts a fresh re-auth window from the
+       moment the person selected it, rather than keeping the old expiry. */
+    if(isLockEnabled() && lockCryptoKey){
+      passcodeSessionStartedAt = Date.now();
+      schedulePasscodeReauth();
+      persistPasscodeReauthSession().catch(function(){});
+    }
+  });
 });
 /* Erases the (encrypted, otherwise unreadable) notebook on this
    device and its passcode, then reloads into a fresh notebook. Last
