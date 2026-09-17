@@ -875,7 +875,18 @@ document.addEventListener('contextmenu', function(e){
 
   lastContextPoint = {x:e.clientX, y:e.clientY};
 
-  /* 1. A selection inside the line being edited → formatting actions. */
+  /* 1. Inside the line currently being edited → formatting actions if
+     text is selected, otherwise hands off entirely. This has to
+     `return` either way and never fall through to case 2 below: on a
+     touchscreen, a long-press to move the caret or start selecting a
+     word fires this same 'contextmenu' event *before* any selection
+     exists, and case 2 would read that as "right-click this row" —
+     blurring the line out of edit mode and popping the block menu
+     open mid-gesture. That was making editing on mobile impossible:
+     every attempt to reposition the cursor kicked the user out of the
+     line instead. Once we know the target is the line being edited,
+     the only two acceptable outcomes are "show the selection menu" or
+     "do nothing and let the platform handle its own gesture". */
   var editing = e.target.closest ? e.target.closest('.block-content.editing') : null;
   if(editing){
     var sel = window.getSelection();
@@ -884,8 +895,8 @@ document.addEventListener('contextmenu', function(e){
       e.preventDefault();
       closeSlashMenu();
       openCtxMenu(selectionMenuItems(editing, selectedText), e.clientX, e.clientY);
-      return;
     }
+    return;
   }
 
   /* 2. A block row → the same menu the "⋯" button opens, at the pointer. */
@@ -917,13 +928,16 @@ document.addEventListener('contextmenu', function(e){
     return;
   }
 
-  /* 5. The page title / header area → this page's actions. */
+  /* 5. The page title / header area → this page's actions. The title
+     and each property key/value are contenteditable all the time
+     (not just while focused), so contentEditable alone can't tell us
+     "the user is mid-edit here" the way editingBlockId does for a
+     block. Focus can: if this area currently has focus, the same
+     long-press-to-place-the-caret gesture as case 1 is happening, so
+     leave it alone rather than hijacking it into the page menu. */
   var header = e.target.closest ? e.target.closest('#page-title, #page-sub, #page-type-pill, #properties') : null;
   if(header && state.pages[state.currentPageId]){
-    /* The title is contenteditable, so only take over when nothing is
-       selected in it — otherwise the native copy/paste menu wins. */
-    var tSel = window.getSelection();
-    if(header.id === 'page-title' && tSel && !tSel.isCollapsed && header.contains(tSel.anchorNode)) return;
+    if(document.activeElement && header.contains(document.activeElement)) return;
     e.preventDefault();
     commitEditingBlock();
     openCtxMenu(pageMenuItems(state.currentPageId), e.clientX, e.clientY);

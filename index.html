@@ -192,15 +192,46 @@
         <button class="topbtn" id="btn-close-tasks">← Back to page</button>
       </div>
       <h2 style="margin-top:0;">Tasks</h2>
+      <div class="tasks-quickadd-row">
+        <input id="tasks-quickadd" type="text" autocomplete="off"
+               placeholder="Add a task…  e.g.  Pay rent #home !p1 due:friday every:1m &gt;Money"
+               aria-label="Add a task">
+        <button id="tasks-quickadd-btn" type="button">Add</button>
+      </div>
       <div class="tasks-controls">
         <input id="tasks-search" type="text" placeholder="Filter by text or page…" aria-label="Filter tasks">
-        <label class="tasks-hide-done"><input type="checkbox" id="tasks-hide-done"> Hide done</label>
-        <select id="tasks-sort" aria-label="Sort tasks">
-          <option value="due">Sort by due date</option>
-          <option value="page">Sort by page</option>
+        <select id="tasks-status" aria-label="Status">
+          <option value="open">Open</option>
+          <option value="done">Done</option>
+          <option value="all">All</option>
         </select>
+        <select id="tasks-pri" aria-label="Priority">
+          <option value="all">Any priority</option>
+          <option value="1">High</option>
+          <option value="2">Medium</option>
+          <option value="3">Low</option>
+          <option value="none">No priority</option>
+        </select>
+        <select id="tasks-page" aria-label="Page"><option value="all">All pages</option></select>
+        <select id="tasks-tag" aria-label="Tag"><option value="all">All tags</option></select>
+        <select id="tasks-group" aria-label="Group by">
+          <option value="due">Group by date</option>
+          <option value="pri">Group by priority</option>
+          <option value="page">Group by page</option>
+          <option value="tag">Group by tag</option>
+        </select>
+        <select id="tasks-sort" aria-label="Sort tasks">
+          <option value="smart">Smart order</option>
+          <option value="due">Sort by due date</option>
+          <option value="pri">Sort by priority</option>
+          <option value="page">Sort by page</option>
+          <option value="added">Newest first</option>
+        </select>
+        <button id="tasks-layout" type="button">▤ Board</button>
+        <button id="tasks-clear-filters" type="button">Reset</button>
       </div>
       <div class="tasks-summary" id="tasks-summary"></div>
+      <div class="tasks-bulk" id="tasks-bulk" style="display:none;"></div>
       <div id="tasks-list"></div>
     </section>
   </main>
@@ -562,6 +593,7 @@
 <script src="js/12-pwa.js"></script>
 <script src="js/13-slash-and-context-menus.js"></script>
 <script src="js/13a-locks-and-sidebar.js"></script>
+<script src="js/15-task-manager.js"></script>
 <script src="js/14-wiring-and-init.js"></script>
 </body>
 </html>

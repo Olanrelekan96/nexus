@@ -37,18 +37,7 @@ document.getElementById('btn-close-tasks').onclick = function(){
   document.getElementById('tasks-view').classList.remove('visible');
   document.getElementById('page-view').classList.add('visible');
 };
-document.getElementById('tasks-search').addEventListener('input', function(e){
-  tasksViewState.query = e.target.value;
-  renderTasksView();
-});
-document.getElementById('tasks-hide-done').addEventListener('change', function(e){
-  tasksViewState.hideDone = e.target.checked;
-  renderTasksView();
-});
-document.getElementById('tasks-sort').addEventListener('change', function(e){
-  tasksViewState.sort = e.target.value;
-  renderTasksView();
-});
+/* The Tasks view's own controls are wired in 15-task-manager.js. */
 document.getElementById('btn-insert-query').onclick = function(){ openQueryBuilder('query', null, ''); };
 /* .link/.tag clicks inside block content are handled per-row (see
    renderBlockRow); properties and backlinks live outside that tree,

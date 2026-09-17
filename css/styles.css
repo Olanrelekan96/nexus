@@ -1611,3 +1611,95 @@ span.clr-swatch[data-color="brown"]{color:#78350f;}
 }
 #page-view.page-locked .add-block-btn,
 #page-view.page-locked #add-prop{ display: none; }
+
+
+/* ---- Task manager (15-task-manager.js) ----
+   The board and the list are the same cards in a different container:
+   board lays the groups out as columns that scroll sideways, list
+   stacks them. Everything sizes off the existing theme variables so it
+   follows whichever theme is picked. */
+.tasks-quickadd-row{ display:flex; gap:8px; margin:10px 0 12px; }
+#tasks-quickadd{
+  flex:1; padding:9px 12px; border:1px solid var(--border); border-radius:8px;
+  background:var(--paper-raised); color:var(--ink); font-family:var(--sans); font-size:.875rem;
+}
+#tasks-quickadd-btn{
+  padding:0 16px; border:1px solid var(--border); border-radius:8px; cursor:pointer;
+  background:var(--paper-raised); color:var(--ink); font-family:var(--sans); font-size:.8125rem; font-weight:600;
+}
+.tasks-controls{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.tasks-controls select,
+.tasks-controls button{
+  padding:6px 10px; border:1px solid var(--border); border-radius:6px;
+  background:var(--paper-raised); color:var(--ink); font-family:var(--sans); font-size:.75rem; cursor:pointer;
+}
+.tasks-summary{ display:flex; flex-wrap:wrap; gap:14px; margin:12px 0 6px; font-size:.75rem; color:var(--ink-soft); }
+.task-stat b{ color:var(--ink); font-size:.875rem; }
+.task-stat.bad b{ color:#c0392b; }
+.task-stat.muted{ opacity:.6; margin-left:auto; }
+
+.tasks-bulk{
+  display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+  padding:8px 10px; margin:8px 0; border:1px solid var(--border);
+  border-radius:8px; background:var(--paper-raised);
+}
+.tasks-bulk-label{ font-size:.75rem; font-weight:600; margin-right:6px; }
+.tasks-bulk button{
+  padding:4px 9px; border:1px solid var(--border); border-radius:6px; cursor:pointer;
+  background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:.72rem;
+}
+.tasks-bulk-clear{ margin-left:auto; opacity:.7; }
+
+.tasks-board{ display:flex; gap:12px; overflow-x:auto; padding:6px 2px 16px; align-items:flex-start; }
+.tasks-board .task-group{ flex:0 0 280px; background:var(--paper-raised); border:1px solid var(--border); border-radius:10px; padding:8px; }
+.tasks-list .task-group{ margin:14px 0; }
+.task-group-head{
+  display:flex; justify-content:space-between; align-items:center;
+  font-size:.75rem; font-weight:600; color:var(--ink-soft);
+  padding:2px 4px 8px; text-transform:uppercase; letter-spacing:.04em;
+}
+.task-group-count{ opacity:.6; }
+.task-group-empty{ font-size:.75rem; opacity:.35; padding:4px 6px 8px; }
+
+.task-card{
+  display:flex; align-items:flex-start; gap:8px;
+  padding:8px 10px; margin-bottom:6px;
+  border:1px solid var(--border); border-left:3px solid transparent;
+  border-radius:8px; background:var(--paper);
+}
+.tasks-list .task-card{ background:var(--paper-raised); }
+.task-card.pri-1{ border-left-color:#c0392b; }
+.task-card.pri-2{ border-left-color:#d68910; }
+.task-card.pri-3{ border-left-color:#7f8c8d; }
+.task-card.is-overdue{ background:rgba(192,57,43,.06); }
+.task-card.is-done{ opacity:.55; }
+.task-card.is-locked .task-text{ opacity:.8; }
+.task-select{ margin-top:3px; opacity:.45; }
+.task-card:hover .task-select{ opacity:1; }
+.task-main{ flex:1; min-width:0; }
+.task-text{ font-size:.875rem; line-height:1.45; word-break:break-word; }
+.task-meta{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:6px; }
+.task-chip{
+  font-size:.68rem; padding:2px 7px; border-radius:99px;
+  border:1px solid var(--border); background:var(--paper-raised); color:var(--ink-soft);
+}
+button.task-chip{ cursor:pointer; font-family:var(--sans); }
+.task-chip.due-chip.is-empty{ opacity:.45; }
+.task-chip.due-overdue{ color:#c0392b; border-color:rgba(192,57,43,.4); }
+.task-chip.due-today{ font-weight:600; }
+.pri-chip.p1{ color:#c0392b; }
+.pri-chip.p2{ color:#b9770e; }
+.task-page-link{
+  font-size:.68rem; border:none; background:none; cursor:pointer;
+  color:var(--ink-soft); text-decoration:underline; font-family:var(--sans); padding:0;
+}
+.task-more{
+  margin-left:auto; border:none; background:none; cursor:pointer;
+  color:var(--ink-soft); font-size:.9rem; line-height:1; padding:0 2px;
+}
+.tasks-empty{ font-size:.8125rem; color:var(--ink-soft); padding:20px 4px; }
+
+@media (max-width: 720px){
+  .tasks-board{ flex-direction:column; }
+  .tasks-board .task-group{ flex:1 1 auto; width:100%; }
+}
