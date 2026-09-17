@@ -533,7 +533,8 @@ function closeTodoDuePopover(){
     todoDuePopoverCleanup = null;
   }
 }
-function openTodoDuePopover(anchorEl, block, currentDue){
+function openTodoDuePopover(anchorEl, block, currentDue, onSaved){
+  onSaved = onSaved || renderPage;
   closeTodoDuePopover();
   var rect = anchorEl.getBoundingClientRect();
   var pop = document.createElement('div');
@@ -562,7 +563,7 @@ function openTodoDuePopover(anchorEl, block, currentDue){
     if(!cur){ closeTodoDuePopover(); return; }
     var doneChar = cur.done ? 'x' : ' ';
     block.text = '[' + doneChar + '] ' + setTodoDue(cur.rest, input.value || null);
-    save(); renderPage();
+    save(); onSaved();
     closeTodoDuePopover();
   });
   pop.appendChild(input);
@@ -578,7 +579,7 @@ function openTodoDuePopover(anchorEl, block, currentDue){
       if(!cur){ closeTodoDuePopover(); return; }
       var doneChar = cur.done ? 'x' : ' ';
       block.text = '[' + doneChar + '] ' + setTodoDue(cur.rest, null);
-      save(); renderPage();
+      save(); onSaved();
       closeTodoDuePopover();
     });
     pop.appendChild(removeBtn);
@@ -622,6 +623,123 @@ function revealBlock(blockId){
       setTimeout(function(){ row.classList.remove('flash-highlight'); }, 1600);
     }
   }, 30);
+}
+
+/* ============================================================
+   TASKS VIEW
+   A flat, filterable, sortable list of every to-do across every
+   non-trashed page (built on collectAllTodos() in 02-editor-core.js).
+   Opened from the sidebar like Graph view; reuses the exact same
+   .todo-row/.todo-checkbox/.todo-due-chip markup and behavior the
+   in-page checkboxes use, so ticking one here is identical to ticking
+   it on its own page — same block, same save() path. */
+var tasksViewState = { query: '', hideDone: false, sort: 'due' };
+
+function tasksSortComparator(sort){
+  return function(a, b){
+    if(a.done !== b.done) return a.done ? 1 : -1; /* done always sinks to the bottom */
+    if(sort === 'page'){
+      return a.pageTitle.localeCompare(b.pageTitle) || a.text.localeCompare(b.text);
+    }
+    /* sort === 'due' (default): overdue/soonest first, no-due-date last */
+    if(!!a.due !== !!b.due) return a.due ? -1 : 1;
+    if(a.due && b.due && a.due !== b.due) return a.due < b.due ? -1 : 1;
+    return a.pageTitle.localeCompare(b.pageTitle) || a.text.localeCompare(b.text);
+  };
+}
+
+function renderTasksView(){
+  var listEl = document.getElementById('tasks-list');
+  var summaryEl = document.getElementById('tasks-summary');
+  if(!listEl) return;
+  var all = collectAllTodos();
+  var q = tasksViewState.query.trim().toLowerCase();
+  var visible = all.filter(function(t){
+    if(tasksViewState.hideDone && t.done) return false;
+    if(q && t.text.toLowerCase().indexOf(q) === -1 && t.pageTitle.toLowerCase().indexOf(q) === -1) return false;
+    return true;
+  }).sort(tasksSortComparator(tasksViewState.sort));
+
+  var openCount = all.filter(function(t){ return !t.done; }).length;
+  var overdueCount = all.filter(function(t){ return t.overdue; }).length;
+  summaryEl.textContent = all.length === 0 ? 'No to-dos yet.' :
+    openCount + ' open' + (overdueCount ? ' · ' + overdueCount + ' overdue' : '') +
+    ' · ' + (all.length - openCount) + ' done';
+
+  listEl.innerHTML = '';
+  if(!visible.length){
+    var empty = document.createElement('div');
+    empty.className = 'tasks-empty';
+    empty.textContent = all.length ? 'Nothing matches.' : 'Nothing tracked yet — check a line off as a to-do with the ☐ hover button on any page.';
+    listEl.appendChild(empty);
+    return;
+  }
+
+  visible.forEach(function(t){
+    var block = state.blocks[t.blockId];
+    if(!block) return; /* stale between collectAllTodos() and render, extremely rare */
+
+    var row = document.createElement('div');
+    row.className = 'task-row';
+
+    var todoRow = document.createElement('label');
+    todoRow.className = 'todo-row';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'todo-checkbox';
+    cb.checked = t.done;
+    var todoText = document.createElement('span');
+    todoText.className = 'todo-text' + (t.done ? ' todo-done-text' : '');
+    todoText.innerHTML = decorateText(t.text);
+    cb.addEventListener('click', function(e){
+      e.stopPropagation();
+      var cur = todoInfo(block.text || '');
+      var rest = cur ? cur.rest : '';
+      block.text = '[' + (cb.checked ? 'x' : ' ') + '] ' + rest;
+      save();
+      renderTasksView();
+      if(state.currentPageId === t.pageId) renderPage();
+    });
+    todoRow.appendChild(cb);
+    todoRow.appendChild(todoText);
+
+    if(t.due){
+      var dueChip = document.createElement('button');
+      dueChip.type = 'button';
+      dueChip.className = 'todo-due-chip ' + todoDueStatus(t.due);
+      dueChip.textContent = '📅 ' + formatTodoDue(t.due);
+      dueChip.title = 'Due ' + t.due + ' — click to change';
+      dueChip.addEventListener('click', function(e){
+        e.stopPropagation();
+        openTodoDuePopover(dueChip, block, t.due, renderTasksView);
+      });
+      todoRow.appendChild(dueChip);
+    } else {
+      var addDueBtn = document.createElement('button');
+      addDueBtn.type = 'button';
+      addDueBtn.className = 'todo-due-add-btn';
+      addDueBtn.title = 'Add a due date';
+      addDueBtn.textContent = '📅+';
+      addDueBtn.addEventListener('click', function(e){
+        e.stopPropagation();
+        openTodoDuePopover(addDueBtn, block, null, renderTasksView);
+      });
+      todoRow.appendChild(addDueBtn);
+    }
+    row.appendChild(todoRow);
+
+    var pageLink = document.createElement('button');
+    pageLink.type = 'button';
+    pageLink.className = 'task-page-link';
+    pageLink.textContent = t.pageTitle;
+    pageLink.addEventListener('click', function(){
+      document.getElementById('tasks-view').classList.remove('visible');
+      revealBlock(t.blockId);
+    });
+    row.appendChild(pageLink);
+
+    listEl.appendChild(row);
+  });
 }
 
 /* dragField: when set (e.g. 'sortOrder' or 'pinnedOrder'), rows in

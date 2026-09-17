@@ -37,6 +37,7 @@
     <button class="side-btn" id="btn-new-page">＋ New page</button>
     <button class="side-btn" id="btn-help">📖 Help &amp; tutorial</button>
     <button class="side-btn" id="btn-graph">◎ Graph view</button>
+    <button class="side-btn" id="btn-tasks">☑ Tasks</button>
     <button class="side-btn" id="btn-insert-query">⌕ Insert query</button>
     <button class="side-btn" id="btn-insert-table">▤ Insert database</button>
     <button class="side-btn" id="btn-insert-code">❯_ Insert code block</button>
@@ -178,6 +179,23 @@
         <button id="btn-graph-reset-view">Reset view</button>
       </div>
       <svg id="graph-svg" viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg"></svg>
+    </section>
+
+    <section id="tasks-view">
+      <div class="topbar">
+        <button class="topbtn" id="btn-close-tasks">← Back to page</button>
+      </div>
+      <h2 style="margin-top:0;">Tasks</h2>
+      <div class="tasks-controls">
+        <input id="tasks-search" type="text" placeholder="Filter by text or page…" aria-label="Filter tasks">
+        <label class="tasks-hide-done"><input type="checkbox" id="tasks-hide-done"> Hide done</label>
+        <select id="tasks-sort" aria-label="Sort tasks">
+          <option value="due">Sort by due date</option>
+          <option value="page">Sort by page</option>
+        </select>
+      </div>
+      <div class="tasks-summary" id="tasks-summary"></div>
+      <div id="tasks-list"></div>
     </section>
   </main>
 </div>

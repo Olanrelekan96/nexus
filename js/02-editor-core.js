@@ -110,6 +110,32 @@ function collectDueTodos(){
   });
   return out;
 }
+/* Every to-do across every non-trashed page, done or not — powers the
+   Tasks view. Unlike collectDueTodos() (due-or-overdue, not-done only,
+   used for the reminder toast), this is the full flat list so the Tasks
+   view can filter/sort/show-done itself. */
+function collectAllTodos(){
+  var out = [];
+  Object.keys(state.blocks).forEach(function(id){
+    var b = state.blocks[id];
+    var page = state.pages[b.pageId];
+    if(!page || page.trashedAt) return;
+    var info = todoInfo(b.text || '');
+    if(!info) return;
+    var parts = splitTodoDue(info.rest);
+    out.push({
+      blockId: id,
+      pageId: b.pageId,
+      pageTitle: page.title,
+      text: parts.clean,
+      due: parts.due,
+      done: info.done,
+      overdue: !info.done && !!parts.due && todoDueStatus(parts.due) === 'due-overdue'
+    });
+  });
+  return out;
+}
+
 /* A light, local, one-per-session nudge about anything due — not a real
    push notification (that needs a service worker + server), just a toast
    plus (if the person already granted permission) a Notification so it
@@ -487,6 +513,8 @@ function openPage(pageId, skipHistory){
   if(!state.pages[pageId]) return;
   state.currentPageId = pageId;
   document.getElementById('graph-view').classList.remove('visible');
+  var tasksViewEl = document.getElementById('tasks-view');
+  if(tasksViewEl) tasksViewEl.classList.remove('visible');
   document.getElementById('page-view').classList.add('visible');
   renderAll();
   save();

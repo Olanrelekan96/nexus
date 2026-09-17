@@ -151,6 +151,13 @@ function ensureDocsPage(){
     "Click ◎ Graph view in the sidebar to see every page and tag laid out as a connected network, built automatically from your [[links]] and #tags."
   ]);
 
+  section("Tasks view", [
+    "Click ☑ Tasks in the sidebar to see every to-do across your whole notebook in one flat list, not just the current page.",
+    "Tick a checkbox, change a due date, or click a page name to jump straight to that line \u2014 all update the same underlying line, exactly like checking it off on its own page.",
+    "Filter by text or page name, hide finished ones, and sort by due date or by page.",
+    "On any to-do, click 📅+ (or an existing 📅 date chip) to set or change a due date \u2014 stored right on the line as !due(YYYY-MM-DD). Anything due today or overdue gets a one-time reminder toast when you open Nexus."
+  ]);
+
   section("Live queries", [
     "Click ⌕ Insert query in the sidebar to open a point-and-click filter builder — pick a tag, page, property, or word from dropdowns, no typing filter syntax required.",
     "Every filter row must be satisfied, and a live count updates as you build. Set a row to \"is not\" to exclude matches, or type several comma-separated values in one row to match any of them (e.g. tags urgent, important matches either).",
