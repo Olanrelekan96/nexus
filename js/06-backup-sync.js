@@ -584,7 +584,10 @@ function gdriveWithToken(onReady){
       toast('Google Drive sign-in was cancelled or failed.');
     }
   }
-  requestToken(needsInteractive ? 'consent' : '', !needsInteractive);
+  /* Within the selected re-authentication interval, never fall back to an
+     interactive Google sign-in if silent renewal fails. The interval itself
+     is the boundary at which interactive authentication is allowed. */
+  requestToken(needsInteractive ? 'consent' : '', false);
 }
 
 function gdriveStartImport(){
