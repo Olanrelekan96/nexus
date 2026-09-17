@@ -168,6 +168,7 @@ function renderTrashSection(){
     var li = document.createElement('li');
     var row = document.createElement('div');
     row.className = 'trash-row';
+    row.dataset.pageId = p.id; /* lets the right-click handler identify which page this row is */
     var a = document.createElement('a');
     a.href = "javascript:void(0)";
     a.textContent = p.type === 'tag' ? '#'+p.title : p.title;
@@ -204,6 +205,7 @@ function renderTemplatesSection(){
     var li = document.createElement('li');
     var row = document.createElement('div');
     row.className = 'trash-row';
+    row.dataset.templateId = t.id; /* lets the right-click handler identify which template this row is */
     var a = document.createElement('a');
     a.href = "javascript:void(0)";
     a.textContent = t.name;
@@ -757,6 +759,7 @@ function fillList(elId, list, forceTag, dragField){
     var li = document.createElement('li');
     var row = document.createElement('div');
     row.className = 'trash-row' + (isTag ? ' tagitem' : '');
+    row.dataset.pageId = p.id; /* lets the right-click handler identify which page this row is */
     var a = document.createElement('a');
     a.href = "javascript:void(0)";
     a.textContent = isTag ? "#"+p.title : p.title;

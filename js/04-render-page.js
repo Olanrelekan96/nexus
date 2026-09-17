@@ -825,7 +825,7 @@ function renderBlockRow(block){
   var menuBtn = document.createElement('button');
   menuBtn.className = 'block-menu-btn';
   menuBtn.textContent = '⋯';
-  menuBtn.title = 'More actions (outdent, indent, collapse, cut, copy, paste, block reference, to-do, heading)';
+  menuBtn.title = 'More actions (outdent, indent, collapse, cut, copy, paste, duplicate, zoom, block reference, to-do, heading) — right-clicking the line opens the same menu';
   menuBtn.onclick = function(e){
     e.stopPropagation();
     if(editingBlockId === block.id) commitEdit(content);
@@ -854,8 +854,8 @@ function closeBlockMenu(){
     blockMenuCleanup = null;
   }
 }
-function openBlockMenu(anchorEl, blockId){
-  var wasOpenForThisAnchor = !!document.querySelector('.block-menu-dropdown') && blockMenuAnchor === anchorEl;
+function openBlockMenu(anchorEl, blockId, coords){
+  var wasOpenForThisAnchor = !coords && !!document.querySelector('.block-menu-dropdown') && blockMenuAnchor === anchorEl;
   closeBlockMenu();
   if(wasOpenForThisAnchor) return; /* clicking the trigger again just toggles it shut */
   var b = state.blocks[blockId];
@@ -931,6 +931,16 @@ function openBlockMenu(anchorEl, blockId){
     save(); renderPage();
     focusBlock(pasted.id, (pasted.text || '').length);
   });
+  addItem('⧉', 'Duplicate', false, function(){
+    var cb = state.blocks[blockId];
+    if(!cb) return;
+    var copy = insertSubtreeAfter(cloneBlockSubtree(cb), cb);
+    save(); renderPage();
+    focusBlock(copy.id, (copy.text || '').length);
+  });
+  addItem('⤢', 'Zoom in on this line', false, function(){
+    zoomToBlock(blockId);
+  });
   addItem('⚭', 'Copy block reference', false, function(){
     copyToClipboard('((' + b.id + '))');
     toast('Block reference copied — paste it anywhere to sync this line.');
@@ -990,6 +1000,20 @@ function openBlockMenu(anchorEl, blockId){
   };
 
   document.body.appendChild(menu);
+  /* `coords` (set when this menu was opened by a right-click rather
+     than by the "⋯" button) pins the menu to the pointer instead of
+     under the trigger — the anchor element is still used for the
+     outside-click check either way. */
+  if(coords){
+    var cLeft = Math.min(coords.x, Math.max(8, window.innerWidth - menu.offsetWidth - 8));
+    var cTop = coords.y;
+    if(cTop + menu.offsetHeight > window.innerHeight - 8){
+      cTop = Math.max(8, coords.y - menu.offsetHeight);
+    }
+    menu.style.top = cTop + 'px';
+    menu.style.left = Math.max(8, cLeft) + 'px';
+    return;
+  }
   var rect = anchorEl.getBoundingClientRect();
   var left = rect.right - menu.offsetWidth;
   if(left < 8) left = 8;
