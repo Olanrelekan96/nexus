@@ -1454,3 +1454,135 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
   .slash-item, .ctx-menu-item{padding:11px 10px; font-size:0.875rem;}
   .slash-menu, .ctx-menu{min-width:60vw;}
 }
+
+/* ============================================================
+   HIGHLIGHTER (background) & TEXT COLOR
+   See SWATCH_COLORS in js/00-state-and-helpers.js for the 12 keys —
+   every rule below is keyed off the same data-color values, so a
+   file's raw {{mark:key|...}} / {{color:key|...}} text and its
+   rendered swatch always agree on what "key" looks like.
+   Highlight backgrounds are translucent tints layered over whatever
+   the current theme's paper color is, so they don't need a per-theme
+   override to stay legible. Text colors are opaque and DO get a
+   dark-theme override further down, since a mid-tone hex picked for
+   readability on light paper goes muddy on a near-black one.
+   ============================================================ */
+mark.hl-swatch{
+  background:transparent; color:inherit; padding:.05em .15em; border-radius:3px;
+  box-decoration-break:clone; -webkit-box-decoration-break:clone;
+}
+mark.hl-swatch[data-color="yellow"]{background:rgba(255,214,51,.45);}
+mark.hl-swatch[data-color="orange"]{background:rgba(255,159,67,.4);}
+mark.hl-swatch[data-color="red"]{background:rgba(255,107,107,.35);}
+mark.hl-swatch[data-color="pink"]{background:rgba(255,121,198,.35);}
+mark.hl-swatch[data-color="purple"]{background:rgba(178,137,255,.35);}
+mark.hl-swatch[data-color="indigo"]{background:rgba(129,140,248,.35);}
+mark.hl-swatch[data-color="blue"]{background:rgba(96,165,250,.35);}
+mark.hl-swatch[data-color="teal"]{background:rgba(45,212,191,.35);}
+mark.hl-swatch[data-color="green"]{background:rgba(74,222,128,.35);}
+mark.hl-swatch[data-color="lime"]{background:rgba(190,242,100,.45);}
+mark.hl-swatch[data-color="gray"]{background:rgba(148,163,184,.35);}
+mark.hl-swatch[data-color="brown"]{background:rgba(180,131,84,.35);}
+
+span.clr-swatch[data-color="yellow"]{color:#8a6d00;}
+span.clr-swatch[data-color="orange"]{color:#b45309;}
+span.clr-swatch[data-color="red"]{color:#b91c1c;}
+span.clr-swatch[data-color="pink"]{color:#be185d;}
+span.clr-swatch[data-color="purple"]{color:#7c3aed;}
+span.clr-swatch[data-color="indigo"]{color:#4338ca;}
+span.clr-swatch[data-color="blue"]{color:#1d4ed8;}
+span.clr-swatch[data-color="teal"]{color:#0f766e;}
+span.clr-swatch[data-color="green"]{color:#15803d;}
+span.clr-swatch[data-color="lime"]{color:#4d7c0f;}
+span.clr-swatch[data-color="gray"]{color:#475569;}
+span.clr-swatch[data-color="brown"]{color:#78350f;}
+
+:root[data-theme="dark"] span.clr-swatch[data-color="yellow"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="yellow"]{color:#facc15;}
+:root[data-theme="dark"] span.clr-swatch[data-color="orange"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="orange"]{color:#fb923c;}
+:root[data-theme="dark"] span.clr-swatch[data-color="red"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="red"]{color:#f87171;}
+:root[data-theme="dark"] span.clr-swatch[data-color="pink"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="pink"]{color:#f472b6;}
+:root[data-theme="dark"] span.clr-swatch[data-color="purple"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="purple"]{color:#c4b5fd;}
+:root[data-theme="dark"] span.clr-swatch[data-color="indigo"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="indigo"]{color:#a5b4fc;}
+:root[data-theme="dark"] span.clr-swatch[data-color="blue"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="blue"]{color:#93c5fd;}
+:root[data-theme="dark"] span.clr-swatch[data-color="teal"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="teal"]{color:#5eead4;}
+:root[data-theme="dark"] span.clr-swatch[data-color="green"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="green"]{color:#86efac;}
+:root[data-theme="dark"] span.clr-swatch[data-color="lime"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="lime"]{color:#d9f99d;}
+:root[data-theme="dark"] span.clr-swatch[data-color="gray"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="gray"]{color:#cbd5e1;}
+:root[data-theme="dark"] span.clr-swatch[data-color="brown"],
+:root[data-theme="midnight"] span.clr-swatch[data-color="brown"]{color:#d6a86a;}
+
+/* Underline accent on the dock's "A" button, so it doesn't read as a
+   plain unstyled letter next to the icon buttons around it. */
+.dock-color-btn{
+  font-family:var(--sans); font-weight:700; position:relative;
+}
+.dock-color-btn::after{
+  content:""; position:absolute; left:8px; right:8px; bottom:6px; height:3px;
+  border-radius:2px;
+  background:linear-gradient(90deg, #b91c1c, #b45309, #15803d, #1d4ed8, #7c3aed);
+}
+
+/* ---------- Color swatch popover (Highlight / Text color) ---------- */
+.color-popover{
+  position:fixed; z-index:76; min-width:196px;
+  background:var(--paper-raised); border:1px solid var(--border); border-radius:8px;
+  box-shadow:0 10px 28px rgba(0,0,0,.2); padding:9px;
+  font-family:var(--sans);
+}
+.color-popover-title{
+  font-size:0.6875rem; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--ink-soft); font-weight:600; margin-bottom:7px;
+}
+.color-swatch-grid{
+  display:grid; grid-template-columns:repeat(6, 1fr); gap:6px;
+}
+.color-swatch-btn{
+  width:26px; height:26px; border-radius:50%; cursor:pointer;
+  border:1px solid rgba(0,0,0,.12);
+}
+.color-swatch-btn:hover{transform:scale(1.12); box-shadow:0 0 0 2px var(--paper-raised), 0 0 0 3px var(--border);}
+.color-swatch-btn.is-mark[data-color="yellow"]{background:#ffd633;}
+.color-swatch-btn.is-mark[data-color="orange"]{background:#ff9f43;}
+.color-swatch-btn.is-mark[data-color="red"]{background:#ff6b6b;}
+.color-swatch-btn.is-mark[data-color="pink"]{background:#ff79c6;}
+.color-swatch-btn.is-mark[data-color="purple"]{background:#b289ff;}
+.color-swatch-btn.is-mark[data-color="indigo"]{background:#818cf8;}
+.color-swatch-btn.is-mark[data-color="blue"]{background:#60a5fa;}
+.color-swatch-btn.is-mark[data-color="teal"]{background:#2dd4bf;}
+.color-swatch-btn.is-mark[data-color="green"]{background:#4ade80;}
+.color-swatch-btn.is-mark[data-color="lime"]{background:#bef264;}
+.color-swatch-btn.is-mark[data-color="gray"]{background:#94a3b8;}
+.color-swatch-btn.is-mark[data-color="brown"]{background:#b48354;}
+.color-swatch-btn.is-clr[data-color="yellow"]{background:#8a6d00;}
+.color-swatch-btn.is-clr[data-color="orange"]{background:#b45309;}
+.color-swatch-btn.is-clr[data-color="red"]{background:#b91c1c;}
+.color-swatch-btn.is-clr[data-color="pink"]{background:#be185d;}
+.color-swatch-btn.is-clr[data-color="purple"]{background:#7c3aed;}
+.color-swatch-btn.is-clr[data-color="indigo"]{background:#4338ca;}
+.color-swatch-btn.is-clr[data-color="blue"]{background:#1d4ed8;}
+.color-swatch-btn.is-clr[data-color="teal"]{background:#0f766e;}
+.color-swatch-btn.is-clr[data-color="green"]{background:#15803d;}
+.color-swatch-btn.is-clr[data-color="lime"]{background:#4d7c0f;}
+.color-swatch-btn.is-clr[data-color="gray"]{background:#475569;}
+.color-swatch-btn.is-clr[data-color="brown"]{background:#78350f;}
+.color-popover-remove{
+  display:block; width:100%; margin-top:8px; text-align:left;
+  border:none; background:none; color:var(--ink-soft); cursor:pointer;
+  font-family:var(--sans); font-size:0.75rem; padding:5px 2px; border-radius:5px;
+}
+.color-popover-remove:hover{background:var(--link-bg); color:var(--ink);}
+
+@media (hover:none), (pointer:coarse){
+  .color-swatch-btn{width:32px; height:32px;}
+}

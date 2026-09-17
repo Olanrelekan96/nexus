@@ -35,6 +35,25 @@ Array.prototype.slice.call(document.querySelectorAll('.dock-fmt-btn')).forEach(f
 document.getElementById('dock-indent-btn').addEventListener('mousedown', function(e){ e.preventDefault(); });
 document.getElementById('dock-outdent-btn').addEventListener('mousedown', function(e){ e.preventDefault(); });
 document.getElementById('dock-copysync-btn').addEventListener('mousedown', function(e){ e.preventDefault(); });
+document.getElementById('dock-highlight-btn').addEventListener('mousedown', function(e){ e.preventDefault(); });
+document.getElementById('dock-color-btn').addEventListener('mousedown', function(e){ e.preventDefault(); });
+
+/* Highlighter and text-color both need a live text selection to act
+   on — unlike Bold/Italic/etc. there's no sensible "toggle at the
+   caret" behavior for a 12-way choice, so an empty selection just
+   points the person at what to do instead of silently no-opping. */
+function openDockSwatchPopover(kind){
+  var editingEl = document.querySelector('.block-content.editing');
+  if(!editingEl){ toast('Tap a line first, then select some text.'); return; }
+  var sel = window.getSelection();
+  if(!sel.rangeCount || sel.isCollapsed){ toast('Select some text first.'); return; }
+  var rect = sel.getRangeAt(0).getBoundingClientRect();
+  var btn = document.getElementById(kind === 'mark' ? 'dock-highlight-btn' : 'dock-color-btn');
+  var anchorRect = (rect && (rect.width || rect.height)) ? rect : btn.getBoundingClientRect();
+  openSwatchPopover(anchorRect.left, anchorRect.bottom + 6, editingEl, kind);
+}
+document.getElementById('dock-highlight-btn').onclick = function(){ openDockSwatchPopover('mark'); };
+document.getElementById('dock-color-btn').onclick = function(){ openDockSwatchPopover('clr'); };
 
 document.getElementById('dock-indent-btn').onclick = function(e){
   e.preventDefault();

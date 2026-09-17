@@ -823,8 +823,35 @@ function escapeHtml(str){
     .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
-var INLINE_PATTERN = /\[\[([^\]]+)\]\]|#([a-zA-Z0-9_][\w-]*)|\(\(([a-zA-Z0-9_-]+)\)\)|\*\*([^*]+)\*\*|~~([^~]+)~~|`([^`]+)`|\*([^*\s][^*]*)\*|\{\{img:([a-zA-Z0-9_-]+\|[^}]*)\}\}|\{\{file:([a-zA-Z0-9_-]+\|[^}]*)\}\}/g;
+var INLINE_PATTERN = /\[\[([^\]]+)\]\]|#([a-zA-Z0-9_][\w-]*)|\(\(([a-zA-Z0-9_-]+)\)\)|\*\*([^*]+)\*\*|~~([^~]+)~~|`([^`]+)`|\*([^*\s][^*]*)\*|\{\{img:([a-zA-Z0-9_-]+\|[^}]*)\}\}|\{\{file:([a-zA-Z0-9_-]+\|[^}]*)\}\}|\{\{mark:([a-z]+)\|([^}]*)\}\}|%%color:([a-z]+)\|([^%]*)%%/g;
 var BLOCKREF_MAX_DEPTH = 4;
+
+/* ============================================================
+   HIGHLIGHTER (background) & TEXT COLOR
+   Twelve named colors, shared by both — a background highlight
+   ({{mark:key|text}}, rendered as <mark class="hl-swatch">) and a
+   text color (%%color:key|text%%, rendered as <span class="clr-swatch">)
+   are otherwise independent and can be nested on the same run of text.
+   The two use different delimiters on purpose, not just for variety:
+   this regex has no way to match balanced *nested* {{...}}, so if both
+   used curly braces, highlighting an already-colored run would corrupt
+   on the next render (the outer tag's content can't contain the
+   inner's closing "}}"). Percent signs for color sidestep that the
+   same way this file already lets, say, ~~strike~~ nest inside
+   **bold** — cross-family nesting works as long as the delimiters
+   don't collide; same-family nesting (bold-in-bold, highlight-in-
+   highlight) doesn't, here as everywhere else in this file.
+   Kept alongside INLINE_PATTERN because the color keys have to match
+   the `[a-z]+` groups in that regex — anything added here only needs
+   a lowercase-letters key to work everywhere else for free.
+   ============================================================ */
+var SWATCH_COLORS = [
+  ['yellow','Yellow'], ['orange','Orange'], ['red','Red'], ['pink','Pink'],
+  ['purple','Purple'], ['indigo','Indigo'], ['blue','Blue'], ['teal','Teal'],
+  ['green','Green'], ['lime','Lime'], ['gray','Gray'], ['brown','Brown']
+];
+
+
 
 /* Attachments (images & files) are stored as blobs in IndexedDB, keyed by
    id, and referenced inline in block text as {{img:ID|filename}} or
@@ -920,6 +947,10 @@ function decorateText(text, depth){
       out += renderImageHtml(m[8]);
     } else if(m[9] !== undefined){
       out += renderFileHtml(m[9]);
+    } else if(m[10] !== undefined){
+      out += '<mark class="hl-swatch" data-color="'+escapeHtml(m[10])+'">'+decorateText(m[11], depth)+'</mark>';
+    } else if(m[12] !== undefined){
+      out += '<span class="clr-swatch" data-color="'+escapeHtml(m[12])+'">'+decorateText(m[13], depth)+'</span>';
     }
     last = re.lastIndex;
   }
@@ -975,6 +1006,16 @@ function buildInlineNodes(text){
       frag.appendChild(buildImageNode(m[8]));
     } else if(m[9] !== undefined){
       frag.appendChild(buildFileNode(m[9]));
+    } else if(m[10] !== undefined){
+      var markEl = document.createElement('mark');
+      markEl.className = 'hl-swatch'; markEl.dataset.color = m[10];
+      markEl.appendChild(buildInlineNodes(m[11]));
+      frag.appendChild(markEl);
+    } else if(m[12] !== undefined){
+      var clrEl = document.createElement('span');
+      clrEl.className = 'clr-swatch'; clrEl.dataset.color = m[12];
+      clrEl.appendChild(buildInlineNodes(m[13]));
+      frag.appendChild(clrEl);
     }
     last = re.lastIndex;
   }
@@ -1001,6 +1042,10 @@ function serializeInline(node){
         out += '{{img:' + (n.dataset.attId || '') + '|' + (n.dataset.attName || '') + '}}';
       } else if(n.classList && n.classList.contains('att-file')){
         out += '{{file:' + (n.dataset.attId || '') + '|' + (n.dataset.attName || '') + '}}';
+      } else if(n.classList && n.classList.contains('hl-swatch')){
+        out += '{{mark:' + (n.dataset.color || '') + '|' + serializeInline(n) + '}}';
+      } else if(n.classList && n.classList.contains('clr-swatch')){
+        out += '%%color:' + (n.dataset.color || '') + '|' + serializeInline(n) + '%%';
       } else if(tag === 'STRONG' || tag === 'B'){
         out += '**' + serializeInline(n) + '**';
       } else if(tag === 'EM' || tag === 'I'){
@@ -1040,6 +1085,54 @@ function applyInlineFormat(el, tagName){
     try{
       var contents = range.extractContents();
       var wrap = document.createElement(tagName);
+      wrap.appendChild(contents);
+      range.insertNode(wrap);
+      var newRange = document.createRange();
+      newRange.selectNodeContents(wrap);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+    }catch(err){}
+  }
+  el.normalize();
+}
+
+/* Toggle a background highlight ({{mark:key|...}}) or text color
+   (%%color:key|...%%) on the current selection — same shape as
+   applyInlineFormat, generalized over which of the two wrapper kinds
+   to use and which color key to stamp on it:
+     - selection already sits inside a same-kind wrapper, same color
+       → unwrap (turns it off)
+     - selection already sits inside a same-kind wrapper, different
+       color → re-stamp that wrapper with the new color
+     - colorKey is null (the popover's "Remove" option) → unwrap
+       whatever same-kind wrapper is there, regardless of its color
+     - otherwise → wrap the selection in a new element
+   Like applyInlineFormat, this only looks at the selection's anchor,
+   so a selection spanning into/out of an existing wrapper is treated
+   as "inside" or "outside" by its anchor end, not merged or split. */
+function applyColorFormat(el, kind, colorKey){
+  var sel = window.getSelection();
+  if(!sel.rangeCount) return;
+  var range = sel.getRangeAt(0);
+  var tagName = kind === 'mark' ? 'mark' : 'span';
+  var swatchClass = kind === 'mark' ? 'hl-swatch' : 'clr-swatch';
+  var anchorNode = range.commonAncestorContainer;
+  var anchorEl = anchorNode.nodeType === 3 ? anchorNode.parentNode : anchorNode;
+  var existing = anchorEl.closest ? anchorEl.closest('.' + swatchClass) : null;
+  if(existing && el.contains(existing)){
+    if(colorKey && existing.dataset.color !== colorKey){
+      existing.dataset.color = colorKey;
+    } else {
+      var parent = existing.parentNode;
+      while(existing.firstChild) parent.insertBefore(existing.firstChild, existing);
+      parent.removeChild(existing);
+    }
+  } else if(colorKey && !range.collapsed && el.contains(range.commonAncestorContainer)){
+    try{
+      var contents = range.extractContents();
+      var wrap = document.createElement(tagName);
+      wrap.className = swatchClass;
+      wrap.dataset.color = colorKey;
       wrap.appendChild(contents);
       range.insertNode(wrap);
       var newRange = document.createRange();

@@ -131,6 +131,81 @@ function positionFloating(el, x, y){
 }
 
 /* ============================================================
+   COLOR SWATCH POPOVER
+   Shared by the edit dock's Highlight/Text color buttons and the
+   right-click "Highlight…" / "Text color…" items on a selection.
+   Twelve swatches (see SWATCH_COLORS in 00-state-and-helpers.js) plus
+   a "Remove" row; picking one calls applyColorFormat on the block
+   element passed in, exactly like the dock's Bold/Italic buttons call
+   applyInlineFormat.
+   ============================================================ */
+var swatchPopoverCleanup = null;
+
+function closeSwatchPopover(){
+  var existing = document.querySelector('.color-popover');
+  if(existing) existing.remove();
+  if(swatchPopoverCleanup){ swatchPopoverCleanup(); swatchPopoverCleanup = null; }
+}
+
+function openSwatchPopover(x, y, el, kind){
+  closeSwatchPopover();
+  closeCtxMenu();
+  closeBlockMenu();
+  closeSlashMenu();
+
+  var pop = document.createElement('div');
+  pop.className = 'color-popover';
+
+  var title = document.createElement('div');
+  title.className = 'color-popover-title';
+  title.textContent = kind === 'mark' ? 'Highlight' : 'Text color';
+  pop.appendChild(title);
+
+  var grid = document.createElement('div');
+  grid.className = 'color-swatch-grid';
+  SWATCH_COLORS.forEach(function(pair){
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'color-swatch-btn ' + (kind === 'mark' ? 'is-mark' : 'is-clr');
+    btn.dataset.color = pair[0];
+    btn.title = pair[1];
+    btn.setAttribute('aria-label', pair[1]);
+    btn.onclick = function(){
+      applyColorFormat(el, kind, pair[0]);
+      closeSwatchPopover();
+    };
+    grid.appendChild(btn);
+  });
+  pop.appendChild(grid);
+
+  var removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'color-popover-remove';
+  removeBtn.textContent = kind === 'mark' ? 'Remove highlight' : 'Remove text color';
+  removeBtn.onclick = function(){
+    applyColorFormat(el, kind, null);
+    closeSwatchPopover();
+  };
+  pop.appendChild(removeBtn);
+
+  /* Keeps the selection alive through the click, same trick the edit
+     dock's format buttons and the block-row "⋯" menu both use. */
+  pop.addEventListener('mousedown', function(e){ e.preventDefault(); });
+
+  function onOutside(e){ if(!pop.contains(e.target)) closeSwatchPopover(); }
+  function onEsc(e){ if(e.key === 'Escape') closeSwatchPopover(); }
+  document.addEventListener('mousedown', onOutside);
+  document.addEventListener('keydown', onEsc);
+  swatchPopoverCleanup = function(){
+    document.removeEventListener('mousedown', onOutside);
+    document.removeEventListener('keydown', onEsc);
+  };
+
+  document.body.appendChild(pop);
+  positionFloating(pop, x, y);
+}
+
+/* ============================================================
    SHARED: block-text editing helpers
    Every "/" command that changes a line's text funnels through
    applyBlockText, which is deliberate about one thing: the block's
@@ -524,6 +599,19 @@ document.addEventListener('scroll', function(e){
    RIGHT-CLICK MENUS
    ============================================================ */
 
+/* Where to anchor a popover opened from a menu item: right under the
+   live selection when there is one (there should be, since opening
+   the selection menu required one), else wherever the menu itself
+   was opened. */
+function selectionRectOr(el){
+  var sel = window.getSelection();
+  if(sel.rangeCount && el.contains(sel.anchorNode)){
+    var rect = sel.getRangeAt(0).getBoundingClientRect();
+    if(rect && (rect.width || rect.height)) return {x:rect.left, y:rect.bottom + 6};
+  }
+  return {x:lastContextPoint.x, y:lastContextPoint.y};
+}
+
 /* ---------- Selected text inside a line ---------- */
 function selectionMenuItems(el, selectedText){
   var items = [];
@@ -534,6 +622,14 @@ function selectionMenuItems(el, selectedText){
   fmt('I', 'Italic', 'em');
   fmt('S', 'Strikethrough', 'del');
   fmt('‹›', 'Code', 'code');
+  items.push({icon:'🖍', label:'Highlight…', onClick:function(){
+    var srect = selectionRectOr(el);
+    openSwatchPopover(srect.x, srect.y, el, 'mark');
+  }});
+  items.push({icon:'A', label:'Text color…', onClick:function(){
+    var srect = selectionRectOr(el);
+    openSwatchPopover(srect.x, srect.y, el, 'clr');
+  }});
   items.push({icon:'🔗', label:'Link…', onClick:function(){ applyLinkFormat(el); }});
   items.push({divider:true});
   items.push({icon:'[[', label:'Link to a page with this name', onClick:function(){

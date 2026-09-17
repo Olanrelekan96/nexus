@@ -907,6 +907,14 @@ function getCaretOffset(el){
     if(node.classList && node.classList.contains('att-file')){
       return 10 + (node.dataset.attId || '').length + (node.dataset.attName || '').length;
     }
+    if(node.classList && node.classList.contains('hl-swatch')){
+      var hlPre = ('{{mark:' + (node.dataset.color || '') + '|').length;
+      return hlPre + 2 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
+    }
+    if(node.classList && node.classList.contains('clr-swatch')){
+      var clPre = ('%%color:' + (node.dataset.color || '') + '|').length;
+      return clPre + 2 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
+    }
     if(tag === 'STRONG' || tag === 'B') return 4 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
     if(tag === 'EM' || tag === 'I') return 2 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
     if(tag === 'DEL' || tag === 'S' || tag === 'STRIKE') return 4 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
@@ -927,6 +935,18 @@ function getCaretOffset(el){
     }
     if(node.classList && node.classList.contains('att-img')) return off <= 0 ? 0 : rawLength(node);
     if(node.classList && node.classList.contains('att-file')) return off <= 0 ? 0 : rawLength(node);
+    if(node.classList && node.classList.contains('hl-swatch')){
+      var hlPre2 = ('{{mark:' + (node.dataset.color || '') + '|').length;
+      var hlTotal = hlPre2;
+      for(var hi=0; hi<off && hi<node.childNodes.length; hi++) hlTotal += rawLength(node.childNodes[hi]);
+      return hlTotal;
+    }
+    if(node.classList && node.classList.contains('clr-swatch')){
+      var clPre2 = ('%%color:' + (node.dataset.color || '') + '|').length;
+      var clTotal = clPre2;
+      for(var ci=0; ci<off && ci<node.childNodes.length; ci++) clTotal += rawLength(node.childNodes[ci]);
+      return clTotal;
+    }
     var prefix = (tag === 'STRONG' || tag === 'B') ? 2 :
                  (tag === 'EM' || tag === 'I') ? 1 :
                  (tag === 'DEL' || tag === 'S' || tag === 'STRIKE') ? 2 :
@@ -963,6 +983,8 @@ function findTextNodeAtOffset(el, offset){
     if(node.classList && node.classList.contains('blockref')) return 4 + (node.dataset.refid || '').length;
     if(node.classList && node.classList.contains('att-img')) return 9 + (node.dataset.attId || '').length + (node.dataset.attName || '').length;
     if(node.classList && node.classList.contains('att-file')) return 10 + (node.dataset.attId || '').length + (node.dataset.attName || '').length;
+    if(node.classList && node.classList.contains('hl-swatch')) return ('{{mark:' + (node.dataset.color || '') + '|').length + 2 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
+    if(node.classList && node.classList.contains('clr-swatch')) return ('%%color:' + (node.dataset.color || '') + '|').length + 2 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
     if(tag === 'STRONG' || tag === 'B') return 4 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
     if(tag === 'EM' || tag === 'I') return 2 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
     if(tag === 'DEL' || tag === 'S' || tag === 'STRIKE') return 4 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
@@ -991,6 +1013,30 @@ function findTextNodeAtOffset(el, offset){
     if(node.classList && (node.classList.contains('blockref') || node.classList.contains('att-img') || node.classList.contains('att-file'))){
       if(remaining <= visibleLength(node)){ result = {node:node.firstChild || node, offset:0}; return; }
       remaining -= rawLength(node);
+      return;
+    }
+    if(node.classList && node.classList.contains('hl-swatch')){
+      var hlPre = ('{{mark:' + (node.dataset.color || '') + '|').length;
+      if(remaining <= hlPre){
+        var hlFirst = node.firstChild;
+        if(hlFirst && hlFirst.nodeType === 3) result = {node:hlFirst, offset:0};
+        else if(hlFirst) result = {node:hlFirst.firstChild || hlFirst, offset:0};
+        return;
+      }
+      remaining -= hlPre;
+      for(var hi=0; hi<node.childNodes.length; hi++) locate(node.childNodes[hi]);
+      return;
+    }
+    if(node.classList && node.classList.contains('clr-swatch')){
+      var clPre = ('%%color:' + (node.dataset.color || '') + '|').length;
+      if(remaining <= clPre){
+        var clFirst = node.firstChild;
+        if(clFirst && clFirst.nodeType === 3) result = {node:clFirst, offset:0};
+        else if(clFirst) result = {node:clFirst.firstChild || clFirst, offset:0};
+        return;
+      }
+      remaining -= clPre;
+      for(var ci=0; ci<node.childNodes.length; ci++) locate(node.childNodes[ci]);
       return;
     }
     var prefix = (tag === 'STRONG' || tag === 'B') ? 2 :
