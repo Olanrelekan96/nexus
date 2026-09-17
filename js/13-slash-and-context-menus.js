@@ -741,14 +741,23 @@ function pageMenuItems(pageId){
     return items;
   }
 
-  items.push({icon: page.pinned ? '★' : '☆', label: page.pinned ? 'Unpin' : 'Pin to top',
+  items.push({icon: page.pinned ? '★' : '☆',
+    label: page.pinned ? 'Unpin from sidebar' : 'Pin to sidebar',
+    disabled: !!page.hidden,
     onClick:function(){ togglePinPage(pageId); }});
+  items.push({icon: page.hidden ? '👁' : '⊘',
+    label: page.hidden ? 'Show in sidebar' : 'Remove from sidebar',
+    onClick:function(){ togglePageHidden(pageId); }});
+  items.push({icon: page.locked ? '🔓' : '🔒',
+    label: page.locked ? 'Unlock page' : 'Lock page',
+    onClick:function(){ togglePageLock(pageId); }});
   items.push({icon:'[[', label:'Copy link to this page', onClick:function(){
     copyToClipboard('[[' + page.title + ']]');
     toast('Copied [[' + page.title + ']] — paste it in any line.');
   }});
   items.push({divider:true});
-  items.push({icon:'✎', label:'Rename…', onClick:function(){ renamePagePrompt(pageId); }});
+  items.push({icon:'✎', label:'Rename…', disabled:!!page.locked,
+    onClick:function(){ renamePagePrompt(pageId); }});
   items.push({icon:'⧉', label:'Duplicate', onClick:function(){ duplicatePage(pageId); }});
   items.push({icon:'❏', label:'Save as template…', onClick:function(){ savePageAsTemplate(pageId); }});
   items.push({divider:true});
@@ -761,7 +770,7 @@ function pageMenuItems(pageId){
     exportPageAsPdf();
   }});
   items.push({divider:true});
-  items.push({icon:'🗑', label:'Move to Trash', danger:true, onClick:function(){
+  items.push({icon:'🗑', label:'Move to Trash', danger:true, disabled:!!page.locked, onClick:function(){
     if(typeof currentSettings !== 'undefined' && currentSettings.confirmTrash === 'on'){
       if(!confirm('Move "' + page.title + '" to Trash?')) return;
     }
@@ -802,7 +811,8 @@ function outlineMenuItems(){
   var page = state.pages[state.currentPageId];
   var items = [];
   if(!page) return items;
-  items.push({icon:'＋', label:'New line at the end', onClick:function(){
+  var pageLocked = !!page.locked;
+  items.push({icon:'＋', label:'New line at the end', disabled:pageLocked, onClick:function(){
     var parentId = (zoomedBlockId && state.blocks[zoomedBlockId] && state.blocks[zoomedBlockId].pageId === page.id)
       ? zoomedBlockId : null;
     var id = uid();
@@ -812,7 +822,7 @@ function outlineMenuItems(){
     save();
     focusBlock(id, 0);
   }});
-  items.push({icon:'P', label:'Paste block', disabled:!blockClipboard, onClick:function(){
+  items.push({icon:'P', label:'Paste block', disabled:pageLocked || !blockClipboard, onClick:function(){
     var ids = (zoomedBlockId && state.blocks[zoomedBlockId]) ? state.blocks[zoomedBlockId].children : page.rootBlocks;
     var lastId = ids[ids.length - 1];
     var lastBlock = lastId ? state.blocks[lastId] : null;

@@ -117,6 +117,11 @@ function renderSidebar(filter){
   }
   function alphaCmp(a,b){ return a.title.localeCompare(b.title); }
 
+  /* Pages the user has taken out of the sidebar stay in `state` and
+     stay searchable — they're just kept out of the four lists below
+     and shown under "Hidden" instead (see renderHiddenSection). */
+  pages = pages.filter(function(p){ return !p.hidden; });
+
   var daily = pages.filter(function(p){ return p.type==='daily'; }).sort(function(a,b){ return b.createdAt-a.createdAt; });
   var normal = pages.filter(function(p){ return p.type==='page'; }).sort(byManualOrder('sortOrder', alphaCmp));
   var tags = pages.filter(function(p){ return p.type==='tag'; }).sort(alphaCmp);
@@ -152,6 +157,7 @@ function renderSidebar(filter){
   fillList('list-pages', filterAndRank(normal, filter, titleOf), false, filter ? null : 'sortOrder');
   fillList('list-tags', filterAndRank(tags, filter, titleOf), true);
 
+  renderHiddenSection();
   renderTrashSection();
   renderBlockMatches(filter);
   renderTemplatesSection();
@@ -762,7 +768,8 @@ function fillList(elId, list, forceTag, dragField){
     row.dataset.pageId = p.id; /* lets the right-click handler identify which page this row is */
     var a = document.createElement('a');
     a.href = "javascript:void(0)";
-    a.textContent = isTag ? "#"+p.title : p.title;
+    a.textContent = (isTag ? "#"+p.title : p.title) + (p.locked ? ' 🔒' : '');
+    if(p.locked) a.title = 'Locked — read-only';
     if(p.id === state.currentPageId) a.className = "active";
     a.onclick = function(){ openPage(p.id); };
     var pinBtn = document.createElement('button');

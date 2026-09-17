@@ -1586,3 +1586,28 @@ span.clr-swatch[data-color="brown"]{color:#78350f;}
 @media (hover:none), (pointer:coarse){
   .color-swatch-btn{width:32px; height:32px;}
 }
+
+
+/* ---- Page & block locks (13a-locks-and-sidebar.js) ----
+   A locked line keeps its normal look — only the cursor and a small
+   padlock say it can't be typed into, so a locked page still reads as
+   the page rather than as a disabled form. */
+.block-row.is-locked .block-content{ cursor: default; }
+.block-row.is-locked .drag-handle{ opacity: .25; cursor: default; }
+.block-lock-flag{
+  font-size: .7rem;
+  opacity: .5;
+  margin-left: 4px;
+  align-self: flex-start;
+  line-height: 1.6;
+}
+.block-row.is-locked .block-lock-flag{ cursor: pointer; }
+#page-view.page-locked #page-title{ cursor: default; }
+#page-view.page-locked #page-title::after{
+  content: ' 🔒';
+  font-size: .6em;
+  opacity: .45;
+  vertical-align: middle;
+}
+#page-view.page-locked .add-block-btn,
+#page-view.page-locked #add-prop{ display: none; }

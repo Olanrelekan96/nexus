@@ -56,6 +56,7 @@ function applyFindReplace(){
   var re = new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), cs ? 'g' : 'gi');
   Object.keys(state.blocks).forEach(function(id){
     var b = state.blocks[id];
+    if(blockIsLocked(b)) return; /* a lock has to hold here too, not just in the editor */
     re.lastIndex = 0;
     if(b.text && re.test(b.text)){
       re.lastIndex = 0;

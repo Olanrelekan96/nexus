@@ -44,6 +44,9 @@ function renderPage(){
 
   var titleEl = document.getElementById('page-title');
   if(document.activeElement !== titleEl) titleEl.textContent = page.title;
+  titleEl.contentEditable = page.locked ? 'false' : 'true';
+  titleEl.title = page.locked ? 'This page is locked — right-click to unlock' : '';
+  document.getElementById('page-view').classList.toggle('page-locked', !!page.locked);
 
   document.getElementById('page-sub').textContent =
     "Created " + new Date(page.createdAt).toLocaleDateString();
@@ -139,7 +142,7 @@ function renderProperties(page){
     if(!prop.type) prop.type = 'text';
     var row = document.createElement('div'); row.className='prop-row';
 
-    var key = document.createElement('span'); key.className='prop-key'; key.contentEditable='true';
+    var key = document.createElement('span'); key.className='prop-key'; key.contentEditable = page.locked ? 'false' : 'true';
     key.textContent = prop.key; key.spellcheck = (typeof currentSettings !== 'undefined' && currentSettings.spellcheck === 'off') ? false : true;
     key.onblur = function(){ prop.key = key.textContent.trim() || 'property'; save(); renderProperties(page); };
     row.appendChild(key);
@@ -270,7 +273,7 @@ function renderProperties(page){
       computed.textContent = prop.value || '—';
       row.appendChild(computed);
     } else {
-      var val = document.createElement('span'); val.className='prop-val'; val.contentEditable='true';
+      var val = document.createElement('span'); val.className='prop-val'; val.contentEditable = page.locked ? 'false' : 'true';
       val.textContent = prop.value; val.spellcheck = (typeof currentSettings !== 'undefined' && currentSettings.spellcheck === 'off') ? false : true;
       val.onblur = function(){ prop.value = val.textContent; save(); renderProperties(page); };
       row.appendChild(val);
@@ -461,12 +464,15 @@ function renderBlockRow(block){
   var row = document.createElement('div');
   row.className = 'block-row';
   row.dataset.id = block.id;
+  var rowLocked = blockIsLocked(block);
+  if(rowLocked) row.classList.add('is-locked');
 
   var dragHandle = document.createElement('div');
   dragHandle.className = 'drag-handle';
   dragHandle.title = 'Drag to move this line';
   dragHandle.textContent = '⠿';
-  dragHandle.draggable = true;
+  dragHandle.draggable = !rowLocked;
+  if(rowLocked) dragHandle.title = 'Locked — unlock this line to move it';
   dragHandle.addEventListener('dragstart', function(e){
     dragBlockId = block.id;
     if(editingBlockId === block.id){
@@ -530,6 +536,19 @@ function renderBlockRow(block){
   bulletWrap.appendChild(dot);
   row.appendChild(bulletWrap);
 
+  if(rowLocked){
+    var lockFlag = document.createElement('span');
+    lockFlag.className = 'block-lock-flag';
+    lockFlag.textContent = '🔒';
+    lockFlag.title = block.locked
+      ? 'This line is locked — click to unlock'
+      : (pageIsLocked(block.pageId)
+          ? 'This page is locked, so this line is read-only'
+          : 'A line above this one is locked, so this one is read-only');
+    if(block.locked) lockFlag.onclick = function(e){ e.stopPropagation(); toggleBlockLock(block.id); };
+    row.appendChild(lockFlag);
+  }
+
   var syncCount = findBlockRefsTo(block.id).length;
   if(syncCount > 0){
     var badge = document.createElement('span');
@@ -555,6 +574,9 @@ function renderBlockRow(block){
   content.spellcheck = (typeof currentSettings !== 'undefined' && currentSettings.spellcheck === 'off') ? false : true;
 
   function enterEditMode(focusOffset){
+    /* One gate for every way into edit mode (click, keyboard nav,
+       focusBlock, the "Edit" menu item) — see blockIsLocked. */
+    if(blockIsLocked(block)){ lockedNudge(block); return; }
     if(editingBlockId && editingBlockId !== block.id){
       var prevEl = document.querySelector('.block-content.editing');
       if(prevEl) commitEdit(prevEl);
@@ -591,7 +613,7 @@ function renderBlockRow(block){
     renderSidebar(document.getElementById('search-box').value);
   }
 
-  if(block.id === editingBlockId){
+  if(block.id === editingBlockId && !blockIsLocked(block)){
     content.contentEditable = 'true';
     content.classList.add('editing');
     if(CODE_BLOCK_RE.test(block.text)){
@@ -620,8 +642,10 @@ function renderBlockRow(block){
       var todoText = document.createElement('span');
       todoText.className = 'todo-text' + (todo.done ? ' todo-done-text' : '');
       todoText.innerHTML = decorateText(dueParts.clean);
+      cb.disabled = rowLocked;
       cb.addEventListener('click', function(e){
         e.stopPropagation();
+        if(rowLocked){ e.preventDefault(); lockedNudge(block); return; }
         var cur = todoInfo(block.text || '');
         var rest = cur ? cur.rest : '';
         block.text = '[' + (cb.checked ? 'x' : ' ') + '] ' + rest;
@@ -893,8 +917,29 @@ function openBlockMenu(anchorEl, blockId, coords){
     menu.appendChild(d);
   }
 
-  addItem('←', 'Outdent', !b.parent, function(){ doOutdent(b); });
-  addItem('→', 'Indent', indexInSiblings(b) <= 0, function(){ doIndent(b); });
+  /* Locked lines keep the read-only actions (copy, reference, zoom,
+     collapse) and lose the ones that would change text or position —
+     same list the right-click menu shows, since both open this. */
+  var locked = blockIsLocked(b);
+  var byAncestor = blockLockedByAncestor(b);
+
+  addItem('✎', 'Edit this line', locked, function(){
+    var row = document.querySelector('.block-row[data-id="' + blockId + '"]');
+    var el = row ? row.querySelector('.block-content') : null;
+    if(el) el.click(); /* the row's own click handler is what opens edit mode */
+  });
+  if(byAncestor){
+    addItem('🔒', 'Locked from above', true, function(){});
+  } else {
+    addItem(b.locked ? '🔓' : '🔒',
+      b.locked ? 'Unlock this line' : 'Lock this line',
+      pageIsLocked(b.pageId),
+      function(){ toggleBlockLock(blockId); });
+  }
+  addDivider();
+
+  addItem('←', 'Outdent', locked || !b.parent, function(){ doOutdent(b); });
+  addItem('→', 'Indent', locked || indexInSiblings(b) <= 0, function(){ doIndent(b); });
   var canToggleCollapse = !!(b.children.length || headingInfo(b.text || ''));
   var isHeadingForToggle = !!headingInfo(b.text || '');
   addItem(b.collapsed ? '▸' : '▾',
@@ -907,7 +952,7 @@ function openBlockMenu(anchorEl, blockId, coords){
       save(); renderPage();
     });
   addDivider();
-  addItem('X', 'Cut', false, function(){
+  addItem('X', 'Cut', locked, function(){
     var cb = state.blocks[blockId];
     if(!cb) return;
     blockClipboard = cloneBlockSubtree(cb);
@@ -924,14 +969,14 @@ function openBlockMenu(anchorEl, blockId, coords){
     copyToClipboard(blockClipboardToText(blockClipboard));
     toast('Copied — use Paste on any line to drop it in.');
   });
-  addItem('P', 'Paste', !blockClipboard, function(){
+  addItem('P', 'Paste', locked || !blockClipboard, function(){
     var cb = state.blocks[blockId];
     if(!cb || !blockClipboard) return;
     var pasted = insertSubtreeAfter(blockClipboard, cb);
     save(); renderPage();
     focusBlock(pasted.id, (pasted.text || '').length);
   });
-  addItem('⧉', 'Duplicate', false, function(){
+  addItem('⧉', 'Duplicate', locked, function(){
     var cb = state.blocks[blockId];
     if(!cb) return;
     var copy = insertSubtreeAfter(cloneBlockSubtree(cb), cb);
@@ -945,7 +990,7 @@ function openBlockMenu(anchorEl, blockId, coords){
     copyToClipboard('((' + b.id + '))');
     toast('Block reference copied — paste it anywhere to sync this line.');
   });
-  addItem('🗑', 'Delete', false, function(){
+  addItem('🗑', 'Delete', locked, function(){
     var cb = state.blocks[blockId];
     if(!cb) return;
     var hasChildren = !!cb.children.length;
@@ -963,7 +1008,7 @@ function openBlockMenu(anchorEl, blockId, coords){
   });
   addDivider();
   var isTodoNow = !!todoInfo(b.text || '');
-  addItem(isTodoNow ? '☑' : '☐', isTodoNow ? 'Remove checkbox' : 'Turn into a to-do', false, function(){
+  addItem(isTodoNow ? '☑' : '☐', isTodoNow ? 'Remove checkbox' : 'Turn into a to-do', locked, function(){
     var cb = state.blocks[blockId];
     if(!cb) return;
     var cur = todoInfo(cb.text || '');
@@ -974,7 +1019,7 @@ function openBlockMenu(anchorEl, blockId, coords){
   var headingLabel = curHeadingInfo
     ? (curHeadingInfo.level < 3 ? 'Make H' + (curHeadingInfo.level + 1) + ' heading' : 'Remove heading')
     : 'Make H1 heading';
-  addItem(curHeadingInfo ? ('H' + curHeadingInfo.level) : 'H', headingLabel, false, function(){
+  addItem(curHeadingInfo ? ('H' + curHeadingInfo.level) : 'H', headingLabel, locked, function(){
     var cb = state.blocks[blockId];
     if(!cb) return;
     cb.text = cycleHeadingText(cb.text || '');
@@ -1027,6 +1072,15 @@ function openBlockMenu(anchorEl, blockId, coords){
 }
 
 function focusBlock(blockId, offset){
+  /* Keyboard navigation and every "…then put the caret here" call
+     land here, so a locked line has to be refused at this level too
+     rather than only on click. */
+  if(blockIsLocked(state.blocks[blockId])){
+    editingBlockId = null;
+    renderPage();
+    lockedNudge(state.blocks[blockId]);
+    return;
+  }
   editingBlockId = blockId;
   dockBlockId = blockId;
   renderPage();
