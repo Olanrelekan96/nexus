@@ -935,6 +935,22 @@ function openBlockMenu(anchorEl, blockId){
     copyToClipboard('((' + b.id + '))');
     toast('Block reference copied — paste it anywhere to sync this line.');
   });
+  addItem('🗑', 'Delete', false, function(){
+    var cb = state.blocks[blockId];
+    if(!cb) return;
+    var hasChildren = !!cb.children.length;
+    var confirmOn = typeof currentSettings !== 'undefined' && currentSettings.confirmTrash === 'on';
+    if(hasChildren || confirmOn){
+      var msg = hasChildren
+        ? 'Delete this block and everything nested under it? This can\'t be undone from here — use Undo (Ctrl+Z) right after if you change your mind.'
+        : 'Delete this block? Use Undo (Ctrl+Z) right after if you change your mind.';
+      if(!confirm(msg)) return;
+    }
+    var landAfter = removeBlockSubtree(cb);
+    save(); renderPage();
+    if(landAfter) focusBlock(landAfter.focusId, landAfter.offset);
+    toast('Block deleted.');
+  });
   addDivider();
   var isTodoNow = !!todoInfo(b.text || '');
   addItem(isTodoNow ? '☑' : '☐', isTodoNow ? 'Remove checkbox' : 'Turn into a to-do', false, function(){

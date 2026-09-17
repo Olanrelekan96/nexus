@@ -142,7 +142,7 @@ function backup(){
       suggestedName: fname,
       types: [{ description: 'Nexus backup', accept: {'application/json': ['.json']} }]
     }).then(function(handle){
-      return buildBackupJson().then(function(json){
+      return buildBackupJson().then(maybeEncryptExport).then(function(json){
         return handle.createWritable().then(function(writable){
           return writable.write(json).then(function(){ return writable.close(); });
         });
@@ -151,11 +151,32 @@ function backup(){
       finishBackup(fname);
     }).catch(function(err){
       if(err && err.name === 'AbortError') return; /* person cancelled the dialog — do nothing */
-      buildBackupJson().then(function(json){ downloadBackupFallback(json, fname); });
+      if(err && err.message === 'export-cancelled') return; /* declined/failed the passcode prompt — already toasted */
+      buildBackupJson().then(maybeEncryptExport).then(function(json){ downloadBackupFallback(json, fname); });
     });
   } else {
-    buildBackupJson().then(function(json){ downloadBackupFallback(json, fname); });
+    buildBackupJson().then(maybeEncryptExport).then(function(json){ downloadBackupFallback(json, fname); }).catch(function(){});
   }
+}
+
+/* Wraps a plain backup JSON string in the portable-encryption envelope
+   if (and only if) a passcode lock is set up and the person confirms —
+   they can always decline and keep the export as plain, readable JSON.
+   Rejects with message 'export-cancelled' if they cancel or mistype
+   their passcode, so callers can quietly stop rather than exporting
+   anything. Unattended/automatic backups never call this — there's no
+   one there to type a passcode — see AUTOMATIC BACKUPS below. */
+function maybeEncryptExport(jsonString){
+  if(!isLockEnabled()) return Promise.resolve(jsonString);
+  if(!confirm('Encrypt this backup with your passcode?\n\nOK = encrypted (needs your passcode to ever open it again, even on another device).\nCancel = plain, readable JSON, same as today.')){
+    return Promise.resolve(jsonString);
+  }
+  var passcode = promptForPasscode('Enter your passcode to encrypt this backup:');
+  if(passcode === null) return Promise.reject(new Error('export-cancelled'));
+  return confirmPasscode(passcode).then(function(ok){
+    if(!ok){ toast('Incorrect passcode — backup not created.'); throw new Error('export-cancelled'); }
+    return encryptForPortableStorage(jsonString, passcode);
+  });
 }
 
 /* Classic anchor-download, used on browsers without the File System Access
@@ -384,6 +405,22 @@ document.getElementById('btn-choose-autobackup-folder').onclick = chooseAutoBack
 document.getElementById('btn-forget-autobackup-folder').onclick = forgetAutoBackupFolder;
 
 function restoreFromJsonText(jsonText){
+  var parsedOuter;
+  try{ parsedOuter = JSON.parse(jsonText); }catch(e){ toast('Could not read that file.'); return; }
+  if(parsedOuter && parsedOuter.nexusEncryptedBackup){
+    var passcode = promptForPasscode('This backup is encrypted. Enter the passcode it was encrypted with:');
+    if(passcode === null) return;
+    decryptPortableStorage(parsedOuter, passcode).then(function(plain){
+      restoreFromDecryptedJsonText(plain);
+    }).catch(function(){
+      toast('Could not decrypt that backup — wrong passcode, or the file is corrupted.');
+    });
+    return;
+  }
+  restoreFromDecryptedJsonText(jsonText);
+}
+
+function restoreFromDecryptedJsonText(jsonText){
   try{
     var parsed = JSON.parse(jsonText);
     if(!parsed.pages || !parsed.blocks){ toast('That file does not look like a Nexus backup.'); return; }
@@ -538,7 +575,7 @@ function gdriveUploadBackup(){
   var fname = 'nexus-backup-' + d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
     + '-' + String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0') + '.json';
   toast('Preparing backup for Google Drive…');
-  buildBackupJson().then(function(json){
+  buildBackupJson().then(maybeEncryptExport).then(function(json){
     var metadata = { name: fname, mimeType: 'application/json' };
     var boundary = 'nexus-boundary-' + Date.now();
     var body =
@@ -564,6 +601,7 @@ function gdriveUploadBackup(){
     toast('Backup saved to Google Drive: ' + fname);
     snapshotVersion('manual backup (Google Drive)');
   }).catch(function(err){
+    if(err && err.message === 'export-cancelled') return; /* already toasted, or silently cancelled */
     toast('Could not save the backup to Google Drive.');
   });
 }
@@ -594,6 +632,15 @@ var GDRIVE_SYNC_FILENAME = 'nexus-sync-state.json';
 var GDRIVE_SYNC_FILEID_KEY = STORAGE_KEY + '_gdrive_sync_fileid';
 var gdriveAutoSyncTimer = null;
 var gdriveAutoPushTimer = null;
+/* Encryption state for the Drive sync file specifically — separate
+   from the local passcode lock's own DEK, which is per-device and
+   can't be shared with another device the way this needs to be. See
+   the big comment above and encryptForPortableStorage() in
+   09-security-lock.js for why. All memory-only; never written to
+   disk, same as the DEK itself. */
+var gdriveSyncPasscode = null;          /* raw passcode, only once confirmed correct, kept for this tab session */
+var gdriveSyncEncryptionDeclined = false; /* person chose plain sync even though a lock is set up */
+var gdriveSyncKeyCache = { salt: null, key: null }; /* memoized derived key so a 200k-iteration KDF isn't redone every tick */
 
 function gdriveAutoSyncEnabled(){
   return typeof currentSettings !== 'undefined' && currentSettings.gdriveAutoSync === 'on';
@@ -640,23 +687,70 @@ function gdriveGetTokenSilently(onReady, onFail){
   catch(e){ onFail && onFail(); }
 }
 
-function gdriveCreateSyncFile(cb){
+/* Only called from an interactive click (enableGdriveAutoSync,
+   gdriveSyncNow) — never from the silent periodic tick — since it may
+   show a confirm()/prompt(). Resolves 'plain', 'encrypted', or
+   'cancelled'. Once resolved 'encrypted' or 'plain' this session, it
+   won't ask again unless the passcode turns out to be wrong. */
+function ensureGdriveSyncMode(){
+  if(!isLockEnabled() || gdriveSyncEncryptionDeclined) return Promise.resolve('plain');
+  if(gdriveSyncPasscode) return Promise.resolve('encrypted');
+  if(!confirm('This notebook has a passcode lock set up.\n\nEncrypt Google Drive sync data with your passcode too?\n\nOK = encrypted (every device you sync with must use this same passcode).\nCancel = keep sync data as plain, readable JSON, same as before.')){
+    gdriveSyncEncryptionDeclined = true;
+    return Promise.resolve('plain');
+  }
+  var passcode = promptForPasscode('Enter your passcode:');
+  if(passcode === null) return Promise.resolve('cancelled');
+  return confirmPasscode(passcode).then(function(ok){
+    if(!ok){ toast('Incorrect passcode.'); return 'cancelled'; }
+    gdriveSyncPasscode = passcode;
+    return 'encrypted';
+  });
+}
+
+function getGdriveSyncKey(salt){
+  if(gdriveSyncKeyCache.salt === salt && gdriveSyncKeyCache.key) return Promise.resolve(gdriveSyncKeyCache.key);
+  return deriveLockKey(gdriveSyncPasscode, salt, PBKDF2_ITERATIONS).then(function(key){
+    gdriveSyncKeyCache = { salt: salt, key: key };
+    return key;
+  });
+}
+
+/* Builds the request body for creating/overwriting the sync file:
+   plain JSON if encryption isn't in play, otherwise the same portable
+   envelope format used by backups. Reuses whatever salt this device
+   last saw for this file so the salt (and therefore the file) stays
+   stable across pushes from any device, rather than a fresh one every
+   write. */
+function buildGdriveSyncBody(){
   deriveOrder(state);
-  var payload = JSON.parse(JSON.stringify(state));
-  var metadata = { name: GDRIVE_SYNC_FILENAME, mimeType: 'application/json' };
-  var boundary = 'nexus-boundary-' + Date.now();
-  var body =
-    '--' + boundary + '\r\n' +
-    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-    JSON.stringify(metadata) + '\r\n' +
-    '--' + boundary + '\r\n' +
-    'Content-Type: application/json\r\n\r\n' +
-    JSON.stringify(payload) + '\r\n' +
-    '--' + boundary + '--';
-  fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + gdriveAccessToken, 'Content-Type': 'multipart/related; boundary=' + boundary },
-    body: body
+  var jsonStr = JSON.stringify(JSON.parse(JSON.stringify(state)));
+  if(!gdriveSyncPasscode) return Promise.resolve(jsonStr);
+  var salt = gdriveSyncKeyCache.salt || randomSaltB64();
+  return getGdriveSyncKey(salt).then(function(key){
+    return encryptWithKey(key, jsonStr).then(function(enc){
+      return JSON.stringify({ nexusEncryptedBackup: true, v: 1, salt: salt, iterations: PBKDF2_ITERATIONS, iv: enc.iv, ct: enc.ct });
+    });
+  });
+}
+
+function gdriveCreateSyncFile(cb){
+  buildGdriveSyncBody().then(function(body){
+    var metadata = { name: GDRIVE_SYNC_FILENAME, mimeType: 'application/json' };
+    var boundary = 'nexus-boundary-' + Date.now();
+    var multipartBody =
+      '--' + boundary + '\r\n' +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify(metadata) + '\r\n' +
+      '--' + boundary + '\r\n' +
+      'Content-Type: application/json\r\n\r\n' +
+      body + '\r\n' +
+      '--' + boundary + '--';
+    return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + gdriveAccessToken, 'Content-Type': 'multipart/related; boundary=' + boundary },
+      body: multipartBody
+    });
   }).then(function(res){
     if(!res.ok) throw new Error('Drive create failed: ' + res.status);
     return res.json();
@@ -687,6 +781,12 @@ function gdriveFindSyncFile(cb, forceRelist){
   }).catch(function(){ cb(null); });
 }
 
+/* Resolves {data, needsPasscode, error}. data is the plain notebook
+   state object (never the raw envelope) once decrypted, or null if
+   there's nothing usable yet. needsPasscode means the remote file is
+   encrypted but this session hasn't confirmed a passcode for it —
+   the caller should show a status, not fail loudly, since this is
+   the normal shape of "just reopened the tab" before a click. */
 function gdrivePullSyncState(fileId){
   return fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
     headers: { 'Authorization': 'Bearer ' + gdriveAccessToken }
@@ -694,17 +794,29 @@ function gdrivePullSyncState(fileId){
     if(!res.ok) throw new Error('Drive fetch failed: ' + res.status);
     return res.text();
   }).then(function(text){
-    try{ return JSON.parse(text); }catch(e){ return null; }
+    var obj;
+    try{ obj = JSON.parse(text); }catch(e){ return {data:null, needsPasscode:false, error:false}; }
+    if(!obj) return {data:null, needsPasscode:false, error:false};
+    if(obj.nexusEncryptedBackup){
+      if(!gdriveSyncPasscode) return {data:null, needsPasscode:true, error:false};
+      return getGdriveSyncKey(obj.salt).then(function(key){
+        return decryptWithKey(key, {iv:obj.iv, ct:obj.ct});
+      }).then(function(plain){
+        try{ return {data: JSON.parse(plain), needsPasscode:false, error:false}; }
+        catch(e){ return {data:null, needsPasscode:false, error:true}; }
+      }).catch(function(){ return {data:null, needsPasscode:false, error:true}; });
+    }
+    return {data: obj, needsPasscode:false, error:false};
   });
 }
 
 function gdrivePushSyncState(fileId){
-  deriveOrder(state);
-  var payload = JSON.parse(JSON.stringify(state));
-  return fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
-    method: 'PATCH',
-    headers: { 'Authorization': 'Bearer ' + gdriveAccessToken, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+  return buildGdriveSyncBody().then(function(body){
+    return fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + gdriveAccessToken, 'Content-Type': 'application/json' },
+      body: body
+    });
   });
 }
 
@@ -716,7 +828,16 @@ function gdrivePerformSyncCycle(){
   if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin()) return;
   gdriveFindSyncFile(function(fileId){
     if(!fileId){ setGdriveAutoSyncStatus('Could not reach the Google Drive sync file — will retry.'); return; }
-    gdrivePullSyncState(fileId).then(function(remote){
+    gdrivePullSyncState(fileId).then(function(result){
+      if(result.needsPasscode){
+        setGdriveAutoSyncStatus('Encrypted sync data found — click "Sync now" to unlock it for this session.');
+        return;
+      }
+      if(result.error){
+        setGdriveAutoSyncStatus('Could not decrypt the Google Drive sync file — check your passcode.');
+        return;
+      }
+      var remote = result.data;
       if(!remote || !remote.pages){
         return gdrivePushSyncState(fileId).then(function(){
           state.syncPeers = state.syncPeers || {};
@@ -726,8 +847,8 @@ function gdrivePerformSyncCycle(){
         });
       }
       var sinceTs = (state.syncPeers && state.syncPeers.gdrive) || null;
-      var result = mergeStates(state, remote, sinceTs);
-      var merged = result.state;
+      var mergeResult = mergeStates(state, remote, sinceTs);
+      var merged = mergeResult.state;
       var changed = JSON.stringify(merged) !== JSON.stringify(state);
       var syncTs = Date.now();
       if(!merged.syncPeers) merged.syncPeers = {};
@@ -740,9 +861,9 @@ function gdrivePerformSyncCycle(){
         state.syncPeers.gdrive = syncTs;
         save({touchEntities:false, recordUndo:false, broadcast:false});
       }
-      if(result.conflicts.length){
-        recordConflicts(result.conflicts, 'Google Drive');
-        toast(result.conflicts.length + (result.conflicts.length === 1 ? ' line conflicted' : ' lines conflicted') +
+      if(mergeResult.conflicts.length){
+        recordConflicts(mergeResult.conflicts, 'Google Drive');
+        toast(mergeResult.conflicts.length + (mergeResult.conflicts.length === 1 ? ' line conflicted' : ' lines conflicted') +
           ' while syncing with Google Drive — see Sync conflicts.');
       }
       return gdrivePushSyncState(fileId).then(function(){
@@ -754,8 +875,11 @@ function gdrivePerformSyncCycle(){
   });
 }
 
-/* The periodic/background path: silent-only, never pops a sign-in
-   window on its own, and does nothing while the setting is off. */
+/* The periodic/background path: silent-only, never pops a sign-in or
+   passcode prompt on its own, and does nothing while the setting is
+   off. If the sync file turns out to be encrypted and this session
+   hasn't unlocked it yet, gdrivePerformSyncCycle just shows a status
+   line asking for a "Sync now" click rather than interrupting. */
 function runGdriveSyncCycle(){
   if(!gdriveAutoSyncEnabled()) return;
   if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin()) return;
@@ -766,24 +890,30 @@ function runGdriveSyncCycle(){
 }
 
 /* The "Sync now" button: a direct click, so an interactive consent
-   popup is fine here even if auto-sync is off or the silent path
-   just failed. */
+   popup (Drive sign-in) and a passcode prompt (encryption) are both
+   fine here even if auto-sync is off or a silent attempt just failed. */
 function gdriveSyncNow(){
   if(!gdriveCredentialsConfigured()){
     alert('Google Drive import/export needs a Client ID and API key from Google Cloud Console first. See the setup notes for this feature.');
     return;
   }
   if(gdriveBlockedByOrigin()) return;
-  setGdriveAutoSyncStatus('Syncing…');
-  gdriveWithToken(gdrivePerformSyncCycle);
+  ensureGdriveSyncMode().then(function(mode){
+    if(mode === 'cancelled') return;
+    setGdriveAutoSyncStatus('Syncing…');
+    gdriveWithToken(gdrivePerformSyncCycle);
+  });
 }
 
 /* Called from broadcastStateToPeers() (10-lan-sync.js) on every local
    save, so edits reach Drive quickly rather than waiting for the next
    polling tick — but only if a token is already live, so this never
-   itself triggers a sign-in prompt. */
+   itself triggers a sign-in or passcode prompt. If encryption is in
+   play but this session hasn't confirmed the passcode yet, this quietly
+   skips (the next "Sync now" or periodic tick picks it up once it has). */
 function scheduleGdriveAutoPush(){
   if(!gdriveAutoSyncEnabled() || !gdriveAccessToken) return;
+  if(isLockEnabled() && !gdriveSyncEncryptionDeclined && !gdriveSyncPasscode) return;
   clearTimeout(gdriveAutoPushTimer);
   gdriveAutoPushTimer = setTimeout(function(){
     var fileId = localStorage.getItem(GDRIVE_SYNC_FILEID_KEY);
@@ -806,20 +936,28 @@ function stopGdriveAutoSyncTimer(){
   clearTimeout(gdriveAutoPushTimer);
 }
 
-/* Entry point for the explicit "On" click — the only place allowed to
-   pop an interactive consent window, since it's a direct response to
-   the person's own click. */
+/* Entry point for the explicit "On" click — the only place (besides
+   Sync now) allowed to pop an interactive consent/passcode prompt,
+   since it's a direct response to the person's own click. */
 function enableGdriveAutoSync(){
   if(!gdriveCredentialsConfigured()){
     alert('Google Drive import/export needs a Client ID and API key from Google Cloud Console first. See the setup notes for this feature.');
     return;
   }
   if(gdriveBlockedByOrigin()) return;
-  setGdriveAutoSyncToggleUI();
-  setGdriveAutoSyncStatus('Connecting…');
-  gdriveWithToken(function(){
-    startGdriveAutoSyncTimer();
-    runGdriveSyncCycle();
+  ensureGdriveSyncMode().then(function(mode){
+    if(mode === 'cancelled'){
+      currentSettings.gdriveAutoSync = 'off';
+      saveSettings(currentSettings);
+      setGdriveAutoSyncToggleUI();
+      return;
+    }
+    setGdriveAutoSyncToggleUI();
+    setGdriveAutoSyncStatus('Connecting…');
+    gdriveWithToken(function(){
+      startGdriveAutoSyncTimer();
+      runGdriveSyncCycle();
+    });
   });
 }
 

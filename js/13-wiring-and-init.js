@@ -97,6 +97,7 @@ document.getElementById('fr-case').addEventListener('change', updateFrPreview);
 document.getElementById('fr-apply').onclick = applyFindReplace;
 document.getElementById('btn-backup').onclick = backup;
 document.getElementById('btn-backup-gdrive').onclick = gdriveStartExport;
+document.getElementById('btn-gdrive-sync-now').onclick = gdriveSyncNow;
 document.getElementById('btn-restore-gdrive').onclick = gdriveStartImport;
 document.getElementById('btn-restore').onclick = function(){
   document.getElementById('restore-input').click();

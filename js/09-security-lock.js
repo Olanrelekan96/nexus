@@ -79,6 +79,41 @@ function clearLockMeta(){
 }
 function isLockEnabled(){ return !!loadLockMeta(); }
 
+/* ---------- Portable encryption for exports/backups/sync ----------
+   The everyday DEK (lockCryptoKey) is randomly generated once per
+   device and never leaves it, so it can't be used for anything meant
+   to be opened elsewhere (a downloaded backup file, a Drive file read
+   by a second device). Those need a key any device can re-derive
+   independently — from the one secret the person actually carries
+   between devices, their passcode — plus a random salt stored right
+   alongside the ciphertext (salts aren't secret, only the passcode
+   is). confirmPasscode() checks it against the local lock's verifier
+   first, so a mistyped passcode is caught immediately rather than
+   silently producing a backup nobody can ever decrypt. */
+function confirmPasscode(passcode){
+  return tryUnlock(passcode).then(function(res){ return !!res.ok; });
+}
+function encryptForPortableStorage(jsonString, passcode){
+  var salt = randomSaltB64();
+  return deriveLockKey(passcode, salt, PBKDF2_ITERATIONS).then(function(key){
+    return encryptWithKey(key, jsonString).then(function(enc){
+      return JSON.stringify({ nexusEncryptedBackup: true, v: 1, salt: salt, iterations: PBKDF2_ITERATIONS, iv: enc.iv, ct: enc.ct });
+    });
+  });
+}
+function decryptPortableStorage(envelope, passcode){
+  return deriveLockKey(passcode, envelope.salt, envelope.iterations).then(function(key){
+    return decryptWithKey(key, {iv: envelope.iv, ct: envelope.ct});
+  });
+}
+/* Visible-while-typing is a known trade-off of the browser's native
+   prompt() — fine for an occasional "type this to encrypt/decrypt a
+   backup" moment, not a replacement for the masked lock-screen input
+   used for everyday unlocking. Returns null if cancelled. */
+function promptForPasscode(message){
+  return window.prompt(message);
+}
+
 /* ArrayBuffer <-> base64 helpers used throughout the lock/encryption code. */
 function bufToB64(buf){
   var bytes = new Uint8Array(buf);
