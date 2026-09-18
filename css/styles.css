@@ -1717,3 +1717,102 @@ button.task-chip{ cursor:pointer; font-family:var(--sans); }
   .tasks-board{ flex-direction:column; }
   .tasks-board .task-group{ flex:1 1 auto; width:100%; }
 }
+
+/* ============================================================
+   16-advanced-database.js — formulas, ratings, colored chips,
+   saved view tabs, aggregate footer, inline cell editing.
+   ============================================================ */
+
+/* Deterministic colored chips (select / multi-select / relation
+   values, wherever they're shown outside the property panel's plain
+   text inputs). Light/slate/sepia set; dark theme overrides below. */
+.adv-chip{
+  display:inline-block; border-radius:10px; padding:0 8px; margin:1px 4px 1px 0;
+  font-size:0.75rem; line-height:1.6; white-space:nowrap;
+}
+.adv-chip-group{ display:inline-flex; flex-wrap:wrap; gap:0; }
+.adv-chip-0{ background:hsl(4,62%,90%);  color:hsl(4,55%,32%); }
+.adv-chip-1{ background:hsl(28,70%,88%); color:hsl(28,60%,30%); }
+.adv-chip-2{ background:hsl(48,70%,86%); color:hsl(45,55%,28%); }
+.adv-chip-3{ background:hsl(100,45%,88%);color:hsl(100,40%,26%); }
+.adv-chip-4{ background:hsl(160,45%,87%);color:hsl(160,45%,25%); }
+.adv-chip-5{ background:hsl(195,55%,88%);color:hsl(195,55%,28%); }
+.adv-chip-6{ background:hsl(230,55%,91%);color:hsl(230,50%,38%); }
+.adv-chip-7{ background:hsl(280,45%,91%);color:hsl(280,40%,36%); }
+:root[data-theme="dark"] .adv-chip-0{ background:hsl(4,35%,24%);  color:hsl(4,70%,80%); }
+:root[data-theme="dark"] .adv-chip-1{ background:hsl(28,38%,22%); color:hsl(28,70%,78%); }
+:root[data-theme="dark"] .adv-chip-2{ background:hsl(48,38%,20%); color:hsl(48,70%,76%); }
+:root[data-theme="dark"] .adv-chip-3{ background:hsl(100,28%,20%);color:hsl(100,50%,76%); }
+:root[data-theme="dark"] .adv-chip-4{ background:hsl(160,30%,18%);color:hsl(160,50%,76%); }
+:root[data-theme="dark"] .adv-chip-5{ background:hsl(195,35%,20%);color:hsl(195,65%,80%); }
+:root[data-theme="dark"] .adv-chip-6{ background:hsl(230,35%,26%);color:hsl(230,70%,84%); }
+:root[data-theme="dark"] .adv-chip-7{ background:hsl(280,30%,24%);color:hsl(280,55%,84%); }
+a.adv-chip.link{ cursor:pointer; }
+
+/* Ratings — used both in the property panel and inline in cells */
+.adv-rating{ display:inline-flex; gap:1px; white-space:nowrap; }
+.adv-star{ color:var(--ink-soft); font-size:0.9375rem; line-height:1; }
+.adv-star.filled{ color:var(--tag); }
+.adv-star.interactive{ cursor:pointer; }
+.adv-star.interactive:hover{ transform:scale(1.15); }
+
+/* Number format select next to the number property input */
+.prop-fmt-sel{ background:none; border:1px solid var(--border); border-radius:5px; color:var(--ink-soft); font-size:0.6875rem; font-family:var(--sans); padding:1px 3px; }
+
+/* Checkbox glyph used in read-only rich display */
+.adv-check{ font-size:0.9375rem; color:var(--ink-soft); }
+.adv-check.checked{ color:var(--focus); }
+
+/* Inline cell editors inside database table/board/gallery views */
+.adv-cell{ padding:2px 8px !important; }
+.adv-cell-input{
+  width:100%; min-width:64px; border:1px solid transparent; border-radius:4px; background:none;
+  font-family:var(--sans); font-size:0.8125rem; color:var(--ink); padding:2px 4px; outline:none;
+}
+.adv-cell-input:hover{ border-color:var(--border); }
+.adv-cell-input:focus{ border-color:var(--focus); background:var(--paper); }
+input.adv-cell-checkbox{ cursor:pointer; }
+.adv-cell-readonly{ color:var(--ink-soft); font-size:0.8125rem; font-style:italic; }
+.adv-clicktoedit{ display:inline-block; min-height:1.3em; cursor:pointer; padding:1px 2px; border-radius:4px; }
+.adv-clicktoedit:hover{ background:var(--paper); }
+.adv-cell-empty{ color:var(--ink-soft); }
+.adv-chip-group:empty::before{ content:'—'; color:var(--ink-soft); }
+.adv-card-meta{ display:flex; align-items:center; gap:3px; }
+.adv-card-meta-label{ color:var(--ink-soft); flex-shrink:0; }
+.adv-card-meta .adv-cell-input{ font-size:0.6875rem; padding:1px 3px; }
+
+/* Aggregate footer row on table-view databases */
+tr.query-table-foot td{ border-top:2px solid var(--border); border-bottom:none; padding-top:6px; }
+.adv-agg-rowcount{ color:var(--ink-soft); font-size:0.6875rem; font-style:italic; white-space:nowrap; }
+.adv-agg-cell{ display:table-cell; }
+.adv-agg-select{
+  background:none; border:none; color:var(--ink-soft); font-size:0.625rem; font-family:var(--sans);
+  cursor:pointer; padding:0; margin-right:4px;
+}
+.adv-agg-result{ font-weight:700; font-size:0.75rem; color:var(--ink); }
+
+/* Saved-view tab bar above a database embed */
+.db-view-tabs{ display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin:-2px 0 10px; }
+.db-view-tab{
+  display:flex; align-items:center; gap:5px; padding:3px 9px; border-radius:6px 6px 0 0;
+  font-size:0.75rem; color:var(--ink-soft); cursor:pointer; border:1px solid transparent; border-bottom:2px solid transparent;
+}
+.db-view-tab:hover{ background:var(--paper); color:var(--ink); }
+.db-view-tab.active{ color:var(--ink); border-bottom-color:var(--focus); background:var(--paper); font-weight:600; }
+.db-view-tab-label{ outline:none; }
+.db-view-tab-label[contenteditable="true"]{ border-bottom:1px dotted var(--ink-soft); }
+.db-view-tab-close{ color:var(--ink-soft); font-size:0.6875rem; opacity:.6; }
+.db-view-tab-close:hover{ opacity:1; color:var(--danger); }
+.db-view-add-wrap{ position:relative; }
+.db-view-add-btn{
+  border:1px dashed var(--border); background:none; color:var(--ink-soft); border-radius:6px;
+  padding:3px 9px; font-size:0.75rem; cursor:pointer; font-family:var(--sans);
+}
+.db-view-add-btn:hover{ color:var(--focus); border-color:var(--focus); }
+.db-view-add-menu{
+  position:absolute; top:100%; left:0; margin-top:3px; z-index:20; min-width:120px;
+  background:var(--paper-raised); border:1px solid var(--border); border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.18); padding:4px; display:flex; flex-direction:column; gap:1px;
+}
+.db-view-add-item{ padding:5px 9px; border-radius:5px; font-size:0.8125rem; color:var(--ink); cursor:pointer; white-space:nowrap; }
+.db-view-add-item:hover{ background:var(--link-bg); color:var(--focus); }

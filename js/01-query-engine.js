@@ -71,8 +71,8 @@ function anyRefMatches(group, haystackLower){
    than being mistaken for property filters. Only ever used for table
    (database) blocks — {{query: ...}} block queries are unaffected. */
 function extractTableDirectives(qstr){
-  var dirs = {view:'table', sort:'', sortDesc:false, group:'', cols:null};
-  var remainder = (qstr||'').replace(/(^|\s)(view|sort|group|cols):(\S+)/gi, function(full, pre, key, val){
+  var dirs = {view:'table', sort:'', sortDesc:false, group:'', cols:null, agg:{}};
+  var remainder = (qstr||'').replace(/(^|\s)(view|sort|group|cols|agg):(\S+)/gi, function(full, pre, key, val){
     key = key.toLowerCase();
     if(key === 'view'){
       var v = val.toLowerCase();
@@ -87,6 +87,12 @@ function extractTableDirectives(qstr){
       dirs.group = val;
     } else if(key === 'cols'){
       dirs.cols = val.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    } else if(key === 'agg'){
+      dirs.agg = {};
+      val.split(',').forEach(function(pair){
+        var kv = pair.split('=');
+        if(kv.length === 2 && kv[0]) dirs.agg[kv[0]] = kv[1];
+      });
     }
     return pre;
   }).trim();
@@ -186,9 +192,10 @@ function renderQueryWidget(container, kind, qstr, blockId){
   var head = document.createElement('div');
   head.className = 'query-embed-head';
   var headLabel = kind === 'table' ? '▤ Database' : '⌕ Query';
+  var effectiveDirs = null; /* the dirs actually driving this render — from a saved view when one is active, else parsed straight from qstr */
   if(kind === 'table'){
-    var hdirs = extractTableDirectives(qstr).dirs;
-    if(hdirs.view !== 'table') headLabel += ' (' + hdirs.view + ')';
+    effectiveDirs = activeDbViewDirs(blockId, qstr);
+    if(effectiveDirs.view !== 'table') headLabel += ' (' + effectiveDirs.view + ')';
   }
   head.textContent = headLabel + (qstr ? ': ' + qstr : ' (all)');
   var editBtn = document.createElement('button');
@@ -199,9 +206,11 @@ function renderQueryWidget(container, kind, qstr, blockId){
   head.appendChild(editBtn);
   box.appendChild(head);
 
+  if(kind === 'table') renderDbViewTabsBar(box, blockId);
+
   if(kind === 'table'){
     var parsed = extractTableDirectives(qstr);
-    var dirs = parsed.dirs;
+    var dirs = effectiveDirs;
     var pages = runTableQuery(parsed.remainder);
     pages = dirs.sort ? sortPages(pages, dirs.sort, dirs.sortDesc) : sortPages(pages, 'title', false);
     if(!pages.length){
@@ -243,10 +252,12 @@ function renderQueryWidget(container, kind, qstr, blockId){
             title.appendChild(pageLink(p));
             card.appendChild(title);
             propKeys.filter(function(k){ return k.toLowerCase() !== groupKey.toLowerCase(); }).forEach(function(k){
-              var v = pagePropValue(p, k);
-              if(!v) return;
-              var meta = document.createElement('div'); meta.className = 'query-card-meta';
-              meta.textContent = k + ': ' + v;
+              var pp = getPagePropObj(p, k);
+              if(!pp || pp.value === '') return;
+              var meta = document.createElement('div'); meta.className = 'query-card-meta adv-card-meta';
+              var lbl = document.createElement('span'); lbl.className = 'adv-card-meta-label'; lbl.textContent = k + ': ';
+              meta.appendChild(lbl);
+              meta.appendChild(buildInlineCellEditor(p, k, pp.type, function(){ renderPage(); }));
               card.appendChild(meta);
             });
             col.appendChild(card);
@@ -262,10 +273,12 @@ function renderQueryWidget(container, kind, qstr, blockId){
           title.appendChild(pageLink(p));
           card.appendChild(title);
           propKeys.forEach(function(k){
-            var v = pagePropValue(p, k);
-            if(!v) return;
-            var meta = document.createElement('div'); meta.className = 'query-card-meta';
-            meta.textContent = k + ': ' + v;
+            var pp = getPagePropObj(p, k);
+            if(!pp || pp.value === '') return;
+            var meta = document.createElement('div'); meta.className = 'query-card-meta adv-card-meta';
+            var lbl = document.createElement('span'); lbl.className = 'adv-card-meta-label'; lbl.textContent = k + ': ';
+            meta.appendChild(lbl);
+            meta.appendChild(buildInlineCellEditor(p, k, pp.type, function(){ renderPage(); }));
             card.appendChild(meta);
           });
           gallery.appendChild(card);
@@ -413,8 +426,9 @@ function renderQueryWidget(container, kind, qstr, blockId){
           var td0 = document.createElement('td');
           td0.appendChild(pageLink(p)); tr.appendChild(td0);
           propKeys.forEach(function(k){
-            var td = document.createElement('td');
-            td.textContent = pagePropValue(p, k);
+            var td = document.createElement('td'); td.className = 'adv-cell';
+            var colType = inferColumnType(pages, k);
+            td.appendChild(buildInlineCellEditor(p, k, colType, function(){ renderPage(); }));
             tr.appendChild(td);
           });
           table.appendChild(tr);
@@ -423,6 +437,7 @@ function renderQueryWidget(container, kind, qstr, blockId){
           r.cb.checked = !!selected[r.p.id];
         });
         selAllCb.checked = rows.length > 0 && rows.every(function(r){ return r.cb.checked; });
+        appendAggregateFooterRow(table, propKeys, pages, dirs, blockId, pagePropValue);
 
         selAllCb.addEventListener('change', function(){
           rows.forEach(function(r){
@@ -758,6 +773,13 @@ function buildDirectivesStr(v){
   if((v.view === 'board' || v.view === 'calendar') && v.group) parts.push('group:' + v.group.replace(/\s/g, ''));
   if(v.sort) parts.push('sort:' + (v.sortDesc ? '-' : '') + v.sort.replace(/\s/g, ''));
   if(v.cols && v.cols.length) parts.push('cols:' + v.cols.join(','));
+  if(v.agg){
+    var aggParts = [];
+    Object.keys(v.agg).forEach(function(k){
+      if(v.agg[k] && v.agg[k] !== 'none') aggParts.push(k.replace(/[\s,=]/g, '') + '=' + v.agg[k]);
+    });
+    if(aggParts.length) parts.push('agg:' + aggParts.join(','));
+  }
   return parts.join(' ');
 }
 
@@ -838,7 +860,18 @@ function openQueryBuilder(kind, targetBlockId, existingQstr){
   qbTargetBlockId = targetBlockId || null;
   if(kind === 'table'){
     var parsed = extractTableDirectives(existingQstr || '');
-    qbView = parsed.dirs;
+    var qbBlock = targetBlockId ? state.blocks[targetBlockId] : null;
+    if(qbBlock && Array.isArray(qbBlock.dbViews) && qbBlock.dbViews.length){
+      /* This database has saved views (see js/16-advanced-database.js) —
+         edit the active one's own dirs object directly (by reference)
+         rather than the now-vestigial directives in the raw text, so
+         View/Sort/Columns changes made here land where the tab bar
+         actually reads them from. */
+      var qbActiveView = qbBlock.dbViews.filter(function(v){ return v.id === qbBlock.dbActiveViewId; })[0] || qbBlock.dbViews[0];
+      qbView = qbActiveView.dirs;
+    } else {
+      qbView = parsed.dirs;
+    }
     qbFilters = qstrToFilters(parsed.remainder);
   } else {
     qbView = null;
@@ -883,7 +916,13 @@ document.getElementById('qb-add-filter').onclick = function(){
 document.getElementById('qb-cancel').onclick = closeQueryBuilder;
 document.getElementById('qb-save').onclick = function(){
   var filterStr = filtersToQstr(qbFilters);
-  var qstr = (qbKind === 'table') ? [buildDirectivesStr(qbView), filterStr].filter(Boolean).join(' ').trim() : filterStr;
+  var qbBlockOnSave = qbTargetBlockId ? state.blocks[qbTargetBlockId] : null;
+  var qbUsesSavedViews = qbKind === 'table' && qbBlockOnSave && Array.isArray(qbBlockOnSave.dbViews) && qbBlockOnSave.dbViews.length;
+  /* When a saved view is being edited, qbView already *is* that view's
+     dirs object (see openQueryBuilder above) and every control above
+     mutated it live, so there's nothing left to fold into the text —
+     the text only needs to carry the filters. */
+  var qstr = (qbKind === 'table' && !qbUsesSavedViews) ? [buildDirectivesStr(qbView), filterStr].filter(Boolean).join(' ').trim() : filterStr;
   if(qbTargetBlockId) updateQueryBlockFinal(qbTargetBlockId, qbKind, qstr);
   else insertQueryBlockFinal(qbKind, qstr);
   closeQueryBuilder();

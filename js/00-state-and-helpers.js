@@ -135,10 +135,12 @@ function ensureDocsPage(){
 
   section("Properties", [
     "Click ＋ Add property, just under a page's title, to attach structured key: value metadata — for example status: in progress or author: Jane.",
-    "Hover a property row to reveal a small type menu (Text, Number, Date, Checkbox, Select, Multi-select, Relation, Rollup) next to the key, and a ✕ for deleting the row.",
-    "Number gives you a numeric field, Date a real date picker, Checkbox a tickbox, and Select/Multi-select suggest values already used elsewhere for that property so you stay consistent instead of retyping variants.",
+    "Hover a property row to reveal a small type menu (Text, Number, Date, Checkbox, Select, Multi-select, Rating, Relation, Rollup, Formula) next to the key, and a ✕ for deleting the row.",
+    "Number gives you a numeric field, Date a real date picker, Checkbox a tickbox, and Select/Multi-select suggest values already used elsewhere for that property so you stay consistent instead of retyping variants. Select and multi-select values are also colored automatically — the same text is always the same color, nothing to configure.",
+    "Number has a display format too (plain, rounded, $123.00, or 123%), shown as a small preview next to the field. Rating is a click-to-set row of five stars — click the current value again to clear it.",
     "Relation links this page to other pages by title — its chips are clickable, and any page it points at lists this one back under Related pages, below Linked references.",
     "Rollup is read-only: pick one of this page's own Relation properties, a property to pull from each page it points to, and how to combine them (list, count, sum, average, min, max) — it recalculates the instant any property changes in this notebook, not just when you reopen the page.",
+    "Formula is also read-only: type an expression using other properties on the same page, e.g. Price * Qty or {Total Price} * 1.1 (use braces for a key with spaces), with round/abs/floor/ceil/sqrt/min/max available — it recomputes on every change, just like a rollup.",
     "Properties are what power {{table: ...}} database views, described below."
   ]);
 
@@ -168,7 +170,10 @@ function ensureDocsPage(){
   section("Database views", [
     "Click ▤ Insert database in the sidebar to open the same builder for pages instead of lines — the result lists every matching page as a table, using each page's properties as columns, a lightweight always-current database with no code involved.",
     "The builder also has View, Sort, and Columns controls: switch to Board to group pages into columns by a property (like a kanban board), or Gallery for a card grid; sort by title or any property, ascending or descending; and optionally pick exactly which properties show up instead of showing every one used.",
-    "Click an existing database view to reopen the builder pre-filled with its filters and view settings, or use its ✎ raw link to edit the {{table: view:board group:status sort:-due cols:status,due ...}} text directly."
+    "Click an existing database view to reopen the builder pre-filled with its filters and view settings, or use its ✎ raw link to edit the {{table: view:board group:status sort:-due cols:status,due ...}} text directly.",
+    "Cells are editable right there — click a checkbox, star, date, or a select/multi-select/relation chip to change it, without opening the page. Relation chips still navigate normally when clicked.",
+    "A table view gets a totals row at the bottom: pick Count, Sum, Average, Min, or Max per column from the small dropdown in its footer cell.",
+    "Use \"+ view\" above any database to add another view of the exact same filters — a Board alongside your Table, say — switchable with tabs. Double-click a tab to rename it; ✕ removes it once there's more than one."
   ]);
 
   section("Block sync (block references)", [

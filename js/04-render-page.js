@@ -61,6 +61,7 @@ function renderPage(){
     : 'Switch to a continuous document view for longform writing';
 
   recomputeAllRollups();
+  recomputeAllFormulas();
   renderProperties(page);
   renderOutline(page);
   renderBacklinks(page);
@@ -83,7 +84,7 @@ function updateEditDock(){
 var PROP_TYPES = [
   ['text','Text'], ['number','Number'], ['date','Date'],
   ['checkbox','Checkbox'], ['select','Select'], ['multiselect','Multi-select'],
-  ['relation','Relation'], ['rollup','Rollup']
+  ['rating','Rating'], ['relation','Relation'], ['rollup','Rollup'], ['formula','Formula']
 ];
 
 /* ---- Relations & rollups ----
@@ -134,6 +135,7 @@ function recomputeAllRollups(){
 
 function renderProperties(page){
   recomputeAllRollups(); /* keeps every rollup fresh whenever this panel redraws, not just on full page loads */
+  recomputeAllFormulas(); /* same, for formula properties */
   var wrap = document.getElementById('properties');
   wrap.innerHTML = "";
   if(!page.properties.length){ wrap.style.display='none'; }
@@ -157,6 +159,8 @@ function renderProperties(page){
     typeSel.onchange = function(){
       prop.type = typeSel.value;
       if(prop.type === 'checkbox' && prop.value !== 'true' && prop.value !== 'false') prop.value = 'false';
+      if(prop.type === 'rating' && !/^[0-5]$/.test(prop.value)) prop.value = '0';
+      if(prop.type === 'formula' && prop.formula === undefined) prop.formula = '';
       save(); renderProperties(page);
     };
     row.appendChild(typeSel);
@@ -164,9 +168,38 @@ function renderProperties(page){
     if(prop.type === 'number'){
       var numInput = document.createElement('input'); numInput.type = 'number'; numInput.className = 'prop-val-input';
       numInput.value = prop.value; numInput.step = 'any';
-      numInput.oninput = function(){ prop.value = numInput.value; save(); };
+      numInput.oninput = function(){ prop.value = numInput.value; save(); numFmtPreview.textContent = formatNumberForDisplay(prop.value, prop.numFormat); };
       numInput.onblur = function(){ renderProperties(page); };
       row.appendChild(numInput);
+      var fmtSel = document.createElement('select'); fmtSel.className = 'prop-fmt-sel'; fmtSel.title = 'Number format';
+      fmtSel.style.flex = '0 0 auto';
+      [['plain','123'],['integer','123 (rounded)'],['currency','$123.00'],['percent','123%']].forEach(function(o){
+        var opt = document.createElement('option'); opt.value = o[0]; opt.textContent = o[1];
+        if((prop.numFormat || 'plain') === o[0]) opt.selected = true;
+        fmtSel.appendChild(opt);
+      });
+      fmtSel.onchange = function(){ prop.numFormat = fmtSel.value; save(); renderProperties(page); };
+      row.appendChild(fmtSel);
+      var numFmtPreview = document.createElement('span'); numFmtPreview.className = 'prop-val'; numFmtPreview.style.cssText = 'flex:0 0 auto; color:var(--ink-soft);';
+      numFmtPreview.textContent = (prop.numFormat && prop.numFormat !== 'plain') ? formatNumberForDisplay(prop.value, prop.numFormat) : '';
+      row.appendChild(numFmtPreview);
+    } else if(prop.type === 'rating'){
+      row.appendChild(renderRatingStars(prop.value, function(v){ prop.value = String(v); save(); renderProperties(page); }));
+    } else if(prop.type === 'formula'){
+      row.style.flexWrap = 'wrap';
+      var fxInput = document.createElement('input'); fxInput.type = 'text'; fxInput.className = 'prop-val-input';
+      fxInput.placeholder = 'e.g. Price * Qty, or {Total Price} * 1.1';
+      fxInput.value = prop.formula || '';
+      fxInput.oninput = function(){
+        prop.formula = fxInput.value;
+        prop.value = computeFormulaValue(page, prop.formula);
+        save();
+        fxResult.textContent = '= ' + (prop.value || '—');
+      };
+      row.appendChild(fxInput);
+      var fxResult = document.createElement('span'); fxResult.className = 'prop-val'; fxResult.style.color = 'var(--ink-soft)';
+      fxResult.textContent = '= ' + (prop.value || '—');
+      row.appendChild(fxResult);
     } else if(prop.type === 'date'){
       var dateInput = document.createElement('input'); dateInput.type = 'date'; dateInput.className = 'prop-val-input';
       dateInput.value = /^\d{4}-\d{2}-\d{2}$/.test(prop.value) ? prop.value : '';
@@ -195,8 +228,7 @@ function renderProperties(page){
     } else if(prop.type === 'multiselect'){
       var chips = document.createElement('div'); chips.className = 'prop-chips';
       (prop.value || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean).forEach(function(v){
-        var chip = document.createElement('span'); chip.className = 'prop-chip'; chip.textContent = v;
-        chips.appendChild(chip);
+        chips.appendChild(makeChip(v, 'prop-chip'));
       });
       chips.tabIndex = 0;
       chips.onclick = function(){
