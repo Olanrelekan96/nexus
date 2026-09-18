@@ -164,8 +164,12 @@ document.addEventListener('keydown', function(e){
   if((e.key === 'k' || e.key === 'K') && isMod){
     e.preventDefault();
     openPalette();
+  } else if((e.key === 'f' || e.key === 'F') && isMod && e.shiftKey){
+    e.preventDefault();
+    openGlobalSearch();
   } else if(e.key === 'Escape'){
     closePalette();
+    closeGlobalSearch();
     closeVersions();
     closeVersionDiff();
     closeSettings();

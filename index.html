@@ -36,6 +36,7 @@
     <button class="side-btn" id="btn-today">📅 Today's note</button>
     <button class="side-btn" id="btn-new-page">＋ New page</button>
     <button class="side-btn" id="btn-help">📖 Help &amp; tutorial</button>
+    <button class="side-btn" id="btn-global-search">🔎 Search all notes <span class="side-btn-hint">⌘⇧F</span></button>
     <button class="side-btn" id="btn-graph">◎ Graph view</button>
     <button class="side-btn" id="btn-tasks">☑ Tasks</button>
     <button class="side-btn" id="btn-insert-query">⌕ Insert query</button>
@@ -76,7 +77,7 @@
       <ul class="page-list" id="list-trash"></ul>
     </div>
     <div class="side-section" id="search-matches-section" style="display:none;">
-      <div class="side-label"><span>Matching lines</span></div>
+      <div class="side-label"><span>Matching lines</span><button id="search-matches-expand" title="Open in full search">expand ⤢</button></div>
       <ul class="page-list" id="list-block-matches"></ul>
     </div>
 
@@ -241,6 +242,18 @@
   <div id="palette">
     <input id="palette-input" placeholder="Jump to a page or line, or type to create a page…" autocomplete="off" title="Also takes #tag, is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;">
     <div id="palette-results"></div>
+  </div>
+</div>
+
+<div id="gs-overlay">
+  <div id="gs-modal">
+    <div id="gs-head">
+      <span id="gs-head-icon">🔎</span>
+      <input id="gs-input" placeholder="Search every page and line…" autocomplete="off" title="Also takes #tag, [[Page]], is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;">
+      <button id="gs-close" title="Close" aria-label="Close search">✕</button>
+    </div>
+    <div id="gs-count"></div>
+    <div id="gs-results"></div>
   </div>
 </div>
 
@@ -596,6 +609,7 @@
 <script src="js/15-task-manager.js"></script>
 <script src="js/16-advanced-database.js"></script>
 <script src="js/17-advanced-search.js"></script>
+<script src="js/18-global-search.js"></script>
 <script src="js/14-wiring-and-init.js"></script>
 </body>
 </html>
