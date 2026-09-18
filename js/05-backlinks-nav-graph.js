@@ -99,11 +99,10 @@ function renderPaletteResults(q){
   results.innerHTML = "";
   var qTrim = q.trim();
   var pages = livePages();
-  var pageMatches = pages.map(function(p){ return {p:p, score: fuzzyMatchScore(q, p.title)}; })
-                      .filter(function(x){ return x.score > 0; })
-                      .sort(function(a,b){ return b.score - a.score || a.p.title.localeCompare(b.p.title); })
-                      .slice(0,6)
-                      .map(function(x){ return x.p; });
+  /* Same advanced operators as the sidebar search box (#tag, is:,
+     has:, due:, /regex/, "OR", etc. — see 17-advanced-search.js);
+     plain text still ranks exactly as it did before. */
+  var pageMatches = rankPages(pages, q).slice(0,6).map(function(x){ return x.item; });
   var items = pageMatches.map(function(p){
     return {label:p.title, sub:p.type, action:function(){ openPage(p.id); }};
   });

@@ -226,8 +226,15 @@ function tasksSortComparator(mode){
   };
 }
 
+/* The search box above the board takes the same advanced syntax as
+   the sidebar search and {{query:}} (see 17-advanced-search.js) —
+   #tag, page:, priority:, due:/before:/after:, is:overdue, /regex/,
+   "OR", and so on — AND'd together with whatever the dropdowns above
+   are set to. A plain word or phrase with no operators still just
+   fuzzy-matches the task's text/page exactly as the old filter did. */
 function filterTasks(all){
-  var q = tasksViewState.query.trim().toLowerCase();
+  var qstr = tasksViewState.query.trim();
+  var parsed = parseAdvancedQuery(qstr);
   return all.filter(function(t){
     if(tasksViewState.status === 'open' && t.done) return false;
     if(tasksViewState.status === 'done' && !t.done) return false;
@@ -236,7 +243,7 @@ function filterTasks(all){
     }
     if(tasksViewState.page !== 'all' && t.pageId !== tasksViewState.page) return false;
     if(tasksViewState.tag !== 'all' && t.tags.indexOf(tasksViewState.tag) === -1) return false;
-    if(q && t.text.toLowerCase().indexOf(q) === -1 && t.pageTitle.toLowerCase().indexOf(q) === -1) return false;
+    if(qstr && !matchAdvancedQuery(parsed, searchRecordForTask(t)).match) return false;
     return true;
   }).sort(tasksSortComparator(tasksViewState.sort));
 }

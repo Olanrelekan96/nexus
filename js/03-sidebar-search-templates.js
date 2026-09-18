@@ -85,14 +85,7 @@ function fuzzyMatchScore(query, text){
    are unaffected. */
 function filterAndRank(list, filter, keyFn){
   if(!filter) return list;
-  var scored = list.map(function(item){
-    return {item:item, score: fuzzyMatchScore(filter, keyFn(item))};
-  }).filter(function(x){ return x.score > 0; });
-  scored.sort(function(a,b){
-    if(b.score !== a.score) return b.score - a.score;
-    return keyFn(a.item).localeCompare(keyFn(b.item));
-  });
-  return scored.map(function(x){ return x.item; });
+  return rankPages(list, filter, keyFn).map(function(x){ return x.item; });
 }
 
 /* ============================================================
@@ -464,18 +457,23 @@ function deleteAttachmentRecord(id){
 }
 
 /* Full-text search over line content (not just page titles). */
+/* Same operator syntax as everywhere else (#tag, [[Page]], key:value,
+   is:/has:/due:/before:/after:/priority:, /regex/, "OR" — see
+   17-advanced-search.js). A plain word or phrase with no operators
+   still just fuzzy-matches the line's text exactly as before. */
 function findMatchingBlocks(q, limit){
   q = (q||"").trim();
   if(!q) return [];
+  var parsed = parseAdvancedQuery(q);
   var out = [];
   Object.keys(state.blocks).forEach(function(id){
     var b = state.blocks[id];
     if(!b.text) return;
-    var score = fuzzyMatchScore(q, b.text);
-    if(score <= 0) return;
     var page = state.pages[b.pageId];
     if(!page || page.trashedAt) return;
-    out.push({block:b, page:page, score:score});
+    var res = matchAdvancedQuery(parsed, searchRecordForBlock(b, page));
+    if(!res.match) return;
+    out.push({block:b, page:page, score:res.score});
   });
   out.sort(function(a,b){ return b.score - a.score || a.page.title.localeCompare(b.page.title); });
   return limit ? out.slice(0, limit) : out;

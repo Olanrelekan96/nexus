@@ -31,7 +31,7 @@
       <div class="brand">Nexus<small>Knowledge OS · works offline</small></div>
       <button id="collapse-btn" title="Collapse sidebar" aria-label="Collapse sidebar">«</button>
     </div>
-    <input id="search-box" type="text" placeholder="Search or jump to… (⌘K)" aria-label="Search or jump to a page">
+    <input id="search-box" type="text" placeholder="Search or jump to… (⌘K)" aria-label="Search or jump to a page" title="Also takes #tag, [[Page]], key:value, is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;">
 
     <button class="side-btn" id="btn-today">📅 Today's note</button>
     <button class="side-btn" id="btn-new-page">＋ New page</button>
@@ -199,7 +199,7 @@
         <button id="tasks-quickadd-btn" type="button">Add</button>
       </div>
       <div class="tasks-controls">
-        <input id="tasks-search" type="text" placeholder="Filter by text or page…" aria-label="Filter tasks">
+        <input id="tasks-search" type="text" placeholder="Filter by text or page… (or #tag, priority:high, due:overdue, before:friday…)" aria-label="Filter tasks" title="Also takes #tag, page:, priority:, due:/before:/after:, is:overdue, /regex/, and &quot;a OR b&quot;">
         <select id="tasks-status" aria-label="Status">
           <option value="open">Open</option>
           <option value="done">Done</option>
@@ -239,7 +239,7 @@
 
 <div id="palette-overlay">
   <div id="palette">
-    <input id="palette-input" placeholder="Jump to a page or line, or type to create a page…" autocomplete="off">
+    <input id="palette-input" placeholder="Jump to a page or line, or type to create a page…" autocomplete="off" title="Also takes #tag, is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;">
     <div id="palette-results"></div>
   </div>
 </div>
@@ -595,6 +595,7 @@
 <script src="js/13a-locks-and-sidebar.js"></script>
 <script src="js/15-task-manager.js"></script>
 <script src="js/16-advanced-database.js"></script>
+<script src="js/17-advanced-search.js"></script>
 <script src="js/14-wiring-and-init.js"></script>
 </body>
 </html>

@@ -115,32 +115,24 @@ function sortPages(pages, sortKey, desc){
   });
 }
 
-/* Blocks matching every filter — used by {{query: ...}} */
+/* Blocks matching every filter — used by {{query: ...}}.
+   The actual filter parsing/matching (including everything from
+   17-advanced-search.js: is:/has:/due:/before:/after:/priority:,
+   comparisons, regex, and "OR") lives in parseAdvancedQuery /
+   matchAdvancedQuery — this just builds one record per block and
+   asks whether it matches. Plain #tag / [[Page]] / key:value / text
+   queries (the only kind parseQueryFilters ever produced) behave
+   exactly as before; the query-builder popup still reads/writes that
+   original simple shape via parseQueryFilters below, unaffected. */
 function runBlockQuery(qstr){
-  var filters = parseQueryFilters(qstr);
+  var parsed = parseAdvancedQuery(qstr);
   var results = [];
   Object.keys(state.blocks).forEach(function(id){
     var blk = state.blocks[id];
     if(!blk.text || QUERY_BLOCK_RE.test(blk.text)) return;
     var page = state.pages[blk.pageId];
     if(!page || page.trashedAt) return;
-    var refTitlesLower = extractRefs(blk.text).map(function(r){ return r.title.toLowerCase(); });
-    var i, has;
-    for(i=0;i<filters.tags.length;i++){
-      has = anyRefMatches(filters.tags[i], refTitlesLower);
-      if(filters.tags[i].negate ? has : !has) return;
-    }
-    for(i=0;i<filters.pages.length;i++){
-      has = anyRefMatches(filters.pages[i], refTitlesLower);
-      if(filters.pages[i].negate ? has : !has) return;
-    }
-    for(i=0;i<filters.text.length;i++){
-      var tf = filters.text[i];
-      has = tf.values.some(function(v){ return blk.text.toLowerCase().indexOf(v.toLowerCase()) !== -1; });
-      if(tf.negate ? has : !has) return;
-    }
-    if(filters.props.length && !pageMatchesProps(page, filters.props)) return;
-    results.push(blk);
+    if(matchAdvancedQuery(parsed, searchRecordForBlock(blk, page)).match) results.push(blk);
   });
   return results;
 }
@@ -148,31 +140,10 @@ function runBlockQuery(qstr){
 /* Pages matching every filter — used by {{table: ...}}. A page "has" a
    tag/link if any of its own blocks reference it. */
 function runTableQuery(qstr){
-  var filters = parseQueryFilters(qstr);
-  var pageRefs = {};
-  Object.keys(state.blocks).forEach(function(id){
-    var blk = state.blocks[id];
-    var refs = extractRefs(blk.text).map(function(r){ return r.title.toLowerCase(); });
-    if(refs.length){ pageRefs[blk.pageId] = (pageRefs[blk.pageId]||[]).concat(refs); }
-  });
+  var parsed = parseAdvancedQuery(qstr);
+  var pageRefs = computePageRefsMap();
   return livePages().filter(function(p){
-    var refs = pageRefs[p.id] || [];
-    var i, has;
-    for(i=0;i<filters.tags.length;i++){
-      has = anyRefMatches(filters.tags[i], refs);
-      if(filters.tags[i].negate ? has : !has) return false;
-    }
-    for(i=0;i<filters.pages.length;i++){
-      has = anyRefMatches(filters.pages[i], refs);
-      if(filters.pages[i].negate ? has : !has) return false;
-    }
-    if(filters.props.length && !pageMatchesProps(p, filters.props)) return false;
-    for(i=0;i<filters.text.length;i++){
-      var tf = filters.text[i];
-      has = tf.values.some(function(v){ return p.title.toLowerCase().indexOf(v.toLowerCase()) !== -1; });
-      if(tf.negate ? has : !has) return false;
-    }
-    return true;
+    return matchAdvancedQuery(parsed, searchRecordForPage(p, pageRefs[p.id] || [])).match;
   });
 }
 
