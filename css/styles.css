@@ -212,6 +212,21 @@
   .prop-row:hover .prop-del{opacity:1;}
   .add-prop{background:none;border:none;color:var(--link); font-size:0.7812rem; cursor:pointer; padding:4px 0; font-family:var(--sans);}
 
+  /* ---------- Supertags ----------
+     A supertag is a tag page (page.type === 'tag') with isSupertag set
+     and a schema of fields (page.supertagFields). Any page that uses
+     that #tag anywhere in its blocks automatically gets those fields
+     merged into its own properties — see applySupertagFields(). */
+  #supertag-badges{display:flex; gap:6px; flex-wrap:wrap;}
+  .supertag-badge{display:inline-flex; align-items:center; gap:3px; font-size:0.6875rem; color:var(--tag); background:var(--tag-bg); border-radius:20px; padding:2px 9px; cursor:pointer; border:none; font-family:var(--sans);}
+  .supertag-panel{display:none; margin:4px 0 18px; border:1px solid var(--border); border-radius:10px; padding:12px 14px; background:var(--paper-raised);}
+  .supertag-toggle{display:flex; align-items:flex-start; gap:8px; font-size:0.8125rem; color:var(--ink-soft); cursor:pointer;}
+  .supertag-toggle input{margin-top:3px;}
+  .supertag-toggle strong{color:var(--ink); font-weight:600;}
+  #supertag-fields{margin-top:10px;}
+  #supertag-fields .prop-row{padding:4px 0;}
+  #supertag-instances{margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);}
+
   /* ---------- Outline ---------- */
   .outline{margin-top:4px;}
   .block-children{margin-left:22px; border-left:1px solid var(--border); padding-left:16px;}
@@ -773,14 +788,36 @@
 
   /* ---------- Print / "Export as PDF" ---------- */
   @media print{
+    /* Browsers drop element backgrounds when printing (no "background
+       graphics" flag), so #app's themed --paper background silently
+       disappears. If the active theme is dark/midnight, --ink is a light
+       color meant to sit on that dark background — against the resulting
+       default-white page that light text is nearly invisible, which is
+       what makes the export/print output look blank. Force print-safe,
+       theme-independent colors here so this can't happen regardless of
+       which theme is active. */
+    :root, :root[data-theme]{
+      --paper:#fff !important;
+      --paper-raised:#fff !important;
+      --ink:#000 !important;
+      --ink-soft:#333 !important;
+      --border:#ccc !important;
+      --link:#000 !important;
+      --link-bg:transparent !important;
+      --tag:#000 !important;
+      --tag-bg:transparent !important;
+      --danger:#000 !important;
+      --focus:#000 !important;
+    }
+    *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     #sidebar, #expand-btn, .topbar, #edit-dock, #backup-banner, #trash-banner,
     .add-block-btn, .add-prop, .zoom-breadcrumb, #palette-overlay, #versions-overlay, #gs-overlay,
     #conflicts-overlay, #findreplace-overlay, #settings-overlay, #sync-overlay, #querybuilder-overlay,
     #toast, .block-controls, #word-count{ display:none !important; }
-    #app{display:block;}
-    #main{margin:0; padding:0; overflow:visible;}
-    #page-view{display:block !important; max-width:100%; padding:0; box-shadow:none;}
-    body{background:#fff;}
+    #app{display:block; background:#fff !important;}
+    #main{margin:0; padding:0; overflow:visible; background:#fff !important;}
+    #page-view{display:block !important; max-width:100%; padding:0; box-shadow:none; background:#fff !important; color:#000 !important;}
+    body{background:#fff; color:#000;}
     .block-content:empty:before{content:none;}
     a.link, span.link{background:none !important; color:inherit !important;}
     span.tag{background:none !important;}

@@ -131,11 +131,22 @@
       </div>
       <div class="page-meta-row">
         <span class="type-pill" id="page-type-pill">Page</span>
+        <div id="supertag-badges"></div>
       </div>
       <div id="page-title" contenteditable="true" spellcheck="false"></div>
       <div class="page-sub-row">
         <span id="page-sub"></span>
         <span class="word-count" id="word-count"></span>
+      </div>
+
+      <div class="supertag-panel" id="supertag-panel">
+        <label class="supertag-toggle">
+          <input type="checkbox" id="supertag-toggle-input">
+          <span>Supertag — pages tagged <strong>#<span id="supertag-name"></span></strong> automatically get these fields</span>
+        </label>
+        <div id="supertag-fields"></div>
+        <button class="add-prop" id="add-supertag-field" style="display:none;">＋ Add field</button>
+        <div id="supertag-instances"></div>
       </div>
 
       <div class="properties" id="properties"></div>

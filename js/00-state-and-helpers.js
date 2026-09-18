@@ -337,6 +337,10 @@ function normalizeState(parsed){
     page.type = page.type || 'page';
     page.properties = Array.isArray(page.properties) ? page.properties : [];
     page.rootBlocks = Array.isArray(page.rootBlocks) ? page.rootBlocks : [];
+    if(page.type === 'tag'){
+      page.isSupertag = !!page.isSupertag;
+      page.supertagFields = Array.isArray(page.supertagFields) ? page.supertagFields : [];
+    }
   });
 
   Object.keys(parsed.blocks).forEach(function(id){

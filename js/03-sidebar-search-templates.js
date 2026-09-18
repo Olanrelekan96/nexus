@@ -766,7 +766,8 @@ function fillList(elId, list, forceTag, dragField){
     row.dataset.pageId = p.id; /* lets the right-click handler identify which page this row is */
     var a = document.createElement('a');
     a.href = "javascript:void(0)";
-    a.textContent = (isTag ? "#"+p.title : p.title) + (p.locked ? ' 🔒' : '');
+    a.textContent = (isTag ? "#"+p.title : p.title) + (isTag && p.isSupertag ? ' ⚡' : '') + (p.locked ? ' 🔒' : '');
+    if(isTag && p.isSupertag) a.title = (a.title ? a.title + ' — ' : '') + 'Supertag';
     if(p.locked) a.title = 'Locked — read-only';
     if(p.id === state.currentPageId) a.className = "active";
     a.onclick = function(){ openPage(p.id); };

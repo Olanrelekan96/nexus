@@ -60,9 +60,12 @@ function renderPage(){
     ? 'Switch back to the block outline'
     : 'Switch to a continuous document view for longform writing';
 
+  recomputeAllSupertags(); /* must run before rollups/formulas: it's what adds those properties in the first place */
   recomputeAllRollups();
   recomputeAllFormulas();
+  renderSupertagBadges(page);
   renderProperties(page);
+  renderSupertagPanel(page);
   renderOutline(page);
   renderBacklinks(page);
   renderWordCount(page);
@@ -86,6 +89,207 @@ var PROP_TYPES = [
   ['checkbox','Checkbox'], ['select','Select'], ['multiselect','Multi-select'],
   ['rating','Rating'], ['relation','Relation'], ['rollup','Rollup'], ['formula','Formula']
 ];
+
+/* ============================================================
+   SUPERTAGS
+   A "supertag" is a tag page (page.type === 'tag') with
+   isSupertag = true and a schema of fields in supertagFields:
+   [{key, type, default, formula}]. Any page that uses that
+   #tag anywhere in its own blocks is an "instance" of it, and
+   automatically gets those fields merged into its own
+   properties — the tag defines the shape, the page holds the
+   data, exactly like the rest of this app's property system.
+   Nothing is ever overwritten: a field already present on the
+   page (by key, case-insensitive) is left alone, so editing an
+   instance's value is always safe even as the schema evolves.
+   ============================================================ */
+
+/* Every #tag referenced anywhere within a page's own outline
+   (not other pages that merely mention it — that's a backlink,
+   this is "what is this page tagged as"). */
+function pageTagTitles(page){
+  var found = {};
+  function walk(id){
+    var blk = state.blocks[id];
+    if(!blk) return;
+    extractRefs(blk.text).forEach(function(r){
+      if(r.type === 'tag') found[r.title.toLowerCase()] = r.title;
+    });
+    (blk.children||[]).forEach(walk);
+  }
+  (page.rootBlocks||[]).forEach(walk);
+  return Object.keys(found).map(function(k){ return found[k]; });
+}
+
+/* Pages that currently count as instances of a given supertag page. */
+function supertagInstances(tagPage){
+  return livePages().filter(function(p){
+    if(p.id === tagPage.id) return false;
+    return pageTagTitles(p).some(function(t){ return t.toLowerCase() === tagPage.title.toLowerCase(); });
+  });
+}
+
+function applySupertagFields(page){
+  if(!page) return;
+  var tagTitles = pageTagTitles(page);
+  if(!tagTitles.length) return;
+  if(!Array.isArray(page.properties)) page.properties = [];
+  var existingKeys = {};
+  page.properties.forEach(function(pp){ existingKeys[(pp.key||'').toLowerCase()] = true; });
+  tagTitles.forEach(function(t){
+    var tagPage = findPageByTitle(t);
+    if(!tagPage || tagPage.type !== 'tag' || !tagPage.isSupertag) return;
+    (tagPage.supertagFields||[]).forEach(function(f){
+      if(!f || !f.key) return;
+      var k = f.key.toLowerCase();
+      if(existingKeys[k]) return;
+      var newProp = {key:f.key, type:f.type || 'text', value:''};
+      if(newProp.type === 'checkbox') newProp.value = f.default === 'true' ? 'true' : 'false';
+      else if(newProp.type === 'rating') newProp.value = /^[0-5]$/.test(f.default) ? f.default : '0';
+      else if(newProp.type === 'formula') newProp.formula = f.formula || '';
+      else newProp.value = f.default || '';
+      page.properties.push(newProp);
+      existingKeys[k] = true;
+    });
+  });
+}
+
+function recomputeAllSupertags(){
+  livePages().forEach(function(p){ applySupertagFields(p); });
+}
+
+/* Small clickable "#tagname" badges under the title for every
+   supertag this page is currently an instance of — a quick visual
+   cue that the page is "typed", separate from its editable
+   properties list below. */
+function renderSupertagBadges(page){
+  var wrap = document.getElementById('supertag-badges');
+  wrap.innerHTML = '';
+  var tagTitles = pageTagTitles(page).filter(function(t){
+    var tp = findPageByTitle(t);
+    return tp && tp.type === 'tag' && tp.isSupertag;
+  });
+  tagTitles.forEach(function(t){
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'supertag-badge';
+    b.textContent = '#' + t;
+    b.title = 'Open the #' + t + ' supertag';
+    b.onclick = function(){ openPageByTitle(t, 'tag'); };
+    wrap.appendChild(b);
+  });
+}
+
+/* The schema editor + instance list shown on a tag's own page. */
+function renderSupertagPanel(page){
+  var panel = document.getElementById('supertag-panel');
+  if(!panel) return;
+  if(page.type !== 'tag'){ panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  document.getElementById('supertag-name').textContent = page.title;
+
+  var toggle = document.getElementById('supertag-toggle-input');
+  toggle.checked = !!page.isSupertag;
+  toggle.disabled = !!page.locked;
+  toggle.onchange = function(){
+    page.isSupertag = toggle.checked;
+    if(page.isSupertag && !Array.isArray(page.supertagFields)) page.supertagFields = [];
+    save(); renderPage();
+  };
+
+  var addBtn = document.getElementById('add-supertag-field');
+  addBtn.style.display = (page.isSupertag && !page.locked) ? '' : 'none';
+  addBtn.onclick = function(){
+    if(!Array.isArray(page.supertagFields)) page.supertagFields = [];
+    page.supertagFields.push({key:'field', type:'text', default:''});
+    save(); renderPage();
+  };
+
+  var fieldsWrap = document.getElementById('supertag-fields');
+  fieldsWrap.innerHTML = '';
+  fieldsWrap.style.display = page.isSupertag ? 'block' : 'none';
+  if(page.isSupertag){
+    (page.supertagFields||[]).forEach(function(f, i){
+      if(!f.type) f.type = 'text';
+      var row = document.createElement('div'); row.className = 'prop-row';
+
+      var key = document.createElement('input'); key.type = 'text'; key.className = 'prop-val-input';
+      key.style.flex = '0 1 140px';
+      key.value = f.key; key.placeholder = 'field name';
+      key.disabled = !!page.locked;
+      key.onblur = function(){ f.key = key.value.trim() || 'field'; save(); };
+      row.appendChild(key);
+
+      var typeSel = document.createElement('select'); typeSel.className = 'prop-type-sel';
+      typeSel.style.opacity = 1; typeSel.disabled = !!page.locked;
+      typeSel.title = 'Field type';
+      PROP_TYPES.forEach(function(t){
+        var opt = document.createElement('option'); opt.value = t[0]; opt.textContent = t[1];
+        if(f.type === t[0]) opt.selected = true;
+        typeSel.appendChild(opt);
+      });
+      typeSel.onchange = function(){ f.type = typeSel.value; save(); renderSupertagPanel(page); };
+      row.appendChild(typeSel);
+
+      if(page.locked){
+        /* read-only summary instead of editable default controls */
+        var ro = document.createElement('span'); ro.className = 'prop-val'; ro.style.color = 'var(--ink-soft)';
+        ro.textContent = f.type === 'formula' ? ('= ' + (f.formula || '—')) : (f.default || '—');
+        row.appendChild(ro);
+      } else if(f.type === 'checkbox'){
+        var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = f.default === 'true';
+        cb.onchange = function(){ f.default = cb.checked ? 'true' : 'false'; save(); renderSupertagPanel(page); };
+        row.appendChild(cb);
+      } else if(f.type === 'rating'){
+        row.appendChild(renderRatingStars(f.default || '0', function(v){ f.default = String(v); save(); renderSupertagPanel(page); }));
+      } else if(f.type === 'formula'){
+        var fxInput = document.createElement('input'); fxInput.type = 'text'; fxInput.className = 'prop-val-input';
+        fxInput.placeholder = 'formula, e.g. Price * Qty';
+        fxInput.value = f.formula || '';
+        fxInput.onblur = function(){ f.formula = fxInput.value; save(); };
+        row.appendChild(fxInput);
+      } else if(f.type === 'rollup'){
+        var roNote = document.createElement('span'); roNote.className = 'prop-val'; roNote.style.color = 'var(--ink-soft)';
+        roNote.textContent = 'configure per page once tagged';
+        row.appendChild(roNote);
+      } else {
+        var defInput = document.createElement('input'); defInput.type = 'text'; defInput.className = 'prop-val-input';
+        defInput.placeholder = 'default value (optional)';
+        defInput.value = f.default || '';
+        defInput.onblur = function(){ f.default = defInput.value; save(); };
+        row.appendChild(defInput);
+      }
+
+      if(!page.locked){
+        var del = document.createElement('button'); del.className = 'prop-del'; del.textContent = '✕';
+        del.title = 'Remove field';
+        del.setAttribute('aria-label', 'Remove field "' + (f.key || 'field') + '"');
+        del.onclick = function(){ page.supertagFields.splice(i,1); save(); renderPage(); };
+        row.appendChild(del);
+      }
+      fieldsWrap.appendChild(row);
+    });
+  }
+
+  var instWrap = document.getElementById('supertag-instances');
+  instWrap.innerHTML = '';
+  if(page.isSupertag){
+    var instances = supertagInstances(page);
+    var heading = document.createElement('div'); heading.className = 'side-label';
+    heading.textContent = instances.length
+      ? (instances.length + (instances.length === 1 ? ' page tagged #' : ' pages tagged #') + page.title)
+      : ('No pages tagged #' + page.title + ' yet');
+    instWrap.appendChild(heading);
+    if(instances.length){
+      var list = document.createElement('div'); list.className = 'prop-chips';
+      instances.forEach(function(tp){
+        var chip = document.createElement('span'); chip.className = 'link prop-chip';
+        chip.dataset.target = tp.title; chip.textContent = tp.title;
+        list.appendChild(chip);
+      });
+      instWrap.appendChild(list);
+    }
+  }
+}
 
 /* ---- Relations & rollups ----
    A "relation" property stores a comma-separated list of OTHER page
