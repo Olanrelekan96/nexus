@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 24;
+var NEXUS_HELP_GUIDE_VERSION = 25;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -356,7 +356,8 @@ var NEXUS_HELP_FEATURE_CATALOG = [
   {id:'help-71', title:'Central Command Center'},
   {id:'help-72', title:'Workspace tabs'},
   {id:'help-73', title:'Additional crafted themes'},
-  {id:'help-75', title:'Pinned tabs & sidebar drag-and-drop ordering'}
+  {id:'help-75', title:'Pinned tabs & sidebar drag-and-drop ordering'},
+  {id:'help-76', title:'Mobile sidebar always-visible toggle'}
 ]
 function getHelpGuideCoverage(pid){
   var page = state.pages[pid];
@@ -743,6 +744,13 @@ function ensureCompleteHelpGuide(pid){
     "The fixed navigation controls at the top of the sidebar can be reordered by dragging the ⠿ handle beside an action. The order is stored on this device and does not alter notebook data, page order, folders or tags. Use the Developer/Help tooling reset action if you need to restore the original navigation order.",
     "Page entries already support drag-and-drop ordering within the Pinned and Unfiled lists, and folder pages can be dragged into folders. Search-filtered lists intentionally do not expose reordering so relevance ranking cannot be accidentally converted into saved order.",
     "Developer release rule: whenever tab pinning, tab close semantics, tab ordering, sidebar navigation ordering, drag/drop affordances or related persistence changes, update this Help section, the feature catalog, guide version and regression tests in the same release."
+  ]);
+
+  addMaintainedSection("Mobile sidebar always-visible toggle", [
+    "On phone and tablet widths, the main sidebar has a persistent floating toggle that is always visible in the viewport. When the sidebar is closed, the button shows ☰ and expands the navigation drawer; when the drawer is open, the same button changes to « and collapses it.",
+    "The floating toggle is intentionally separate from the sidebar contents, so it remains reachable even after you scroll through a long navigation list. On touch devices it uses a large 44px target and respects safe-area insets.",
+    "The mobile toggle controls only the main navigation sidebar. It does not change the state of Zettelkasten's independent mobile drawer, Command Center, tabs or the current page. The chosen sidebar state is still persisted locally and restored on navigation/reload.",
+    "Developer release rule: whenever mobile sidebar controls, placement, collapse/expand behavior, touch interaction or persistence changes, update this Help section, the feature catalog and guide version in the same release and run the full regression suite."
   ]);
 
   addMaintainedSection("Safety, recovery & good operating practice", [

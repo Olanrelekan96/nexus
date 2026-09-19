@@ -69,14 +69,37 @@ function applyFindReplace(){
   toast('Replaced ' + total + ' occurrence' + (total===1?'':'s') + '.');
 }
 
+function isNarrowViewport(){ return window.matchMedia('(max-width:860px)').matches; }
+function syncSidebarToggleControl(){
+  var btn=document.getElementById('expand-btn');
+  var app=document.getElementById('app');
+  if(!btn || !app) return;
+  var collapsed=app.classList.contains('sidebar-collapsed');
+  var mobile=isNarrowViewport();
+  if(mobile){
+    btn.textContent=collapsed ? '☰' : '«';
+    btn.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    btn.setAttribute('title', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    btn.setAttribute('aria-expanded', String(!collapsed));
+  }else{
+    btn.textContent='☰';
+    btn.setAttribute('aria-label','Show sidebar');
+    btn.setAttribute('title','Show sidebar');
+    btn.setAttribute('aria-expanded','false');
+  }
+}
 function setSidebarCollapsed(collapsed){
   document.getElementById('app').classList.toggle('sidebar-collapsed', collapsed);
   try{ localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0'); }catch(e){}
+  syncSidebarToggleControl();
 }
 document.getElementById('collapse-btn').onclick = function(){ setSidebarCollapsed(true); };
-document.getElementById('expand-btn').onclick = function(){ setSidebarCollapsed(false); };
+document.getElementById('expand-btn').onclick = function(){
+  var app=document.getElementById('app');
+  var collapsed=app && app.classList.contains('sidebar-collapsed');
+  setSidebarCollapsed(!collapsed);
+};
 document.getElementById('sidebar-backdrop').onclick = function(){ setSidebarCollapsed(true); };
-function isNarrowViewport(){ return window.matchMedia('(max-width:860px)').matches; }
 (function(){
   var saved = null;
   try{ saved = localStorage.getItem(SIDEBAR_KEY); }catch(e){}
@@ -89,12 +112,15 @@ function isNarrowViewport(){ return window.matchMedia('(max-width:860px)').match
     document.getElementById('app').classList.add('sidebar-collapsed');
   }
 })();
+syncSidebarToggleControl();
 /* Closes the drawer after navigating away from it on a narrow
    screen, so tapping a page/section doesn't leave the sidebar open
    on top of the content it just switched to. */
 function closeSidebarIfNarrow(){
   if(isNarrowViewport()) setSidebarCollapsed(true);
 }
+window.addEventListener('resize', syncSidebarToggleControl);
+window.addEventListener('orientationchange', function(){ setTimeout(syncSidebarToggleControl, 0); });
 document.addEventListener('keydown', function(e){
   if((e.key === 'b' || e.key === 'B') && (e.metaKey || e.ctrlKey)){
     e.preventDefault();
