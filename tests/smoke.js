@@ -38,7 +38,7 @@ assert.ok(index.includes('data-health-overlay'), 'Data health UI must be present
 assert.ok(/nexus-build" content="2026-09-19-quality-hardened-v1-/.test(index), 'quality build marker missing');
 assert.ok(index.includes('tasks-layout'), 'task layout control missing');
 const core = fs.readFileSync(path.join(root,'js','00-state-and-helpers.js'),'utf8');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*21/.test(core), 'current Help guide version missing');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*23/.test(core), 'current Help guide version missing');
 assert.ok(core.includes('ensureCompleteHelpGuide(docsId)'), 'existing Help pages must receive the complete guide update');
 const dbSidebar = fs.readFileSync(path.join(root,'js','21-database-sidebar.js'),'utf8');
 const querySidebar = fs.readFileSync(path.join(root,'js','22-query-sidebar.js'),'utf8');
@@ -175,7 +175,7 @@ assert.ok(dashboard.includes('renderDashboardStats'), 'dashboard stats renderer 
 assert.ok(dashboard.includes('renderDashboardWorkspaces'), 'dashboard workspace renderer missing');
 assert.ok(dashboard.includes('renderDashboardHealth'), 'dashboard health renderer missing');
 assert.ok(core.includes('Dashboard home hub'), 'Dashboard Help topic missing');
-assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 21"), 'current Help version missing');
+assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 23"), 'current Help version missing');
 assert.ok(css.includes('#dashboard-view.visible'), 'Dashboard CSS missing');
 assert.ok(core.includes('Page transclusion'), 'Page transclusion Help topic missing');
 assert.ok(core.includes('Block transclusion'), 'Block transclusion Help topic missing');
@@ -337,6 +337,26 @@ assert.ok(/\.then\(function\(\)\{[\s\S]*?refreshLockSessionTimer\(\);[\s\S]*?ret
 const settingsSource = fs.readFileSync(path.join(root,'js','07-find-replace-settings.js'),'utf8');
 assert.ok(/tryUnlockWithRecovery\(code\)\.then\(function\(ok\)\{[\s\S]*?refreshLockSessionTimer\(\);/.test(settingsSource), 'recovery unlock should start the re-entry timer');
 assert.ok(lockSource.includes('persistPasscodeReentryStartedAt(0);'), 're-entry start time should be cleared on lock');
+/* Force the actual expiry path to execute with a 100ms synthetic interval.
+   This catches the class of regression where the code schedules a timer but
+   never reaches lockNow() when the deadline is crossed. */
+let fakeNow = 1000000;
+secCtx.Date = {now:()=>fakeNow};
+secCtx.Promise = {resolve:()=>({catch:function(){return this;},then:function(fn){fn(); return this;}})};
+secCtx.flushSaveNow = ()=>null;
+secCtx.passcodeReentryMs = ()=>100;
+secCtx.currentSettings.passcodeReentryHours = '1';
+secCtx.lockCryptoKey = {};
+secCtx.appLocked = false;
+secCtx.passcodeReentryLockPending = false;
+secCtx.passcodeUnlockedAt = fakeNow;
+secCtx.closeSettings = ()=>{};
+secCtx.showLockScreen = ()=>{ secCtx.appLocked = true; };
+secCtx.refreshLockSessionTimer();
+fakeNow += 101;
+secCtx.enforcePasscodeReentry();
+assert.strictEqual(secCtx.appLocked, true, 'expired passcode interval must actually lock the app');
+
 
 console.log(`Nexus smoke tests passed: ${jsFiles.length} JavaScript files syntax-checked; security/markup/UI guards passed.`);
 
@@ -372,15 +392,17 @@ seededTitles.forEach((title, i) => {
 });
 ctx.ensureCompleteHelpGuide('doc');
 const helpCountAfterFirst = Object.keys(ctx.state.blocks).length;
-assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 21, 'Help guide should be current after updater runs');
+assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 23, 'Help guide should be current after updater runs');
 
 /* Passcode re-entry hardening: the session start is persisted as non-secret
    metadata so timer throttling/background suspension cannot silently defeat
    the configured interval. */
 const lockCode = fs.readFileSync(path.join(jsDir, '09-security-lock.js'), 'utf8');
-assert.ok(lockCode.includes("PASSCODE_REENTRY_STATE_KEY = LOCK_KEY + '_reentry'"), 'passcode re-entry persistence key missing');
-assert.ok(lockCode.includes('loadPasscodeReentryStartedAt'), 'passcode re-entry persisted start loader missing');
-assert.ok(lockCode.includes('persistPasscodeReentryStartedAt(passcodeUnlockedAt)'), 'unlock timestamp is not persisted');
+assert.ok(lockCode.includes("PASSCODE_REENTRY_STATE_KEY = LOCK_KEY + '_reentry_v3'"), 'passcode re-entry persistence key missing');
+assert.ok(lockCode.includes('loadPasscodeReentryState'), 'passcode re-entry persisted state loader missing');
+assert.ok(lockCode.includes('persistPasscodeReentryState(passcodeUnlockedAt, deadlineAt)'), 'unlock deadline is not persisted');
+assert.ok(lockCode.includes('PASSCODE_REENTRY_HEARTBEAT_MS = 15000'), 'passcode re-entry heartbeat missing');
+assert.ok(lockCode.includes("window.addEventListener('focus', checkPasscodeReentryOnResume)"), 'focus resume check missing');
 assert.ok(lockCode.includes("document.addEventListener('visibilitychange', checkPasscodeReentryOnResume)"), 'visibility resume guard missing');
 assert.ok(lockCode.includes("window.addEventListener('pageshow', checkPasscodeReentryOnResume)"), 'pageshow resume guard missing');
 assert.ok(lockCode.includes('persistPasscodeReentryStartedAt(0);'), 're-entry state cleanup missing');
@@ -519,3 +541,9 @@ assert.ok(ccSource.includes("e.shiftKey&&(e.key==='k'"), 'Command Center keyboar
 assert.ok(index.includes('id="btn-command-center"'), 'Command Center sidebar control missing');
 assert.ok(index.includes('id="command-center-search"'), 'Command Center search control missing');
 assert.ok(fs.readFileSync(path.join(root,'css','styles.css'),'utf8').includes('#command-center-view{display:none'), 'Command Center should be hidden until opened');
+
+assert.ok(lockCode.includes('setTimeout(finalize, 1000)'), 'passcode lock must not wait indefinitely for a save flush');
+const swCode = fs.readFileSync(path.join(root,'sw.js'),'utf8');
+assert.ok(swCode.includes("CACHE='nexus-shell-v3'"), 'security update must bump the PWA cache generation');
+assert.ok(swCode.includes("fetch(req,{cache:'no-store'})"), 'PWA fetch must revalidate updated security assets');
+assert.ok(index.includes('09-security-lock.js?v=20260919-passcode-v3'), 'security script must be cache-busted for the passcode repair');

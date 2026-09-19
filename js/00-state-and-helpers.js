@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 21;
+var NEXUS_HELP_GUIDE_VERSION = 23;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained

@@ -75,23 +75,53 @@ var PASSCODE_REENTRY_DEFAULT = '24';
 var PASSCODE_REENTRY_CHOICES = ['1','6','12','24'];
 var passcodeUnlockedAt = 0;
 var passcodeReentryTimer = null;
+var passcodeReentryHeartbeat = null;
 var passcodeReentryLockPending = false;
-var PASSCODE_REENTRY_STATE_KEY = LOCK_KEY + '_reentry';
+var PASSCODE_REENTRY_STATE_KEY = LOCK_KEY + '_reentry_v3';
+var PASSCODE_REENTRY_HEARTBEAT_MS = 15000;
 
 /* The interval must survive browser timer throttling/suspension. Keep the
-   session start time in localStorage as non-secret metadata so the deadline
-   can always be recomputed when Nexus returns to the foreground. */
-function loadPasscodeReentryStartedAt(){
+   session start + absolute deadline in localStorage as non-secret metadata
+   so the deadline can always be recomputed when Nexus returns to the
+   foreground. A v1 numeric timestamp is accepted for one-time migration. */
+function loadPasscodeReentryState(){
   try{
-    var n = Number(localStorage.getItem(PASSCODE_REENTRY_STATE_KEY));
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  }catch(e){ return 0; }
-}
-function persistPasscodeReentryStartedAt(value){
-  try{
-    if(value) localStorage.setItem(PASSCODE_REENTRY_STATE_KEY, String(value));
-    else localStorage.removeItem(PASSCODE_REENTRY_STATE_KEY);
+    var raw = localStorage.getItem(PASSCODE_REENTRY_STATE_KEY);
+    if(raw){
+      var obj = JSON.parse(raw);
+      if(obj && Number(obj.startedAt) > 0 && Number(obj.deadlineAt) > 0){
+        return {startedAt:Number(obj.startedAt), deadlineAt:Number(obj.deadlineAt)};
+      }
+    }
   }catch(e){}
+  /* Migrate the earlier repair's plain numeric key if present. */
+  try{
+    var legacyKeys = [LOCK_KEY + '_reentry_v2', LOCK_KEY + '_reentry'];
+    for(var li=0; li<legacyKeys.length; li++) {
+      var n = Number(localStorage.getItem(legacyKeys[li]));
+      if(Number.isFinite(n) && n > 0){
+        return {startedAt:n, deadlineAt:n + passcodeReentryMs()};
+      }
+    }
+  }catch(e){}
+  return {startedAt:0, deadlineAt:0};
+}
+function persistPasscodeReentryState(startedAt, deadlineAt){
+  try{
+    if(startedAt && deadlineAt){
+      localStorage.setItem(PASSCODE_REENTRY_STATE_KEY, JSON.stringify({startedAt:startedAt, deadlineAt:deadlineAt}));
+    }else{
+      localStorage.removeItem(PASSCODE_REENTRY_STATE_KEY);
+      localStorage.removeItem(LOCK_KEY + '_reentry_v2');
+      localStorage.removeItem(LOCK_KEY + '_reentry');
+    }
+  }catch(e){}
+}
+function loadPasscodeReentryStartedAt(){ return loadPasscodeReentryState().startedAt; }
+function loadPasscodeReentryDeadline(){ return loadPasscodeReentryState().deadlineAt; }
+function persistPasscodeReentryStartedAt(value){
+  if(value){ persistPasscodeReentryState(value, value + passcodeReentryMs()); }
+  else persistPasscodeReentryState(0, 0);
 }
 
 function passcodeReentryHours(){
@@ -110,7 +140,8 @@ function updatePasscodeReentryStatus(){
     el.textContent = 'Next re-entry interval: every ' + passcodeReentryHours() + ' hour' + (passcodeReentryHours()==='1'?'':'s') + '. The timer starts after a successful unlock.';
     return;
   }
-  var remaining = (passcodeUnlockedAt + passcodeReentryMs()) - Date.now();
+  var deadline = loadPasscodeReentryDeadline() || (passcodeUnlockedAt + passcodeReentryMs());
+  var remaining = deadline - Date.now();
   if(remaining <= 0){
     el.textContent = 'Passcode re-entry is due now.';
     return;
@@ -121,51 +152,75 @@ function updatePasscodeReentryStatus(){
 }
 function clearPasscodeReentryTimer(){
   if(passcodeReentryTimer !== null){ clearTimeout(passcodeReentryTimer); passcodeReentryTimer = null; }
+  if(passcodeReentryHeartbeat !== null){ clearInterval(passcodeReentryHeartbeat); passcodeReentryHeartbeat = null; }
+}
+function startPasscodeReentryHeartbeat(){
+  if(typeof setInterval !== 'function') return;
+  if(passcodeReentryHeartbeat !== null) clearInterval(passcodeReentryHeartbeat);
+  passcodeReentryHeartbeat = setInterval(function(){
+    if(document.visibilityState !== 'hidden') enforcePasscodeReentry();
+  }, PASSCODE_REENTRY_HEARTBEAT_MS);
 }
 function schedulePasscodeReentry(){
-  clearPasscodeReentryTimer();
+  clearTimeout(passcodeReentryTimer);
+  passcodeReentryTimer = null;
   if(!isLockEnabled() || !lockCryptoKey || appLocked) return;
-  if(!passcodeUnlockedAt) passcodeUnlockedAt = loadPasscodeReentryStartedAt();
-  if(!passcodeUnlockedAt){ refreshLockSessionTimer(); return; }
-  var delay = Math.max(250, (passcodeUnlockedAt + passcodeReentryMs()) - Date.now());
+  var persisted = loadPasscodeReentryState();
+  /* localStorage is best-effort. Never recurse back into refreshLockSessionTimer
+     merely because persistence failed or is unavailable. The in-memory start
+     time is sufficient for this live session; persistence only protects resume. */
+  if(!passcodeUnlockedAt) passcodeUnlockedAt = persisted.startedAt;
+  var deadline = persisted.deadlineAt || (passcodeUnlockedAt ? passcodeUnlockedAt + passcodeReentryMs() : 0);
+  if(!passcodeUnlockedAt || !deadline){ return; }
+  if(Date.now() >= deadline){ enforcePasscodeReentry(); return; }
+  var delay = Math.max(250, deadline - Date.now());
   passcodeReentryTimer = setTimeout(enforcePasscodeReentry, delay);
+  startPasscodeReentryHeartbeat();
   updatePasscodeReentryStatus();
 }
 function refreshLockSessionTimer(){
   if(!isLockEnabled() || !lockCryptoKey){
     passcodeUnlockedAt = 0;
     clearPasscodeReentryTimer();
-    persistPasscodeReentryStartedAt(0);
+    persistPasscodeReentryState(0, 0);
     updatePasscodeReentryStatus();
     return;
   }
   passcodeUnlockedAt = Date.now();
-  persistPasscodeReentryStartedAt(passcodeUnlockedAt);
+  var deadlineAt = passcodeUnlockedAt + passcodeReentryMs();
+  persistPasscodeReentryState(passcodeUnlockedAt, deadlineAt);
   passcodeReentryLockPending = false;
   schedulePasscodeReentry();
   updatePasscodeReentryStatus();
 }
 function enforcePasscodeReentry(){
   passcodeReentryTimer = null;
-  if(!passcodeUnlockedAt) passcodeUnlockedAt = loadPasscodeReentryStartedAt();
+  var persisted = loadPasscodeReentryState();
+  if(!passcodeUnlockedAt) passcodeUnlockedAt = persisted.startedAt;
   if(appLocked || !isLockEnabled() || !lockCryptoKey || !passcodeUnlockedAt) return;
-  if((Date.now() - passcodeUnlockedAt) < passcodeReentryMs()){ schedulePasscodeReentry(); return; }
+  var deadline = persisted.deadlineAt || (passcodeUnlockedAt + passcodeReentryMs());
+  if(Date.now() < deadline){ schedulePasscodeReentry(); return; }
   if(passcodeReentryLockPending) return;
   passcodeReentryLockPending = true;
+  var finished = false;
   var finalize = function(){
-    if(!passcodeReentryLockPending) return;
+    if(finished) return;
+    finished = true;
     passcodeReentryLockPending = false;
     if(!appLocked && isLockEnabled() && lockCryptoKey){
       passcodeUnlockedAt = 0;
-      persistPasscodeReentryStartedAt(0);
+      persistPasscodeReentryState(0, 0);
       lockNow();
       toast('Passcode interval expired. Enter your passcode to continue.');
     }
     updatePasscodeReentryStatus();
   };
+  /* Saving is best-effort. Never let an IndexedDB promise prevent the
+     security boundary from locking indefinitely. */
   try{
     var flushed = typeof flushSaveNow === 'function' ? flushSaveNow() : null;
     Promise.resolve(flushed).catch(function(){}).then(finalize);
+    setTimeout(finalize, 1000);
   }catch(ignore){ finalize(); }
 }
 function setPasscodeReentry(hours){
@@ -205,6 +260,8 @@ function checkPasscodeReentryOnResume(){
 }
 document.addEventListener('visibilitychange', checkPasscodeReentryOnResume);
 window.addEventListener('pageshow', checkPasscodeReentryOnResume);
+window.addEventListener('focus', checkPasscodeReentryOnResume);
+
 
 /* ---------- Portable encryption for exports/backups/sync ----------
    The everyday DEK (lockCryptoKey) is randomly generated once per
