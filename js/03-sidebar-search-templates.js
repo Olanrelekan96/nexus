@@ -399,6 +399,14 @@ function renderAttachmentsSection(){
       }
       row.appendChild(a);
 
+      if(rec){
+        var dlBtn = document.createElement('button');
+        dlBtn.type = 'button'; dlBtn.title = 'Download'; dlBtn.textContent = '⬇';
+        dlBtn.setAttribute('aria-label', 'Download "' + name + '"');
+        dlBtn.onclick = function(e){ e.stopPropagation(); downloadAttachment(id, name); };
+        row.appendChild(dlBtn);
+      }
+
       if(!rec){
         var missing = document.createElement('span');
         missing.style.cssText = 'color:var(--ink-soft); font-size:0.6875rem; margin-right:4px; white-space:nowrap;';

@@ -769,6 +769,37 @@ function doOutdent(block){
   }
 }
 
+/* Swaps a line with the sibling above (dir -1) or below (dir +1). This
+   is the touch-friendly stand-in for drag-and-drop, which native HTML5
+   drag can't do on a phone. Stays within the same parent — use
+   indent/outdent to change level. Returns false at the top/bottom of
+   its group. */
+function canMoveBlockStep(block, dir){
+  if(!block) return false;
+  var arr = siblingsArrayOf(block);
+  var idx = arr.indexOf(block.id);
+  var to = idx + dir;
+  return idx > -1 && to >= 0 && to < arr.length;
+}
+function moveBlockStep(block, dir){
+  if(!canMoveBlockStep(block, dir)) return false;
+  var arr = siblingsArrayOf(block);
+  var idx = arr.indexOf(block.id);
+  arr.splice(idx, 1);
+  arr.splice(idx + dir, 0, block.id);
+  return true;
+}
+function doMoveBlock(block, dir){
+  var editingEl = document.querySelector('.block-content.editing');
+  var wasEditingThis = editingBlockId === block.id && editingEl;
+  var offset = 0;
+  if(wasEditingThis){ offset = getCaretOffset(editingEl); block.text = serializeInline(editingEl); }
+  if(moveBlockStep(block, dir)){
+    save(); renderPage();
+    if(wasEditingThis) focusBlock(block.id, offset);
+  }
+}
+
 function deleteBlockMergeUp(block){
   var arr = siblingsArrayOf(block);
   var idx = arr.indexOf(block.id);

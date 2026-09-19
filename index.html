@@ -122,6 +122,7 @@
         </div>
       </div>
       <div class="topbar">
+        <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
         <button class="topbtn" id="btn-nav-back" title="Back">← Back</button>
         <button class="topbtn" id="btn-nav-forward" title="Forward">Forward →</button>
         <button class="topbtn" id="btn-undo" title="Undo (⌘Z)" disabled>↶ Undo</button>
@@ -167,17 +168,20 @@
           <button type="button" id="dock-attach-btn" class="dock-fmt-btn" title="Add an image or file" aria-label="Add an image or file">📎</button>
           <input type="file" id="attach-file-input" multiple style="display:none">
         </div>
-        <div class="dock-row">
-          <button type="button" id="dock-indent-btn" class="dock-pill-btn" title="Indent (Tab)">⇥ Indent</button>
-          <button type="button" id="dock-outdent-btn" class="dock-pill-btn" title="Outdent (Shift+Tab)">⇤ Outdent</button>
+        <div class="dock-row dock-row-nav">
+          <button type="button" id="dock-indent-btn" class="dock-pill-btn" title="Indent (Tab)" aria-label="Indent"><span class="dock-ico">⇥</span><span class="dock-lbl"> Indent</span></button>
+          <button type="button" id="dock-outdent-btn" class="dock-pill-btn" title="Outdent (Shift+Tab)" aria-label="Outdent"><span class="dock-ico">⇤</span><span class="dock-lbl"> Outdent</span></button>
+          <button type="button" id="dock-up-btn" class="dock-pill-btn" title="Move line up" aria-label="Move line up"><span class="dock-ico">↑</span><span class="dock-lbl"> Up</span></button>
+          <button type="button" id="dock-down-btn" class="dock-pill-btn" title="Move line down" aria-label="Move line down"><span class="dock-ico">↓</span><span class="dock-lbl"> Down</span></button>
           <span class="dock-spacer"></span>
           <button type="button" id="dock-copysync-btn" class="dock-text-btn">Copy synced</button>
+          <button type="button" id="dock-done-btn" class="dock-done-btn" aria-label="Done editing — hide keyboard">Done</button>
         </div>
       </div>
 
       <div class="zoom-breadcrumb" id="zoom-breadcrumb"></div>
       <div class="outline" id="outline"></div>
-      <div class="add-block-btn" id="add-root-block">＋ Click to add a line</div>
+      <div class="add-block-btn" id="add-root-block">＋ Add a line</div>
 
       <div class="linked-refs">
         <h3>Linked references</h3>
@@ -187,6 +191,7 @@
 
     <section id="graph-view">
       <div class="topbar">
+        <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
         <button class="topbtn" id="btn-close-graph">← Back to page</button>
       </div>
       <h2 style="margin-top:0;">Graph</h2>
@@ -201,6 +206,7 @@
 
     <section id="tasks-view">
       <div class="topbar">
+        <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
         <button class="topbtn" id="btn-close-tasks">← Back to page</button>
       </div>
       <h2 style="margin-top:0;">Tasks</h2>
@@ -621,6 +627,7 @@
 <script src="js/16-advanced-database.js"></script>
 <script src="js/17-advanced-search.js"></script>
 <script src="js/18-global-search.js"></script>
+<script src="js/19-mobile-editor.js"></script>
 <script src="js/14-wiring-and-init.js"></script>
 </body>
 </html>

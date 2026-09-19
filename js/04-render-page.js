@@ -82,6 +82,8 @@ function updateEditDock(){
   if(!block) dockBlockId = null;
   document.getElementById('dock-outdent-btn').disabled = !block || !block.parent;
   document.getElementById('dock-indent-btn').disabled = !block || indexInSiblings(block) <= 0;
+  document.getElementById('dock-up-btn').disabled = !block || !canMoveBlockStep(block, -1);
+  document.getElementById('dock-down-btn').disabled = !block || !canMoveBlockStep(block, 1);
 }
 
 var PROP_TYPES = [
@@ -946,6 +948,12 @@ function renderBlockRow(block){
       if(refBlk && state.pages[refBlk.pageId]) openPage(refBlk.pageId);
       return;
     }
+    var dlBtn = t.closest ? t.closest('.att-dl-btn') : null;
+    if(dlBtn){
+      var attWrap = dlBtn.closest('.att-img, .att-file');
+      if(attWrap) downloadAttachment(attWrap.dataset.attId, attWrap.dataset.attName);
+      return;
+    }
     var fileLink = t.closest ? t.closest('.att-file-link') : null;
     if(fileLink){
       if((fileLink.closest('.att-missing')) || fileLink.href.endsWith('#')) e.preventDefault();
@@ -973,6 +981,14 @@ function renderBlockRow(block){
        the raw-text offset has to be captured *before* that happens;
        afterwards there'd be nothing left to measure against. */
     var range = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+    if(!range && document.caretPositionFromPoint){
+      /* Firefox (desktop and Android) only has the standardized name. */
+      var cp = document.caretPositionFromPoint(e.clientX, e.clientY);
+      if(cp && cp.offsetNode){
+        try{ range = document.createRange(); range.setStart(cp.offsetNode, cp.offset); range.collapse(true); }
+        catch(err){ range = null; }
+      }
+    }
     var clickOffset = null;
     if(range){
       try{
@@ -995,6 +1011,65 @@ function renderBlockRow(block){
     if(page) renderWordCount(page, block.id, content.textContent);
   });
 
+  /* Enter (split the line at the caret) and Backspace-at-the-start
+     (merge into the line above) live in named functions because two
+     different events can trigger them: the keydown handler below, and
+     the beforeinput handler after it. Phone keyboards frequently send
+     keydown with key "Unidentified"/keyCode 229 for these keys (Android
+     Gboard especially), so keydown alone silently does nothing there;
+     beforeinput's inputType is reliable everywhere. On a desktop
+     keyboard keydown calls preventDefault first, so beforeinput never
+     fires and nothing runs twice. */
+  function splitBlockAtCaret(b){
+    var sel = window.getSelection();
+    if(!sel.rangeCount) return;
+    var range = sel.getRangeAt(0);
+    var afterRange = range.cloneRange();
+    afterRange.selectNodeContents(content);
+    afterRange.setStart(range.endContainer, range.endOffset);
+    var afterFrag = afterRange.extractContents();
+    var afterText = serializeInline(afterFrag);
+    var nb;
+    if(b.id === zoomedBlockId){
+      /* Splitting the block you're currently zoomed into would
+         normally create a sibling outside the zoomed view, where
+         it'd immediately vanish from sight — make it a first
+         child instead, right where the new line visually lands. */
+      var nid = uid();
+      nb = mkBlock(nid, b.pageId, b.id, afterText);
+      state.blocks[nid] = nb;
+      b.children.unshift(nid);
+    } else {
+      nb = createBlockAfter(b, afterText);
+    }
+    commitEdit(content);
+    save(); renderPage();
+    focusBlock(nb.id, 0);
+  }
+  function mergeBlockUpAtStart(b){
+    b.text = serializeInline(content);
+    var res = deleteBlockMergeUp(b);
+    save(); renderPage();
+    if(res) focusBlock(res.focusId, res.offset);
+  }
+
+  content.addEventListener('beforeinput', function(e){
+    if(!e.cancelable || content.contentEditable !== 'true') return;
+    var b = state.blocks[row.dataset.id];
+    if(!b) return;
+    if(e.inputType === 'insertParagraph'){
+      e.preventDefault();
+      if(CODE_BLOCK_RE.test(b.text)) document.execCommand('insertLineBreak');
+      else splitBlockAtCaret(b);
+    } else if(e.inputType === 'deleteContentBackward'){
+      var bsel = window.getSelection();
+      if(bsel.isCollapsed && getCaretOffset(content) === 0){
+        e.preventDefault();
+        mergeBlockUpAtStart(b);
+      }
+    }
+  });
+
   content.addEventListener('keydown', function(e){
     var b = state.blocks[row.dataset.id];
     var isMod = e.metaKey || e.ctrlKey;
@@ -1006,31 +1081,7 @@ function renderBlockRow(block){
       document.execCommand('insertLineBreak');
     } else if(e.key === 'Enter' && !e.shiftKey){
       e.preventDefault();
-      var sel = window.getSelection();
-      if(sel.rangeCount){
-        var range = sel.getRangeAt(0);
-        var afterRange = range.cloneRange();
-        afterRange.selectNodeContents(content);
-        afterRange.setStart(range.endContainer, range.endOffset);
-        var afterFrag = afterRange.extractContents();
-        var afterText = serializeInline(afterFrag);
-        var nb;
-        if(b.id === zoomedBlockId){
-          /* Splitting the block you're currently zoomed into would
-             normally create a sibling outside the zoomed view, where
-             it'd immediately vanish from sight — make it a first
-             child instead, right where the new line visually lands. */
-          var nid = uid();
-          nb = mkBlock(nid, b.pageId, b.id, afterText);
-          state.blocks[nid] = nb;
-          b.children.unshift(nid);
-        } else {
-          nb = createBlockAfter(b, afterText);
-        }
-        commitEdit(content);
-        save(); renderPage();
-        focusBlock(nb.id, 0);
-      }
+      splitBlockAtCaret(b);
     } else if(isMod && (e.key === 'b' || e.key === 'B')){
       e.preventDefault(); e.stopPropagation();
       applyInlineFormat(content, 'strong');
@@ -1055,10 +1106,7 @@ function renderBlockRow(block){
       var hasSel = !window.getSelection().isCollapsed;
       if(off2 === 0 && !hasSel){
         e.preventDefault();
-        b.text = serializeInline(content);
-        var res = deleteBlockMergeUp(b);
-        save(); renderPage();
-        if(res) focusBlock(res.focusId, res.offset);
+        mergeBlockUpAtStart(b);
       }
     } else if(e.key === 'ArrowUp' || e.key === 'ArrowDown'){
       var flat = flattenVisible(b.pageId);
@@ -1184,6 +1232,8 @@ function openBlockMenu(anchorEl, blockId, coords){
 
   addItem('←', 'Outdent', locked || !b.parent, function(){ doOutdent(b); });
   addItem('→', 'Indent', locked || indexInSiblings(b) <= 0, function(){ doIndent(b); });
+  addItem('↑', 'Move up', locked || !canMoveBlockStep(b, -1), function(){ doMoveBlock(b, -1); });
+  addItem('↓', 'Move down', locked || !canMoveBlockStep(b, 1), function(){ doMoveBlock(b, 1); });
   var canToggleCollapse = !!(b.children.length || headingInfo(b.text || ''));
   var isHeadingForToggle = !!headingInfo(b.text || '');
   addItem(b.collapsed ? '▸' : '▾',
@@ -1289,6 +1339,17 @@ function openBlockMenu(anchorEl, blockId, coords){
   };
 
   document.body.appendChild(menu);
+  /* This menu has ~20 rows; on a short phone screen (or with the
+     keyboard up) that's taller than what's visible, and a fixed-position
+     menu that overflows can't be scrolled to its bottom rows. Cap its
+     height to the visible area and let it scroll inside. */
+  var menuVp = usableViewport();
+  var menuMaxH = menuVp.bottom - menuVp.top - 16;
+  if(menu.offsetHeight > menuMaxH){
+    menu.style.maxHeight = Math.max(160, menuMaxH) + 'px';
+    menu.style.overflowY = 'auto';
+    menu.style.overscrollBehavior = 'contain';
+  }
   /* `coords` (set when this menu was opened by a right-click rather
      than by the "⋯" button) pins the menu to the pointer instead of
      under the trigger — the anchor element is still used for the
@@ -1296,9 +1357,11 @@ function openBlockMenu(anchorEl, blockId, coords){
   if(coords){
     var cLeft = Math.min(coords.x, Math.max(8, window.innerWidth - menu.offsetWidth - 8));
     var cTop = coords.y;
-    if(cTop + menu.offsetHeight > window.innerHeight - 8){
+    var cBottom = usableViewport().bottom;
+    if(cTop + menu.offsetHeight > cBottom - 8){
       cTop = Math.max(8, coords.y - menu.offsetHeight);
     }
+    if(cTop + menu.offsetHeight > menuVp.bottom - 8) cTop = Math.max(menuVp.top + 8, menuVp.bottom - 8 - menu.offsetHeight);
     menu.style.top = cTop + 'px';
     menu.style.left = Math.max(8, cLeft) + 'px';
     return;
@@ -1309,8 +1372,9 @@ function openBlockMenu(anchorEl, blockId, coords){
   var maxLeft = window.innerWidth - menu.offsetWidth - 8;
   if(left > maxLeft) left = Math.max(8, maxLeft);
   var top = rect.bottom + 4;
-  var maxTop = window.innerHeight - menu.offsetHeight - 8;
+  var maxTop = usableViewport().bottom - menu.offsetHeight - 8;
   if(top > maxTop) top = Math.max(8, rect.top - menu.offsetHeight - 4);
+  if(top + menu.offsetHeight > menuVp.bottom - 8) top = Math.max(menuVp.top + 8, menuVp.bottom - 8 - menu.offsetHeight);
   menu.style.top = top + 'px';
   menu.style.left = left + 'px';
 }
@@ -1328,12 +1392,21 @@ function focusBlock(blockId, offset){
   editingBlockId = blockId;
   dockBlockId = blockId;
   renderPage();
-  setTimeout(function(){
+  function placeCaret(){
     var row = document.querySelector('.block-row[data-id="'+blockId+'"]');
     if(row){
       var el = row.querySelector('.block-content');
       if(el){ el.focus(); setCaretOffset(el, offset); }
     }
-  }, 0);
+  }
+  /* Focus synchronously first, then again on the next tick. The
+     synchronous call matters on iOS: Safari only keeps the on-screen
+     keyboard up when the new field is focused inside the same event
+     that removed the old one — deferring it (as this used to, via
+     setTimeout alone) makes the keyboard drop every time Enter, a
+     dock button, or a menu action re-renders the page. The deferred
+     call stays as a backstop for anything that settles later. */
+  placeCaret();
+  setTimeout(placeCaret, 0);
 }
 

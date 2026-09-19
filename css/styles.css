@@ -442,7 +442,7 @@
   .dock-text-btn:hover{color:var(--ink);}
 
   /* ---------- Attachments (images & files) ---------- */
-  .att-img{display:inline-block; vertical-align:top; max-width:100%; margin:2px 0;}
+  .att-img{display:inline-block; vertical-align:top; max-width:100%; margin:2px 0; position:relative;}
   .att-img-el{display:block; max-width:min(340px,100%); max-height:340px; border-radius:8px; border:1px solid var(--border); cursor:zoom-in; background:var(--paper);}
   .att-file{display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); background:var(--paper); border-radius:6px; padding:3px 9px 3px 7px; font-size:0.8125rem; margin:1px 2px;}
   .att-file-icon{font-size:0.8125rem;}
@@ -451,6 +451,16 @@
   .att-img.att-missing .att-img-el{cursor:default; min-width:120px; min-height:60px; object-fit:none; opacity:.55; filter:grayscale(1);}
   .att-file.att-missing{opacity:.55; border-style:dashed;}
   .att-file.att-missing .att-file-link{color:var(--ink-soft); cursor:default; pointer-events:none;}
+  .att-img .att-dl-btn{
+    position:absolute; top:5px; right:5px; width:22px; height:22px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; padding:0;
+    background:rgba(20,20,20,.6); color:#fff; border:none; font-size:0.75rem; line-height:1;
+    cursor:pointer; opacity:0; transition:opacity .12s ease;
+  }
+  .att-img:hover .att-dl-btn, .att-img .att-dl-btn:focus-visible{opacity:1;}
+  .att-file .att-dl-btn{background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:0.75rem; padding:0 0 0 3px; line-height:1;}
+  .att-file .att-dl-btn:hover{color:var(--ink);}
+  .att-img.att-missing .att-dl-btn, .att-file.att-missing .att-dl-btn{display:none;}
 
   /* ---------- Backlinks ---------- */
   .linked-refs{margin-top:56px; border-top:1px solid var(--border); padding-top:18px;}
@@ -813,7 +823,7 @@
     #sidebar, #expand-btn, .topbar, #edit-dock, #backup-banner, #trash-banner,
     .add-block-btn, .add-prop, .zoom-breadcrumb, #palette-overlay, #versions-overlay, #gs-overlay,
     #conflicts-overlay, #findreplace-overlay, #settings-overlay, #sync-overlay, #querybuilder-overlay,
-    #toast, .block-controls, #word-count{ display:none !important; }
+    #toast, .block-controls, #word-count, .att-dl-btn{ display:none !important; }
     #app{display:block; background:#fff !important;}
     #main{margin:0; padding:0; overflow:visible; background:#fff !important;}
     #page-view{display:block !important; max-width:100%; padding:0; box-shadow:none; background:#fff !important; color:#000 !important;}
@@ -1886,3 +1896,131 @@ tr.query-table-foot td{ border-top:2px solid var(--border); border-bottom:none; 
 }
 .db-view-add-item{ padding:5px 9px; border-radius:5px; font-size:0.8125rem; color:var(--ink); cursor:pointer; white-space:nowrap; }
 .db-view-add-item:hover{ background:var(--link-bg); color:var(--focus); }
+
+
+/* ============================================================
+   MOBILE EDITOR (js/19-mobile-editor.js)
+   Phone/tablet editing: a formatting bar that sits above the
+   on-screen keyboard, thumb-sized controls, and a top bar that
+   scrolls instead of wrapping. Kept in one block at the end so the
+   earlier per-feature rules stay untouched; each rule below wins
+   over them by coming later or by being more specific.
+   ============================================================ */
+html{ -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+button, .topbtn, .dock-fmt-btn, .dock-pill-btn, .collapse-tri, .bullet-wrap, .add-block-btn,
+.block-content, .todo-checkbox{
+  touch-action:manipulation;                 /* no double-tap-to-zoom delay on taps */
+  -webkit-tap-highlight-color:transparent;   /* no grey flash over a tapped line */
+}
+.topbar-menu-btn, .dock-done-btn{ display:none; }
+
+@media (max-width:860px), (hover:none) and (pointer:coarse){
+  /* --- Screen fit ---
+     100vh on a phone is the height *with the browser toolbar hidden*,
+     so the bottom of the scrolling page sat under the toolbar. dvh
+     tracks the toolbar; while the keyboard is up, JS supplies the
+     visible height directly (iOS doesn't shrink dvh for the keyboard). */
+  #app{ height:100vh; height:100dvh; }
+  html.kb-open #app{ height:var(--vv-h, 100dvh); }
+  html, body{ overscroll-behavior-y:none; }
+  #main{ overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; }
+  /* #main is a flex row, so by default #page-view stretched to exactly
+     one screen tall and the sticky top bar (its child) let go of the top
+     after one screen of scrolling. Sizing the page to its content keeps
+     the bar — and its ☰ / Undo — reachable however far down you are. */
+  #main{ align-items:flex-start; }
+
+  /* --- Sidebar button lives in the top bar now ---
+     The floating ☰ used to sit on top of the banner text and, once you
+     scrolled, on top of the Back button. */
+  #app.sidebar-collapsed #expand-btn{ display:none; }
+  .topbar-menu-btn{ display:inline-flex; align-items:center; justify-content:center; min-width:44px; }
+  #page-view{ padding-top:calc(10px + env(safe-area-inset-top)); }
+  #graph-view, #tasks-view{ padding-top:calc(10px + env(safe-area-inset-top)); }
+
+  /* --- One scrolling row instead of a wrapped stack --- */
+  .topbar{
+    flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden;
+    scrollbar-width:none; -webkit-overflow-scrolling:touch;
+  }
+  .topbar::-webkit-scrollbar{ display:none; }
+  .topbar .topbtn{ flex:0 0 auto; white-space:nowrap; }
+
+  /* --- Long words, URLs and code must not push the page sideways --- */
+  .block-content{ overflow-wrap:anywhere; }
+  .block-content pre, .code-block pre{ overflow-x:auto; max-width:100%; }
+
+  /* --- Room to scroll the last line above the edit bar --- */
+  html.is-editing #page-view{ padding-bottom:calc(150px + env(safe-area-inset-bottom)); }
+
+  /* --- The edit bar ---
+     It used to sit in the page, above the outline: on a long page it
+     scrolled out of view, so indenting or formatting a line further
+     down meant scrolling all the way back up. Now it's pinned above
+     the keyboard, only while a line is being edited, as a single
+     swipeable row: structure buttons first (there's no Tab key on a
+     phone), then formatting. */
+  #page-view #edit-dock{
+    display:none;
+    position:fixed; left:0; right:0; top:auto;
+    bottom:var(--kb-inset, 0px);
+    margin:0; z-index:45;
+    flex-direction:row; align-items:center; gap:2px;
+    padding:5px 6px calc(5px + env(safe-area-inset-bottom));
+    border:none; border-top:1px solid var(--border); border-radius:0;
+    background:var(--paper-raised);
+    box-shadow:0 -6px 20px rgba(20,35,28,.10);
+    -webkit-backdrop-filter:none; backdrop-filter:none;
+    overflow-x:auto; overflow-y:hidden;
+    scrollbar-width:none; -webkit-overflow-scrolling:touch;
+  }
+  #page-view #edit-dock::-webkit-scrollbar{ display:none; }
+  html.kb-open #page-view #edit-dock{ padding-bottom:5px; } /* keyboard already covers the home-bar area */
+  html.is-editing #page-view #edit-dock{ display:flex; }
+
+  /* Both rows flatten into the one scrolling strip; the "nav" row's
+     buttons are ordered first. */
+  #edit-dock .dock-row{
+    display:contents;
+  }
+  #edit-dock .dock-row-nav > *{ order:-1; }
+  #edit-dock .dock-blocktype{ display:none; }      /* "Text ▾" is a placeholder with one option */
+  #edit-dock .dock-spacer{ display:none; }
+  #edit-dock .dock-divider{ margin:0 4px; flex:0 0 1px; align-self:center; height:24px; }
+
+  #edit-dock .dock-fmt-btn{ width:42px; height:42px; flex:0 0 42px; font-size:1rem; }
+  #edit-dock .dock-pill-btn{
+    min-width:44px; height:42px; padding:0 10px; flex:0 0 auto;
+    justify-content:center; border-radius:10px;
+  }
+  #edit-dock .dock-pill-btn .dock-lbl{ display:none; }   /* icon-only — labels stay in aria-label/title */
+  #edit-dock .dock-pill-btn .dock-ico{ font-size:1.2rem; line-height:1; }
+  #dock-down-btn{ margin-right:2px; }
+  #edit-dock .dock-text-btn{ order:1; flex:0 0 auto; margin-left:6px; white-space:nowrap; }
+
+  /* Done stays visible at the right edge however far the strip is scrolled. */
+  #edit-dock .dock-done-btn{
+    display:inline-flex; align-items:center; justify-content:center;
+    order:2; flex:0 0 auto; height:42px; padding:0 16px; margin-left:auto;
+    position:sticky; right:0;
+    border:none; border-radius:10px; cursor:pointer;
+    background:var(--focus); color:var(--paper-raised, #fff);
+    font-family:var(--sans); font-size:.875rem; font-weight:600;
+    box-shadow:6px 0 0 0 var(--paper-raised), -10px 0 10px -4px var(--paper-raised); /* right term hides the strip's edge padding */
+  }
+}
+
+/* --- Fingertip-sized controls on touch screens --- */
+@media (hover:none), (pointer:coarse){
+  .block-controls{ padding-top:0; margin-left:2px; opacity:.55; }
+  .block-row:focus-within .block-controls,
+  .block-row:hover .block-controls{ opacity:1; }
+  .block-controls button{ width:34px; height:36px; font-size:1.1rem; }
+  .bullet-wrap{ width:24px; padding-top:11px; }
+  .collapse-tri{ padding:10px 6px; margin:-10px -6px; }
+  .todo-checkbox{ width:22px; height:22px; margin-top:5px; }
+  .todo-due-chip, .todo-due-add-btn{ min-height:30px; }
+  .add-block-btn{ padding-top:12px; padding-bottom:12px; }
+  .topbtn{ min-height:40px; }
+  .slash-item, .ctx-menu-item{ min-height:44px; }
+}

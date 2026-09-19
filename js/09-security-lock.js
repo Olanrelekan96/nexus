@@ -544,6 +544,24 @@ function listAllAttachments(){
   });
 }
 
+/* Fetches an attachment's real bytes and saves them to disk under
+   their original name — used by the ⬇ button on inline images/files
+   and by the Attachments browser in the sidebar (including for
+   attachments no longer referenced from any page, as a last chance
+   to grab a copy before deleting them for good). */
+function downloadAttachment(id, name){
+  getAttachment(id).then(function(rec){
+    if(!rec){ toast('Not available on this device.'); return; }
+    var url = URL.createObjectURL(rec.blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name || rec.name || 'download';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  }).catch(function(err){
+    toast('Could not download that file' + (err && err.message ? (': ' + err.message) : '.'));
+  });
+}
+
 function blobToBase64(blob){
   return blob.arrayBuffer().then(function(buf){
     var bytes = new Uint8Array(buf), binary = "", chunk = 0x8000;
@@ -564,7 +582,16 @@ function base64ToBlob(b64, type){
    without every render call site needing to know about attachments. ---- */
 function applyAttachmentUrl(node, url){
   if(node.classList.contains('att-img-el')) node.src = url;
-  else if(node.classList.contains('att-file-link')) node.href = url;
+  else if(node.classList.contains('att-file-link')){
+    node.href = url;
+    /* Blob URLs carry no filename of their own — without `download`,
+       browsers are free to just navigate to/preview the blob (and if
+       the user does manually save it, it lands under a meaningless
+       generated name). Setting it here guarantees a real Save-As with
+       the original name, straight from the link itself. */
+    var wrap = node.closest('.att-file');
+    node.setAttribute('download', (wrap && wrap.dataset.attName) || node.textContent || 'file');
+  }
 }
 function markAttachmentMissing(node){
   if(node.classList.contains('att-img-el')){

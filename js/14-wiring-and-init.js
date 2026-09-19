@@ -47,6 +47,12 @@ document.getElementById('btn-insert-query').onclick = function(){ openQueryBuild
     var t = e.target;
     if(t.classList && t.classList.contains('link')){ openPageByTitle(t.dataset.target, 'page'); return; }
     if(t.classList && t.classList.contains('tag')){ openPageByTitle(t.dataset.tag, 'tag'); return; }
+    var dlBtn = t.closest ? t.closest('.att-dl-btn') : null;
+    if(dlBtn){
+      var attWrap = dlBtn.closest('.att-img, .att-file');
+      if(attWrap) downloadAttachment(attWrap.dataset.attId, attWrap.dataset.attName);
+      return;
+    }
   });
 });
 document.getElementById('btn-insert-table').onclick = function(){ openQueryBuilder('table', null, ''); };
@@ -194,7 +200,7 @@ document.addEventListener('keydown', function(e){
 
 window.addEventListener('beforeunload', flushSaveNow);
 document.addEventListener('visibilitychange', function(){
-  if(document.hidden) flushSaveNow();
+  if(document.hidden){ flushSaveNow(); gdriveFlushPendingSync(); }
 });
 
 /* ============================================================
@@ -240,9 +246,12 @@ function bootNotebook(){
   });
 }
 
-document.addEventListener('visibilitychange', function(){
-  if(!document.hidden) runGdriveSyncCycle();
-});
+/* Pull in changes from other devices the moment this tab/window is back
+   in front of the person (tab switch, app foregrounded, window focused,
+   network restored) rather than waiting for the 60s poll. */
+document.addEventListener('visibilitychange', gdriveSyncOnResume);
+window.addEventListener('focus', gdriveSyncOnResume);
+window.addEventListener('online', gdriveSyncOnResume);
 
 if(isLockEnabled()){
   showLockScreen(); /* bootNotebook() runs once attemptUnlockFromScreen() succeeds */

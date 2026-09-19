@@ -129,6 +129,13 @@ function ensureDocsPage(){
     "Use tags to group related notes across your whole notebook, e.g. #project, #reading, #idea."
   ]);
 
+  section("Supertags", [
+    "Open any tag's own page and tick the \"Supertag\" checkbox to give it a schema — a shared set of fields, rather than just a label.",
+    "Click ＋ Add field to name a field and pick a type (the same Text, Number, Date, Checkbox, Select, Multi-select, Rating, Relation, Rollup and Formula types used everywhere else), plus an optional default value.",
+    "Any page that uses that #tag anywhere in its own lines is an instance: it automatically gets those fields added to its Properties, without ever overwriting a value you've already filled in yourself.",
+    "A supertag's page lists every page currently tagged with it, and an instance shows a small #tagname badge under its own title — a quick way to tell a page is \"typed\". In the sidebar, supertags get a ⚡ next to their name under Tags."
+  ]);
+
   section("Linked references (backlinks)", [
     "Scroll to the bottom of any page to see \"Linked references\" — every line anywhere else in your notebook that mentions this page or tag, grouped by where it was written."
   ]);
@@ -191,7 +198,9 @@ function ensureDocsPage(){
 
   section("Images & files", [
     "Click a line to select it, then use the 📎 button in the toolbar above the outline to attach an image or any other file — it's inserted right where your cursor was.",
-    "Images show inline; other files show as a small chip you can click to open or download. Click an image to open it full-size in a new tab.",
+    "Images show inline; other files show as a small chip with the file name. Click an image to open it full-size in a new tab, or click a file's name to download it under its original name.",
+    "Hover an image (or look next to a file's name) for a small ⬇ button — click it any time to save a copy to your computer.",
+    "The Attachments list in the sidebar footer shows every image and file in the whole notebook, including ones no longer used on any page, each with its own ⬇ — a last chance to grab a copy before deleting an unused one for good.",
     "Attachments are stored separately from your notes (in the browser's IndexedDB, not the same small localStorage space text uses), so a handful of photos won't eat into the notes-storage budget shown in the sidebar footer — though large files still add up, and everything is still local to this browser.",
     "Deleting the {{img:…}} or {{file:…}} reference from a line removes it from view but doesn't delete the underlying file — that trade-off is what keeps Undo and Version history safe (reverting text can never destroy a file you attached earlier)."
   ]);
@@ -820,6 +829,28 @@ function applyIncomingMerge(merged){
 }
 
 /* ============================================================
+   USABLE VIEWPORT
+   The part of the screen a popup/menu can safely occupy. On a phone
+   the on-screen keyboard shrinks only the *visual* viewport —
+   window.innerHeight (what fixed-position math normally uses) stays
+   the same, so a menu placed with it can end up hidden behind the
+   keyboard. This also subtracts the docked edit bar when it's showing
+   (see 19-mobile-editor.js), so menus land above it instead of under.
+   Returns {top, bottom} in the same client-pixel space as
+   getBoundingClientRect(). On desktop it's just the window.
+   ============================================================ */
+function usableViewport(){
+  var top = 0, bottom = window.innerHeight;
+  var vv = window.visualViewport;
+  if(vv && vv.scale <= 1.01){ top = vv.offsetTop; bottom = vv.offsetTop + vv.height; }
+  var dock = document.getElementById('edit-dock');
+  if(dock && dock.getClientRects().length && window.getComputedStyle(dock).position === 'fixed'){
+    bottom = Math.min(bottom, dock.getBoundingClientRect().top);
+  }
+  return {top: top, bottom: bottom};
+}
+
+/* ============================================================
    HELPERS
    ============================================================ */
 /* Escapes everything HTML needs escaped, including quotes — this string
@@ -878,6 +909,7 @@ function renderImageHtml(raw){
   var parsed = parseAttRef(raw);
   return '<span class="att-img" data-att-id="'+escapeHtml(parsed.id)+'" data-att-name="'+escapeHtml(parsed.name)+'">'
     + '<img class="att-img-el" data-att-id="'+escapeHtml(parsed.id)+'" alt="'+escapeHtml(parsed.name||'image')+'">'
+    + '<button type="button" class="att-dl-btn" title="Download image" aria-label="Download '+escapeHtml(parsed.name||'image')+'">⬇</button>'
     + '</span>';
 }
 function renderFileHtml(raw){
@@ -885,6 +917,7 @@ function renderFileHtml(raw){
   return '<span class="att-file" data-att-id="'+escapeHtml(parsed.id)+'" data-att-name="'+escapeHtml(parsed.name)+'">'
     + '<span class="att-file-icon">📎</span>'
     + '<a class="att-file-link" data-att-id="'+escapeHtml(parsed.id)+'" href="#" target="_blank">'+escapeHtml(parsed.name||'file')+'</a>'
+    + '<button type="button" class="att-dl-btn" title="Download file" aria-label="Download '+escapeHtml(parsed.name||'file')+'">⬇</button>'
     + '</span>';
 }
 function buildImageNode(raw){
@@ -896,6 +929,11 @@ function buildImageNode(raw){
   img.className = 'att-img-el'; img.dataset.attId = parsed.id;
   img.alt = parsed.name || 'image';
   wrap.appendChild(img);
+  var dlBtn = document.createElement('button');
+  dlBtn.type = 'button'; dlBtn.className = 'att-dl-btn';
+  dlBtn.title = 'Download image'; dlBtn.textContent = '⬇';
+  dlBtn.setAttribute('aria-label', 'Download ' + (parsed.name || 'image'));
+  wrap.appendChild(dlBtn);
   return wrap;
 }
 function buildFileNode(raw){
@@ -910,6 +948,11 @@ function buildFileNode(raw){
   link.href = '#'; link.target = '_blank';
   link.textContent = parsed.name || 'file';
   wrap.appendChild(icon); wrap.appendChild(link);
+  var dlBtn = document.createElement('button');
+  dlBtn.type = 'button'; dlBtn.className = 'att-dl-btn';
+  dlBtn.title = 'Download file'; dlBtn.textContent = '⬇';
+  dlBtn.setAttribute('aria-label', 'Download ' + (parsed.name || 'file'));
+  wrap.appendChild(dlBtn);
   return wrap;
 }
 

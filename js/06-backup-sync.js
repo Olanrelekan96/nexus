@@ -1013,6 +1013,9 @@ function gdrivePushSyncState(fileId){
       method: 'PATCH',
       headers: { 'Authorization': 'Bearer ' + gdriveAccessToken, 'Content-Type': 'application/json' },
       body: body
+    }).then(function(res){
+      if(!res.ok) throw new Error('Drive upload failed: ' + res.status);
+      return res;
     });
   });
 }
@@ -1021,10 +1024,38 @@ function gdrivePushSyncState(fileId){
    10-lan-sync.js, with Google Drive standing in for a live peer link
    and 'gdrive' as its fixed peer id in state.syncPeers. Does not check
    whether auto-sync is turned on — callers decide that. */
+var gdriveCycleRunning = false;
+var gdriveCycleStartedAt = 0;
+var gdriveCycleQueued = false;
+var GDRIVE_CYCLE_STALE_MS = 90000; /* a cycle that hasn't finished in this long is assumed hung, so it can't block syncing forever */
+
+/* Entry point for every kind of sync (timer tick, tab resume, local save,
+   "Sync now"). Only one pull->merge->push runs at a time: a request that
+   arrives mid-cycle is remembered and re-run once, right after, so a
+   local edit made while a sync was in flight is never left behind. */
 function gdrivePerformSyncCycle(){
   if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin()) return;
+  if(gdriveCycleRunning && (Date.now() - gdriveCycleStartedAt) < GDRIVE_CYCLE_STALE_MS){
+    gdriveCycleQueued = true;
+    return;
+  }
+  gdriveCycleRunning = true;
+  gdriveCycleStartedAt = Date.now();
+  var finished = false;
+  gdriveRunSyncCycleBody(function(){
+    if(finished) return;
+    finished = true;
+    gdriveCycleRunning = false;
+    if(gdriveCycleQueued){
+      gdriveCycleQueued = false;
+      gdrivePerformSyncCycle();
+    }
+  });
+}
+
+function gdriveRunSyncCycleBody(done){
   gdriveFindSyncFile(function(fileId){
-    if(!fileId){ setGdriveAutoSyncStatus('Could not reach the Google Drive sync file — will retry.'); return; }
+    if(!fileId){ setGdriveAutoSyncStatus('Could not reach the Google Drive sync file — will retry.'); done(); return; }
     gdrivePullSyncState(fileId).then(function(result){
       if(result.needsPasscode){
         setGdriveAutoSyncStatus('Encrypted sync data found — click "Sync now" to unlock it for this session.');
@@ -1068,7 +1099,7 @@ function gdrivePerformSyncCycle(){
       });
     }).catch(function(){
       setGdriveAutoSyncStatus('Could not reach Google Drive just now — will retry.');
-    });
+    }).then(done);
   });
 }
 
@@ -1106,23 +1137,50 @@ function gdriveSyncNow(){
 }
 
 /* Called from broadcastStateToPeers() (10-lan-sync.js) on every local
-   save, so edits reach Drive quickly rather than waiting for the next
-   polling tick — but only if a token is already live, so this never
-   itself triggers a sign-in or passcode prompt. If encryption is in
-   play but this session hasn't confirmed the passcode yet, this quietly
-   skips (the next "Sync now" or periodic tick picks it up once it has). */
+   save. Waits for a short pause in editing, then runs a full
+   pull -> merge -> push cycle — NOT a bare push. A bare push would
+   overwrite the Drive file with this device's copy, silently erasing
+   anything another device had pushed since this one last looked; going
+   through the merge engine first means edits from every device
+   accumulate no matter which one saves last, with no manual "Sync now".
+   Only runs if a token is already live, so this never itself triggers a
+   sign-in or passcode prompt. If encryption is in play but this session
+   hasn't confirmed the passcode yet, this quietly skips (the next
+   "Sync now" or periodic tick picks it up once it has). */
 function scheduleGdriveAutoPush(){
   if(!gdriveAutoSyncEnabled() || !gdriveAccessToken) return;
   if(!gdriveAuthStillValid()){ setGdriveAutoSyncStatus('Drive connection expired — click "Sync now" to reconnect.'); return; }
   if(isLockEnabled() && !gdriveSyncEncryptionDeclined && !gdriveSyncPasscode) return;
   clearTimeout(gdriveAutoPushTimer);
   gdriveAutoPushTimer = setTimeout(function(){
-    var fileId = localStorage.getItem(GDRIVE_SYNC_FILEID_KEY);
-    if(!fileId) return;
-    gdrivePushSyncState(fileId).then(function(){
-      setGdriveAutoSyncStatus('Last synced ' + timeAgo(Date.now()) + '.');
-    }).catch(function(){});
+    gdriveAutoPushTimer = null;
+    gdrivePerformSyncCycle();
   }, 4000);
+}
+
+/* Sync as soon as the person comes back to this tab/window (or the
+   network returns) instead of waiting up to 60s for the next tick.
+   Throttled so tab-switch + window-focus events firing together, or
+   rapid flipping between tabs, don't stack up requests. Silent-only,
+   same as the periodic path (runGdriveSyncCycle). */
+var gdriveLastResumeSync = 0;
+var GDRIVE_RESUME_MIN_GAP_MS = 5000;
+function gdriveSyncOnResume(){
+  if(!gdriveAutoSyncEnabled() || document.hidden) return;
+  var now = Date.now();
+  if(now - gdriveLastResumeSync < GDRIVE_RESUME_MIN_GAP_MS) return;
+  gdriveLastResumeSync = now;
+  runGdriveSyncCycle();
+}
+
+/* When a tab is being hidden, a save-triggered sync may still be waiting
+   out its 4s pause — and background timers get throttled or frozen. Run
+   it now so the edit gets out before the tab goes to sleep. */
+function gdriveFlushPendingSync(){
+  if(!gdriveAutoPushTimer) return;
+  clearTimeout(gdriveAutoPushTimer);
+  gdriveAutoPushTimer = null;
+  if(gdriveAutoSyncEnabled() && gdriveAccessToken && gdriveAuthStillValid()) gdrivePerformSyncCycle();
 }
 
 function startGdriveAutoSyncTimer(){
@@ -1137,6 +1195,7 @@ function stopGdriveAutoSyncTimer(){
   clearInterval(gdriveAutoSyncTimer);
   gdriveAutoSyncTimer = null;
   clearTimeout(gdriveAutoPushTimer);
+  gdriveAutoPushTimer = null;
 }
 
 /* Entry point for the explicit "On" click — the only place (besides

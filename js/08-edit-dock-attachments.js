@@ -65,6 +65,28 @@ document.getElementById('dock-outdent-btn').onclick = function(e){
   var b = dockBlockId ? state.blocks[dockBlockId] : null;
   if(b) doOutdent(b);
 };
+document.getElementById('dock-up-btn').addEventListener('mousedown', function(e){ e.preventDefault(); });
+document.getElementById('dock-down-btn').addEventListener('mousedown', function(e){ e.preventDefault(); });
+document.getElementById('dock-done-btn').addEventListener('mousedown', function(e){ e.preventDefault(); });
+document.getElementById('dock-up-btn').onclick = function(e){
+  e.preventDefault();
+  var b = dockBlockId ? state.blocks[dockBlockId] : null;
+  if(b) doMoveBlock(b, -1);
+};
+document.getElementById('dock-down-btn').onclick = function(e){
+  e.preventDefault();
+  var b = dockBlockId ? state.blocks[dockBlockId] : null;
+  if(b) doMoveBlock(b, 1);
+};
+/* "Done" — the phone equivalent of clicking away: commits the line and
+   lets the keyboard drop. Tapping empty page space doesn't do it on
+   iOS/Android, since a non-focusable area doesn't take focus away. */
+document.getElementById('dock-done-btn').onclick = function(e){
+  e.preventDefault();
+  var el = document.querySelector('.block-content.editing');
+  if(el) el.blur();
+  else if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+};
 document.getElementById('dock-copysync-btn').onclick = function(e){
   e.preventDefault();
   if(!dockBlockId){ toast('Tap a line first, then copy its reference.'); return; }

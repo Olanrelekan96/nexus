@@ -118,14 +118,37 @@ function openCtxMenu(items, x, y){
 
 /* Places a fixed-position element near (x, y), flipping it up/left
    instead of letting it run off the bottom or right edge. */
-function positionFloating(el, x, y){
+function positionFloating(el, x, y, anchorTop){
+  /* Keeps a popup inside what's actually visible: the visual viewport
+     (so the phone keyboard doesn't cover it) minus the docked edit bar.
+     y is where it wants to start when opening downward; anchorTop, if
+     given, is the top edge of whatever it's anchored to, so flipping
+     above the anchor doesn't cover the very line being edited. If it
+     fits on neither side it takes the roomier one and scrolls. */
+  var vp = usableViewport();
   var w = el.offsetWidth, h = el.offsetHeight;
   var left = x;
   if(left + w > window.innerWidth - 8) left = Math.max(8, x - w);
   if(left < 8) left = 8;
-  var top = y;
-  if(top + h > window.innerHeight - 8) top = Math.max(8, y - h);
-  if(top < 8) top = 8;
+  var flipEdge = (typeof anchorTop === 'number') ? anchorTop - 6 : y;
+  var below = vp.bottom - y - 8;
+  var above = flipEdge - vp.top - 8;
+  var top;
+  if(h <= below){
+    top = y;
+  } else if(h <= above){
+    top = flipEdge - h;
+  } else if(below >= above){
+    top = y;
+    el.style.maxHeight = Math.max(120, below) + 'px';
+    el.style.overflowY = 'auto';
+  } else {
+    var capped = Math.max(120, above);
+    el.style.maxHeight = capped + 'px';
+    el.style.overflowY = 'auto';
+    top = Math.max(vp.top + 8, flipEdge - capped);
+  }
+  if(top < vp.top + 8) top = vp.top + 8;
   el.style.left = left + 'px';
   el.style.top = top + 'px';
 }
@@ -510,7 +533,7 @@ function positionSlashMenu(el){
   y = rect.bottom + 6;
   /* Prefer opening downward from the caret; positionFloating flips it
      above the line when there isn't room below. */
-  positionFloating(slashMenuEl, x, y);
+  positionFloating(slashMenuEl, x, y, rect.top);
 }
 
 function setSlashActive(i){
