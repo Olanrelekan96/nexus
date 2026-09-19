@@ -146,7 +146,8 @@ var SETTINGS_DEFAULTS = {
   confirmTrash: 'off',
   autoBackupInterval: 'off',
   gdriveAutoSync: 'off',
-  passcodeReentryHours: '24'
+  passcodeReentryHours: '24',
+  passcodeRequestOnLaunch: 'on'
 };
 /* [rowId, data-attribute name, settings key] */
 var SETTINGS_ROWS = [
@@ -158,7 +159,8 @@ var SETTINGS_ROWS = [
   ['settings-autobackup-row', 'autobackup', 'autoBackupInterval'],
   ['settings-confirmtrash-row', 'confirmtrash', 'confirmTrash'],
   ['settings-gdriveautosync-row', 'gdriveautosync', 'gdriveAutoSync'],
-  ['settings-passcodereentry-row', 'passcodereentry', 'passcodeReentryHours']
+  ['settings-passcodereentry-row', 'passcodereentry', 'passcodeReentryHours'],
+  ['settings-passcode-launch-row', 'passcoderequest', 'passcodeRequestOnLaunch']
 ];
 SETTINGS_ROWS.filter(function(r){ return r[0] === 'settings-autobackup-row'; }).forEach(function(row){
   Array.prototype.slice.call(document.querySelectorAll('#'+row[0]+' .settings-opt')).forEach(function(btn){
@@ -237,10 +239,23 @@ function refreshLockSettingsUI(){
   document.getElementById('btn-change-passcode').style.display = on ? '' : 'none';
   document.getElementById('btn-lock-now').style.display = on ? '' : 'none';
   document.getElementById('btn-remove-passcode').style.display = on ? '' : 'none';
+  var launchRow = document.getElementById('settings-passcode-launch-row');
+  if(launchRow){
+    launchRow.style.opacity = on ? '1' : '.55';
+    Array.prototype.slice.call(launchRow.querySelectorAll('.settings-opt')).forEach(function(btn){ btn.disabled = !on; });
+  }
   var reentryRow = document.getElementById('settings-passcodereentry-row');
   if(reentryRow){
     reentryRow.style.opacity = on ? '1' : '.55';
     Array.prototype.slice.call(reentryRow.querySelectorAll('.settings-opt')).forEach(function(btn){ btn.disabled = !on; });
+  }
+  var launchStatus = document.getElementById('passcode-launch-status');
+  if(launchStatus){
+    launchStatus.textContent = !on
+      ? 'Set a passcode first. This option becomes available when encryption is enabled.'
+      : (currentSettings.passcodeRequestOnLaunch === 'on'
+        ? 'On — a fresh Nexus launch asks for your passcode. The re-entry interval remains an in-session timer.'
+        : 'Off — Nexus can resume the unlocked session on reload in this browser tab. The selected 1/6/12/24-hour interval still forces a passcode when it expires.');
   }
   if(typeof updatePasscodeReentryStatus === 'function') updatePasscodeReentryStatus();
   var hasRecovery = on && !!meta.wrappedDEKRecovery;
@@ -429,6 +444,20 @@ Array.prototype.slice.call(document.querySelectorAll('#settings-passcodereentry-
   btn.addEventListener('click', function(){
     setPasscodeReentry(btn.dataset.passcodereentry);
     refreshLockSettingsUI();
+  });
+});
+Array.prototype.slice.call(document.querySelectorAll('#settings-passcode-launch-row .settings-opt')).forEach(function(btn){
+  btn.addEventListener('click', function(){
+    if(!loadLockMeta()) return;
+    currentSettings.passcodeRequestOnLaunch = btn.dataset.passcoderequest === 'off' ? 'off' : 'on';
+    saveSettings(currentSettings);
+    applySettings(currentSettings);
+    if(typeof updatePasscodeLaunchSessionPolicy === 'function') updatePasscodeLaunchSessionPolicy();
+    refreshLockSettingsUI();
+    if(typeof setDataHealthStatus === 'function') setDataHealthStatus('saved', 'Passcode launch policy saved');
+    if(typeof toast === 'function') toast(currentSettings.passcodeRequestOnLaunch === 'on'
+      ? 'Nexus will request your passcode on a fresh launch.'
+      : 'Nexus can resume this unlocked tab until the passcode interval expires.');
   });
 });
 

@@ -292,11 +292,42 @@ document.addEventListener('visibilitychange', gdriveSyncOnResume);
 window.addEventListener('focus', gdriveSyncOnResume);
 window.addEventListener('online', gdriveSyncOnResume);
 
-if(isLockEnabled()){
-  showLockScreen(); /* bootNotebook() runs once attemptUnlockFromScreen() succeeds */
-} else {
-  bootNotebook();
+function startNotebookWithSecurityGate(){
+  if(!isLockEnabled()){
+    if(typeof clearPasscodeSessionKey === 'function') clearPasscodeSessionKey();
+    bootNotebook();
+    return;
+  }
+  if(typeof passcodeRequestOnLaunch !== 'function' || passcodeRequestOnLaunch()){
+    if(typeof clearPasscodeSessionKey === 'function') clearPasscodeSessionKey();
+    showLockScreen(); /* bootNotebook() runs once attemptUnlockFromScreen() succeeds */
+    return;
+  }
+  /* Launch prompt is OFF: restore the DEK only for this browser tab and only
+     while the normal absolute re-entry deadline remains valid. A new tab has
+     no session key and therefore still asks for the passcode. */
+  restorePasscodeSessionKey().then(function(restored){
+    if(!restored){ showLockScreen(); return; }
+    var deadline = loadPasscodeReentryDeadline();
+    if(!deadline || Date.now() >= deadline){
+      clearPasscodeSessionKey();
+      lockCryptoKey = null;
+      passcodeUnlockedAt = 0;
+      persistPasscodeReentryState(0,0);
+      showLockScreen();
+      return;
+    }
+    appLocked = false;
+    schedulePasscodeReentry();
+    updatePasscodeReentryStatus();
+    bootNotebook();
+  }).catch(function(){
+    if(typeof clearPasscodeSessionKey === 'function') clearPasscodeSessionKey();
+    if(typeof lockCryptoKey !== 'undefined') lockCryptoKey = null;
+    showLockScreen();
+  });
 }
+startNotebookWithSecurityGate();
 
 /* Production-style safety net: surface unexpected runtime failures instead
    of leaving the editor apparently frozen with no explanation. */

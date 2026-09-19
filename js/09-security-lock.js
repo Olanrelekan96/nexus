@@ -34,9 +34,10 @@
    require re-encrypting the notebook itself.
 
    The unwrapped DEK (lockCryptoKey) lives only in memory for the
-   current tab/session — it is never written to disk — so every
-   fresh page load with a passcode set starts locked and needs the
-   passcode (or the recovery key) again. Salts and iteration counts
+   current tab/session by default. When "Request passcode on launch" is
+   turned off, Nexus may keep a sessionStorage copy of that DEK for the
+   same browser tab only, guarded by the normal re-entry deadline; a new
+   tab does not inherit it. Salts and iteration counts
    are public (localStorage, see LOCK_KEY) and don't weaken the
    passcode; they just let the same passcode/recovery key re-derive
    the same wrapping key next time. A small known string, encrypted
@@ -69,8 +70,10 @@ var RECOVERY_CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; /* 32 chars; excludes 
 var lockCryptoKey = null; /* CryptoKey (the DEK) while unlocked this session, else null */
 
 /* Re-entry interval: this is separate from the permanent encryption lock.
-   The notebook still starts locked on a fresh page load; once unlocked, the
-   in-memory DEK is automatically dropped after the chosen elapsed interval. */
+   The notebook normally starts locked on a fresh page load. A separate
+   "Request passcode on launch" preference can allow the current browser tab
+   to resume its unlocked DEK from sessionStorage, provided the absolute
+   re-entry deadline has not expired. */
 var PASSCODE_REENTRY_DEFAULT = '24';
 var PASSCODE_REENTRY_CHOICES = ['1','6','12','24'];
 var passcodeUnlockedAt = 0;
@@ -79,6 +82,8 @@ var passcodeReentryHeartbeat = null;
 var passcodeReentryLockPending = false;
 var PASSCODE_REENTRY_STATE_KEY = LOCK_KEY + '_reentry_v3';
 var PASSCODE_REENTRY_HEARTBEAT_MS = 15000;
+var PASSCODE_LAUNCH_DEFAULT = 'on';
+var PASSCODE_SESSION_KEY = LOCK_KEY + '_session_dek_v1';
 
 /* The interval must survive browser timer throttling/suspension. Keep the
    session start + absolute deadline in localStorage as non-secret metadata
@@ -129,6 +134,46 @@ function passcodeReentryHours(){
   return PASSCODE_REENTRY_CHOICES.indexOf(String(v)) === -1 ? PASSCODE_REENTRY_DEFAULT : String(v);
 }
 function passcodeReentryMs(){ return parseInt(passcodeReentryHours(), 10) * 60 * 60 * 1000; }
+function passcodeRequestOnLaunch(){
+  var v = (typeof currentSettings !== 'undefined' && currentSettings.passcodeRequestOnLaunch) || PASSCODE_LAUNCH_DEFAULT;
+  return String(v) !== 'off';
+}
+function clearPasscodeSessionKey(){
+  try{ sessionStorage.removeItem(PASSCODE_SESSION_KEY); }catch(e){}
+}
+function persistPasscodeSessionKey(){
+  if(passcodeRequestOnLaunch() || !lockCryptoKey) return Promise.resolve(false);
+  var state = loadPasscodeReentryState();
+  var deadline = state.deadlineAt || (passcodeUnlockedAt ? passcodeUnlockedAt + passcodeReentryMs() : 0);
+  if(!deadline || Date.now() >= deadline){ clearPasscodeSessionKey(); return Promise.resolve(false); }
+  return crypto.subtle.exportKey('raw', lockCryptoKey).then(function(raw){
+    var payload = {v:1, startedAt: state.startedAt || passcodeUnlockedAt || Date.now(), deadlineAt: deadline, key: bufToB64(raw)};
+    try{ sessionStorage.setItem(PASSCODE_SESSION_KEY, JSON.stringify(payload)); return true; }catch(e){ return false; }
+  }).catch(function(){ return false; });
+}
+function restorePasscodeSessionKey(){
+  if(passcodeRequestOnLaunch() || !isLockEnabled()) return Promise.resolve(false);
+  var raw;
+  try{ raw = JSON.parse(sessionStorage.getItem(PASSCODE_SESSION_KEY) || 'null'); }catch(e){ raw = null; }
+  if(!raw || raw.v !== 1 || !raw.key || Number(raw.deadlineAt) <= Date.now()){ clearPasscodeSessionKey(); return Promise.resolve(false); }
+  var meta = loadLockMeta();
+  if(!meta || !meta.verifier){ clearPasscodeSessionKey(); return Promise.resolve(false); }
+  return crypto.subtle.importKey('raw', b64ToBuf(raw.key), {name:'AES-GCM'}, true, ['encrypt','decrypt']).then(function(dek){
+    return decryptWithKey(dek, meta.verifier).then(function(text){
+      if(text !== LOCK_VERIFIER_TEXT){ clearPasscodeSessionKey(); return false; }
+      lockCryptoKey = dek;
+      passcodeUnlockedAt = Number(raw.startedAt) || Date.now();
+      return true;
+    });
+  }).catch(function(){ clearPasscodeSessionKey(); return false; });
+}
+function updatePasscodeLaunchSessionPolicy(){
+  if(!isLockEnabled() || passcodeRequestOnLaunch() || !lockCryptoKey){
+    clearPasscodeSessionKey();
+    return Promise.resolve(false);
+  }
+  return persistPasscodeSessionKey();
+}
 function updatePasscodeReentryStatus(){
   var el = document.getElementById('passcode-reentry-status');
   if(!el) return;
@@ -192,6 +237,7 @@ function refreshLockSessionTimer(){
   passcodeReentryLockPending = false;
   schedulePasscodeReentry();
   updatePasscodeReentryStatus();
+  persistPasscodeSessionKey();
 }
 function enforcePasscodeReentry(){
   passcodeReentryTimer = null;
@@ -577,6 +623,7 @@ function lockNow(){
   persistPasscodeReentryStartedAt(0);
   passcodeReentryLockPending = false;
   lockCryptoKey = null;
+  clearPasscodeSessionKey();
   showLockScreen();
 }
 

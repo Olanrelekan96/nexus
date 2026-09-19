@@ -10,7 +10,7 @@
 <link id="pwa-icon" rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link id="pwa-apple-icon" rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="css/styles.css">
-<meta name="nexus-build" content="2026-09-19-quality-hardened-v1-database-query-daily-appearance-transclusion-flashcards-sticky-notes-zettelkasten-folders-zk-mobile-collapse-command-tabs-tab-pins-sidebar-reorder-passcode-v3-mobile-sidebar-toggle">
+<meta name="nexus-build" content="2026-09-19-quality-hardened-v1-database-query-daily-appearance-transclusion-flashcards-sticky-notes-zettelkasten-folders-zk-mobile-collapse-command-tabs-tab-pins-sidebar-reorder-passcode-v3-mobile-sidebar-toggle-passcode-launch-v1">
 <meta name="description" content="Nexus — an offline-first personal knowledge OS for notes, tasks, databases and linked thinking.">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -726,6 +726,14 @@
         <div class="hint" style="margin-top:6px;">Backups you export aren't protected by the passcode — treat backup files as sensitive. Local browser storage is encrypted when the Nexus lock is enabled.</div>
       </div>
       <div>
+        <div class="settings-label">Request passcode on launch</div>
+        <div class="settings-row" id="settings-passcode-launch-row">
+          <button type="button" class="settings-opt" data-passcoderequest="on">On</button>
+          <button type="button" class="settings-opt" data-passcoderequest="off">Off</button>
+        </div>
+        <div class="hint" id="passcode-launch-status">On — a fresh Nexus launch asks for your passcode. Off — an unlocked session may resume on reload in this browser tab until the selected re-entry interval expires.</div>
+      </div>
+      <div>
         <div class="settings-label">Re-enter passcode every</div>
         <div class="settings-row" id="settings-passcodereentry-row">
           <button type="button" class="settings-opt" data-passcodereentry="1">1 hour</button>
@@ -733,7 +741,7 @@
           <button type="button" class="settings-opt" data-passcodereentry="12">12 hours</button>
           <button type="button" class="settings-opt" data-passcodereentry="24">24 hours</button>
         </div>
-        <div class="hint" id="passcode-reentry-status">After you unlock Nexus, it will automatically require the passcode again when this interval expires. The timer uses elapsed time, does not reset just because you are active, and is checked again when the app returns from the background.</div>
+        <div class="hint" id="passcode-reentry-status">After you unlock Nexus, it will automatically require the passcode again when this interval expires. The timer uses elapsed time, does not reset just because you are active, and is checked again when the app returns from the background. Launch prompting is controlled separately above.</div>
       </div>
     </div>
     <div class="settings-foot"><button type="button" id="settings-close">Done</button></div>
@@ -955,7 +963,7 @@
 <script src="js/06-backup-sync.js"></script>
 <script src="js/07-find-replace-settings.js"></script>
 <script src="js/08-edit-dock-attachments.js"></script>
-<script src="js/09-security-lock.js?v=20260919-passcode-v4"></script>
+<script src="js/09-security-lock.js?v=20260919-passcode-v5-launch"></script>
 <script src="js/10-lan-sync.js"></script>
 <script src="js/11-import-export.js"></script>
 <script src="js/12-pwa.js"></script>

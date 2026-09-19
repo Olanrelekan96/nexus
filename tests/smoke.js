@@ -38,7 +38,7 @@ assert.ok(index.includes('data-health-overlay'), 'Data health UI must be present
 assert.ok(/nexus-build" content="2026-09-19-quality-hardened-v1-/.test(index), 'quality build marker missing');
 assert.ok(index.includes('tasks-layout'), 'task layout control missing');
 const core = fs.readFileSync(path.join(root,'js','00-state-and-helpers.js'),'utf8');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*25/.test(core), 'current Help guide version missing');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*26/.test(core), 'current Help guide version missing');
 assert.ok(core.includes('ensureCompleteHelpGuide(docsId)'), 'existing Help pages must receive the complete guide update');
 const dbSidebar = fs.readFileSync(path.join(root,'js','21-database-sidebar.js'),'utf8');
 const querySidebar = fs.readFileSync(path.join(root,'js','22-query-sidebar.js'),'utf8');
@@ -93,7 +93,7 @@ assert.ok(/aria-label="Toggle sidebar"|aria-label="Expand sidebar"|aria-label="C
 assert.ok(cssTheme.includes('/* Persistent mobile sidebar toggle.'), 'persistent mobile sidebar CSS missing');
 assert.ok(core.includes('Mobile sidebar always-visible toggle'), 'mobile sidebar Help topic missing');
 assert.ok(core.includes('help-76'), 'mobile sidebar Help catalog id missing');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*25/.test(core), 'current Help version must be v25');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*26/.test(core), 'current Help version must be v25');
 assert.ok(index.includes('js/32-tabs.js'), 'tabs module load missing');
 
 const footnotes = fs.readFileSync(path.join(root,'js','33-footnotes.js'),'utf8');
@@ -158,6 +158,14 @@ assert.ok(security.includes("PASSCODE_REENTRY_CHOICES = ['1','6','12','24']"), '
 assert.ok(security.includes('enforcePasscodeReentry'), 'automatic passcode re-entry enforcement missing');
 assert.ok(security.includes('refreshLockSessionTimer'), 'passcode session timer missing');
 assert.ok(security.includes('flushSaveNow'), 'automatic lock must save before clearing the key');
+assert.ok(security.includes('PASSCODE_LAUNCH_DEFAULT'), 'launch passcode policy missing');
+assert.ok(security.includes('restorePasscodeSessionKey'), 'launch session restore missing');
+assert.ok(security.includes('persistPasscodeSessionKey'), 'launch session persistence missing');
+assert.ok(security.includes('updatePasscodeLaunchSessionPolicy'), 'launch policy updater missing');
+assert.ok(index.includes('settings-passcode-launch-row'), 'Request passcode on launch setting missing');
+assert.ok(index.includes('data-passcoderequest="off"'), 'launch off control missing');
+assert.ok(fs.readFileSync(path.join(root,'js','14-wiring-and-init.js'),'utf8').includes('startNotebookWithSecurityGate'), 'startup security gate missing');
+assert.ok(core.includes('Passcode launch request & remembered session'), 'launch policy Help section missing');
 
 assert.ok(tasks.includes("['board','list','gallery']"), 'task layout cycle must include gallery');
 assert.ok(tasks.includes("tasksViewState.layout === 'gallery' ? 'tasks-gallery'"), 'gallery renderer class missing');
@@ -181,7 +189,7 @@ assert.ok(dashboard.includes('renderDashboardStats'), 'dashboard stats renderer 
 assert.ok(dashboard.includes('renderDashboardWorkspaces'), 'dashboard workspace renderer missing');
 assert.ok(dashboard.includes('renderDashboardHealth'), 'dashboard health renderer missing');
 assert.ok(core.includes('Dashboard home hub'), 'Dashboard Help topic missing');
-assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 25"), 'current Help version missing');
+assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 26"), 'current Help version missing');
 assert.ok(css.includes('#dashboard-view.visible'), 'Dashboard CSS missing');
 assert.ok(core.includes('Page transclusion'), 'Page transclusion Help topic missing');
 assert.ok(core.includes('Block transclusion'), 'Block transclusion Help topic missing');
@@ -398,7 +406,7 @@ seededTitles.forEach((title, i) => {
 });
 ctx.ensureCompleteHelpGuide('doc');
 const helpCountAfterFirst = Object.keys(ctx.state.blocks).length;
-assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 25, 'Help guide should be current after updater runs');
+assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 26, 'Help guide should be current after updater runs');
 
 /* Passcode re-entry hardening: the session start is persisted as non-secret
    metadata so timer throttling/background suspension cannot silently defeat
@@ -555,4 +563,4 @@ assert.ok(lockCode.includes('function closeSecurityOverlays()'), 'lockNow should
 const swCode = fs.readFileSync(path.join(root,'sw.js'),'utf8');
 assert.ok(swCode.includes("CACHE='nexus-shell-v4'"), 'mobile sidebar update must bump the PWA cache generation');
 assert.ok(swCode.includes("fetch(req,{cache:'no-store'})"), 'PWA fetch must revalidate updated security assets');
-assert.ok(index.includes('09-security-lock.js?v=20260919-passcode-v4'), 'security script must be cache-busted for the passcode repair');
+assert.ok(index.includes('09-security-lock.js?v=20260919-passcode-v5-launch'), 'security script must be cache-busted for the passcode launch/interval repair');

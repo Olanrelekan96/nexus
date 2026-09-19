@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 25;
+var NEXUS_HELP_GUIDE_VERSION = 26;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -357,7 +357,8 @@ var NEXUS_HELP_FEATURE_CATALOG = [
   {id:'help-72', title:'Workspace tabs'},
   {id:'help-73', title:'Additional crafted themes'},
   {id:'help-75', title:'Pinned tabs & sidebar drag-and-drop ordering'},
-  {id:'help-76', title:'Mobile sidebar always-visible toggle'}
+  {id:'help-76', title:'Mobile sidebar always-visible toggle'},
+  {id:'help-77', title:'Passcode launch request & remembered session'}
 ]
 function getHelpGuideCoverage(pid){
   var page = state.pages[pid];
@@ -707,6 +708,14 @@ function ensureCompleteHelpGuide(pid){
     "Before an automatic re-lock, Nexus makes a best-effort save while the encryption key is still available, then clears the in-memory key and shows the normal lock screen. Changing the interval while unlocked restarts the timer from that moment. A fresh page load still requires the passcode immediately, regardless of the selected interval.",
     "The re-entry timer uses elapsed time and checks its absolute deadline while Nexus is in the foreground. When the deadline is reached, Nexus starts a final local save and then locks the app immediately; the pending encrypted save keeps the session key it captured before the lock. Passcode, recovery-key, settings and other higher-level overlays are closed so the lock screen cannot be hidden behind another dialog.",
     "Developer release rule: whenever passcode session timing, automatic re-lock behavior, interval choices, save-before-lock behavior, overlay handling or related privacy UI changes, update this Help section, the feature catalog and the guide version in the same release and run the full regression suite."
+  ]);
+
+  addMaintainedSection("Passcode launch request & remembered session", [
+    "Settings → Privacy → Request passcode on launch controls whether Nexus asks for the passcode every time this browser tab is freshly reloaded. It is On by default so the normal encrypted-lock behavior remains the secure default.",
+    "Turn it Off only when you want a convenient same-tab resume. Nexus stores the unlocked data-encryption key only in sessionStorage for the current browser tab, never in persistent local storage. A new tab has no remembered key and still asks for the passcode.",
+    "Turning launch prompting Off does not disable the 1/6/12/24-hour re-entry interval. The existing absolute deadline remains authoritative: when it expires, Nexus clears the remembered key and requires the passcode. The same rule is checked after reload, foregrounding and browser lifecycle events.",
+    "Turning launch prompting On clears the remembered session key. Removing the passcode or manually locking Nexus also clears it. This setting is a convenience control, not a second encryption layer; use On when you want a passcode prompt at every fresh launch.",
+    "Developer release rule: whenever launch prompting, remembered-session storage, tab-scoped unlock state, startup security gating or interaction with the re-entry interval changes, update this Help section, the feature catalog and guide version in the same release and run the full regression suite."
   ]);
 
   addMaintainedSection("Folder organization & nested folders", [
