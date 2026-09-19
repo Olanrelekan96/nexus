@@ -315,7 +315,14 @@ function renderSyncCenter(){
   var d=document.getElementById('sync-center-duplicate-count'); if(d) d.textContent=s.duplicateGroups;
   var v=document.getElementById('sync-center-version-count'); if(v) loadVersions().then(function(list){ v.textContent=list.length; });
 }
-function openSyncCenter(){ var ov=document.getElementById('sync-center-overlay'); if(ov) ov.style.display='flex'; renderSyncCenter(); }
+function openSyncCenter(){
+  var ov=document.getElementById('sync-center-overlay');
+  if(ov) ov.style.display='flex';
+  try{ renderSyncCenter(); }catch(ignore){
+    var sum=document.getElementById('sync-center-summary');
+    if(sum) sum.textContent='Sync recovery is ready. Live counts will appear after the notebook is loaded.';
+  }
+}
 function closeSyncCenter(){ var ov=document.getElementById('sync-center-overlay'); if(ov) ov.style.display='none'; }
 
 /* Wrap sync merge: preserve the pre-merge notebook as a recovery point if the
@@ -350,7 +357,14 @@ function initSyncRecovery(){
   document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeSyncCenter();}});
   /* Make the richer version renderer take over the old handler. */
   var vb=document.getElementById('btn-versions'); if(vb) vb.onclick=openVersionsUpgraded;
-  renderSyncCenter();
+  /* During script loading `state` is intentionally null because the
+     notebook is loaded asynchronously later. Rendering here used to throw
+     before the UI was wired, leaving recovery controls in a partially
+     initialized state. Wire first; render only once state exists or when
+     the hub is explicitly opened. */
+  if(typeof state !== 'undefined' && state && state.pages) {
+    try{ renderSyncCenter(); }catch(ignore){ }
+  }
 }
 
 /* init after all earlier modules are loaded, before wiring's final boot. */
