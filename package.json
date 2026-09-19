@@ -4,6 +4,6 @@
   "version": "1.0.0-quality",
   "description": "Nexus offline-first Knowledge OS",
   "scripts": {
-    "test": "node tests/smoke.js"
+    "test": "node tests/smoke.js && node tests/passcode-integration.js"
   }
 }

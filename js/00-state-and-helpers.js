@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 23;
+var NEXUS_HELP_GUIDE_VERSION = 24;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -704,7 +704,8 @@ function ensureCompleteHelpGuide(pid){
     "When the passcode lock is enabled, Nexus can require the passcode again after an elapsed session interval. Choose 1 hour, 6 hours, 12 hours or 24 hours in Settings → Privacy → Re-enter passcode every.",
     "The interval begins after each successful passcode unlock and is based on elapsed time rather than typing activity, so leaving Nexus open does not silently keep the notebook unlocked forever. When the app is backgrounded, Nexus checks the interval again as soon as it returns to the foreground.",
     "Before an automatic re-lock, Nexus makes a best-effort save while the encryption key is still available, then clears the in-memory key and shows the normal lock screen. Changing the interval while unlocked restarts the timer from that moment. A fresh page load still requires the passcode immediately, regardless of the selected interval.",
-    "Developer release rule: whenever passcode session timing, automatic re-lock behavior, interval choices or related privacy UI changes, update this Help section, the feature catalog and the guide version in the same release and run the full regression suite."
+    "The re-entry timer uses elapsed time and checks its absolute deadline while Nexus is in the foreground. When the deadline is reached, Nexus starts a final local save and then locks the app immediately; the pending encrypted save keeps the session key it captured before the lock. Passcode, recovery-key, settings and other higher-level overlays are closed so the lock screen cannot be hidden behind another dialog.",
+    "Developer release rule: whenever passcode session timing, automatic re-lock behavior, interval choices, save-before-lock behavior, overlay handling or related privacy UI changes, update this Help section, the feature catalog and the guide version in the same release and run the full regression suite."
   ]);
 
   addMaintainedSection("Folder organization & nested folders", [
@@ -1033,10 +1034,11 @@ function rebuildTitleIndex(s){
 var saveTimer = null;
 var persistQueue = Promise.resolve();
 var suppressBroadcast = false; /* true while applying a state we just received from a peer, so we don't echo it straight back out */
-function enqueueNotebookPersist(json){
+function enqueueNotebookPersist(json, keyOverride){
   /* Serialize all IndexedDB writes. Encryption is async, so without a queue
-     an older save can finish after a newer one and overwrite it on disk. */
-  persistQueue = persistQueue.catch(function(){}).then(function(){ return putNotebookState(json); });
+     an older save can finish after a newer one and overwrite it on disk.
+     keyOverride lets a lock-boundary flush keep using the pre-lock DEK. */
+  persistQueue = persistQueue.catch(function(){}).then(function(){ return putNotebookState(json, keyOverride); });
   return persistQueue;
 }
 function save(options){
@@ -1069,7 +1071,8 @@ function save(options){
 function flushSaveNow(){
   clearTimeout(saveTimer);
   var json;
-  try{ json = JSON.stringify(state); }catch(e){ return; }
+  try{ json = JSON.stringify(state); }catch(e){ return Promise.resolve(false); }
+  var capturedKey = (typeof lockCryptoKey !== 'undefined') ? lockCryptoKey : null;
 
   /* IndexedDB is still the primary store. For an unlocked, unencrypted
      notebook, keep a short-lived synchronous emergency snapshot so a tab
@@ -1081,16 +1084,20 @@ function flushSaveNow(){
     }catch(e){}
   }
   try{
-    enqueueNotebookPersist(json).then(function(){
+    return enqueueNotebookPersist(json, capturedKey).then(function(){
       if(!isLockEnabled()){
         try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
       }
       if(typeof setDataHealthStatus === 'function') setDataHealthStatus('saved', 'Saved locally');
+      return true;
     }).catch(function(err){
       if(typeof setDataHealthStatus === 'function') setDataHealthStatus('error', 'Save failed — data may be pending');
       try{ console.error('Nexus flush failed:', err); }catch(ignore){}
+      return false;
     });
-  }catch(e){}
+  }catch(e){
+    return Promise.resolve(false);
+  }
 }
 
 /* Compares the state as it stood before this action (lastSnapshotJson) to

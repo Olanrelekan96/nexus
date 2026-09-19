@@ -218,9 +218,12 @@ function enforcePasscodeReentry(){
   /* Saving is best-effort. Never let an IndexedDB promise prevent the
      security boundary from locking indefinitely. */
   try{
+    /* Lock immediately after initiating a best-effort flush. The flush captures
+       the current DEK, so the encrypted write can complete after the key is
+       cleared by lockNow(). This avoids both a visible delay and a lost pending save. */
     var flushed = typeof flushSaveNow === 'function' ? flushSaveNow() : null;
-    Promise.resolve(flushed).catch(function(){}).then(finalize);
-    setTimeout(finalize, 1000);
+    Promise.resolve(flushed).catch(function(){});
+    finalize();
   }catch(ignore){ finalize(); }
 }
 function setPasscodeReentry(hours){
@@ -561,8 +564,14 @@ function removePasscodeConfirmed(passcode){
     return removePasscode().then(function(){ return true; });
   });
 }
+function closeSecurityOverlays(){
+  ['settings-overlay','passcode-overlay','recovery-unlock-overlay','recovery-show-overlay','data-health-overlay'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  });
+}
 function lockNow(){
-  closeSettings();
+  closeSecurityOverlays();
   clearPasscodeReentryTimer();
   passcodeUnlockedAt = 0;
   persistPasscodeReentryStartedAt(0);
@@ -654,10 +663,12 @@ function getNotebookState(){
     return raw;
   });
 }
-function putNotebookState(json){
+function putNotebookState(json, keyOverride){
   /* Never downgrade a locked notebook to plaintext. A background save,
-     sync callback, or unload handler may run after the UI has locked. */
-  if(isLockEnabled() && !lockCryptoKey){
+     sync callback, or unload handler may run after the UI has locked.
+     keyOverride is used only for a save that captured the DEK before locking. */
+  var keyToUse = keyOverride || lockCryptoKey;
+  if(isLockEnabled() && !keyToUse){
     return Promise.reject(new Error('Security Error: storage write attempted while locked.'));
   }
   return openAttachmentDb().then(function(db){
@@ -670,8 +681,8 @@ function putNotebookState(json){
         tx.onabort = function(){ reject(tx.error || new Error('IndexedDB transaction aborted.')); };
       });
     }
-    if(lockCryptoKey){
-      return encryptWithKey(lockCryptoKey, json).then(function(enc){
+    if(keyToUse){
+      return encryptWithKey(keyToUse, json).then(function(enc){
         enc.enc = true;
         return write(enc);
       });
