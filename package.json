@@ -1,9 +1,9 @@
 {
   "name": "nexus-knowledge-os",
   "private": true,
-  "version": "1.0.0-quality",
+  "version": "1.0.0-rc6",
   "description": "Nexus offline-first Knowledge OS",
   "scripts": {
-    "test": "node tests/smoke.js && node tests/passcode-integration.js && node tests/passcode-launch-session.js"
+    "test": "node tests/smoke.js && node tests/phase2-foundation.js && node tests/phase3-feature-regression.js && node tests/phase4-quality.js && node tests/phase5-performance.js && node tests/phase6-acceptance.js && node tests/phase7-final-audit.js && node tests/phase8-production.js && node tests/master-takeover.js && node tests/passcode-integration.js && node tests/passcode-launch-session.js"
   }
 }

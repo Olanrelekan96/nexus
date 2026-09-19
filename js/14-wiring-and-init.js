@@ -280,8 +280,30 @@ function bootNotebook(){
           : 'Needs sign-in — click "Sync now" to reconnect.');
       });
     }
-  }).catch(function(){
-    toast('Could not load your notebook — try reloading the page.');
+  }).catch(function(err){
+    try{ console.error('Nexus notebook load failed:', err); }catch(ignore){}
+    var pageView = document.getElementById('page-view');
+    if(pageView){
+      pageView.classList.add('visible');
+      pageView.innerHTML = '<section class="notebook-load-error" role="alert" aria-live="assertive">' +
+        '<div class="notebook-load-error-icon" aria-hidden="true">⚠</div>' +
+        '<h2>Could not load your existing notebook</h2>' +
+        '<p>Nexus stopped before creating replacement data. Your saved notebook was not replaced by a fresh notebook.</p>' +
+        '<p>Close other Nexus tabs, then reload. If this continues, restore a known-good backup before clearing browser site data.</p>' +
+        '<div class="notebook-load-error-actions"><button type="button" id="notebook-reload-btn">Reload Nexus</button><button type="button" id="notebook-diagnostics-btn" class="secondary">Show technical detail</button></div>' +
+        '<pre id="notebook-load-error-detail" hidden></pre>' +
+      '</section>';
+      var reloadBtn = document.getElementById('notebook-reload-btn');
+      if(reloadBtn) reloadBtn.onclick = function(){ location.reload(); };
+      var detailBtn = document.getElementById('notebook-diagnostics-btn');
+      if(detailBtn) detailBtn.onclick = function(){
+        var detail = document.getElementById('notebook-load-error-detail');
+        if(!detail) return;
+        detail.hidden = !detail.hidden;
+        detail.textContent = err && err.message ? err.message : String(err || 'Unknown notebook load failure');
+      };
+    }
+    if(typeof setDataHealthStatus === 'function') setDataHealthStatus('error', 'Existing notebook could not be loaded. No replacement data was created.');
   });
 }
 

@@ -155,7 +155,7 @@ function renderHiddenSection(){
     row.className = 'trash-row';
     row.dataset.pageId = p.id; /* so the right-click page menu works on it too */
     var a = document.createElement('a');
-    a.href = 'javascript:void(0)';
+    a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});
     a.textContent = (p.type === 'tag' ? '#' : '') + p.title + (p.locked ? ' 🔒' : '');
     a.title = 'Hidden from the sidebar lists — click to open';
     if(p.id === state.currentPageId) a.className = 'active';

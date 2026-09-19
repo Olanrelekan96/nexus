@@ -501,7 +501,13 @@ function renderTasksView(){
     col.className = 'task-group';
     var head = document.createElement('div');
     head.className = 'task-group-head';
-    head.innerHTML = '<span>' + g.label + '</span><span class="task-group-count">' + g.items.length + '</span>';
+    var label = document.createElement('span');
+    label.textContent = g.label;
+    var count = document.createElement('span');
+    count.className = 'task-group-count';
+    count.textContent = String(g.items.length);
+    head.appendChild(label);
+    head.appendChild(count);
     col.appendChild(head);
     if(!g.items.length){
       var none = document.createElement('div');

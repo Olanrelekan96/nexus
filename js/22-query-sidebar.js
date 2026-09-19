@@ -136,7 +136,7 @@ function renderQuerySidebarSection(){
       row.className = 'query-sidebar-row' + (entry.pageId === state.currentPageId ? ' active' : '');
       row.dataset.queryBlockId = entry.blockId;
       var a = document.createElement('a');
-      a.href = 'javascript:void(0)';
+      a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});
       a.textContent = entry.name;
       a.title = entry.pageTitle + (entry.query ? ' · ' + entry.query : ' · matches all lines');
       a.onclick = function(){ openQueryEntry(entry); };

@@ -136,7 +136,7 @@ function renderDatabaseSidebarSection(){
       row.className = 'database-sidebar-row' + (entry.pageId === state.currentPageId ? ' active' : '');
       row.dataset.dbBlockId = entry.blockId;
       var a = document.createElement('a');
-      a.href = 'javascript:void(0)';
+      a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});
       a.textContent = entry.name;
       a.title = entry.pageTitle + ' · ' + entry.view + ' view';
       a.onclick = function(){ openDatabaseEntry(entry); };

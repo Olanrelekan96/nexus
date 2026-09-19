@@ -74,6 +74,7 @@ function buildZettelConnectionIndex(){
     if(!b || !b.pageId || !state.pages[b.pageId] || !state.pages[b.pageId].zettel) return;
     var source=b.pageId;
     (extractRefs(b.text||'')||[]).forEach(function(r){
+      if(r.type !== 'page') return;
       var target=findPageByTitle(r.title);
       if(!target || target.trashedAt || !target.zettel || target.id===source) return;
       if(!out[source])out[source]={};
@@ -301,7 +302,7 @@ function renderZettelkastenView(){
 }
 function renderZettelkastenSidebar(){
   var ul=document.getElementById('list-zettelkasten');if(!ul)return;ensureZettelkastenMetadata();var q=(document.getElementById('zettelkasten-filter')?document.getElementById('zettelkasten-filter').value:'').trim().toLowerCase();ul.innerHTML='';var pages=zettelPages().filter(function(p){return !q||zettelSearchText(p).indexOf(q)!==-1;}).sort(function(a,b){return (b.zettel.createdAt||b.createdAt)-(a.zettel.createdAt||a.createdAt);});
-  pages.slice(0,30).forEach(function(p){var li=document.createElement('li'),a=document.createElement('a');a.href='javascript:void(0)';a.textContent=(ZETTEL_TYPE_ICONS[p.zettel.type]||'🧠')+' '+(p.title.length>48?p.title.slice(0,48)+'…':p.title);a.title=(p.zettel.id||'')+' · '+ZETTEL_TYPE_LABELS[p.zettel.type];a.onclick=function(){zettelkastenSelectedId=p.id;openPage(p.id);};li.appendChild(a);ul.appendChild(li);});
+  pages.slice(0,30).forEach(function(p){var li=document.createElement('li'),a=document.createElement('a');a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});a.textContent=(ZETTEL_TYPE_ICONS[p.zettel.type]||'🧠')+' '+(p.title.length>48?p.title.slice(0,48)+'…':p.title);a.title=(p.zettel.id||'')+' · '+ZETTEL_TYPE_LABELS[p.zettel.type];a.onclick=function(){zettelkastenSelectedId=p.id;openPage(p.id);};li.appendChild(a);ul.appendChild(li);});
   if(!pages.length){var e=document.createElement('li');e.className='zettel-sidebar-empty';e.textContent=q?'No Zettels match this filter.':'No Zettels created yet.';ul.appendChild(e);}var c=document.getElementById('zettelkasten-count');if(c)c.textContent=pages.length?String(pages.length):'';
 }
 function wireZettelkasten(){

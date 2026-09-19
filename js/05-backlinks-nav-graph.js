@@ -33,8 +33,10 @@ function renderBacklinks(page){
   Object.keys(state.blocks).forEach(function(id){
     var blk = state.blocks[id];
     if(blk.pageId === page.id) return;
+    var sourcePage = state.pages[blk.pageId];
+    if(!sourcePage || sourcePage.trashedAt) return;
     var refs = extractRefs(blk.text);
-    var hit = refs.some(function(r){ return r.title.toLowerCase() === page.title.toLowerCase(); });
+    var hit = refs.some(function(r){ return r.type === 'page' && r.title.toLowerCase() === page.title.toLowerCase(); });
     if(hit){
       groups[blk.pageId] = groups[blk.pageId] || [];
       groups[blk.pageId].push(blk);
@@ -234,6 +236,7 @@ function renderGraph(){
     var blk = state.blocks[bid];
     var refs = extractRefs(blk.text);
     refs.forEach(function(r){
+      if(r.type !== 'page') return;
       var target = findPageByTitle(r.title);
       if(target && target.id !== blk.pageId && nodeById[target.id] && nodeById[blk.pageId]){
         edges.push({a: blk.pageId, b: target.id});
@@ -244,15 +247,21 @@ function renderGraph(){
 
   // simple force simulation (initial layout only — dragging takes over after this)
   for(var iter=0; iter<120; iter++){
-    nodes.forEach(function(n1){
-      nodes.forEach(function(n2){
-        if(n1===n2) return;
+    /* Pairwise repulsion is symmetric, so process each node pair once and
+       apply equal/opposite forces. This preserves the same physics while
+       cutting the O(n²) work roughly in half for larger graphs. */
+    for(var i=0;i<nodes.length;i++){
+      var n1=nodes[i];
+      for(var j=i+1;j<nodes.length;j++){
+        var n2=nodes[j];
         var dx=n1.x-n2.x, dy=n1.y-n2.y;
         var dist = Math.sqrt(dx*dx+dy*dy)||1;
         var force = 1800/(dist*dist);
-        n1.vx += (dx/dist)*force; n1.vy += (dy/dist)*force;
-      });
-    });
+        var fx=(dx/dist)*force, fy=(dy/dist)*force;
+        n1.vx += fx; n1.vy += fy;
+        n2.vx -= fx; n2.vy -= fy;
+      }
+    }
     edges.forEach(function(e){
       var n1=nodeById[e.a], n2=nodeById[e.b];
       var dx=n2.x-n1.x, dy=n2.y-n1.y;
