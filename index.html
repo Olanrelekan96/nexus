@@ -139,6 +139,7 @@
       <button class="side-btn" id="btn-download-sw" style="display:none;">⇩ Download sw.js</button>
       <button class="side-btn" id="btn-versions">↺ Version history</button>
       <button class="side-btn" id="btn-conflicts" style="display:none;">⚠ Sync conflicts</button>
+      <button class="side-btn" id="btn-sync-center">⇄ Sync cleanup & recovery</button>
       <button class="side-btn" id="btn-sync">⇄ Sync devices</button>
       <div class="hint" id="storage-hint"></div>
       <div class="hint" id="last-backup-hint"></div>
@@ -562,11 +563,19 @@
   </div>
 </div>
 
-<div id="versions-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:50;">
-  <div style="width:480px; max-width:90vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden;">
-    <div style="padding:14px 18px; border-bottom:1px solid var(--border); font-size:0.875rem; font-weight:600;">Version history</div>
-    <div style="padding:6px; max-height:360px; overflow-y:auto;" id="versions-list"></div>
-    <div style="padding:10px 18px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--ink-soft);">Snapshots are taken automatically before each restore, and roughly once a day — kept as a safety net, in addition to your manual backups.</div>
+<div id="versions-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:8vh; z-index:50;">
+  <div class="nexus-recovery-modal" role="dialog" aria-modal="true" aria-labelledby="versions-title">
+    <div class="nexus-recovery-head">
+      <div><strong id="versions-title">Version history</strong><div class="nexus-recovery-sub">Named checkpoints, automatic safety snapshots and recoverable history.</div></div>
+      <button id="versions-close-btn" type="button" class="nexus-icon-btn" aria-label="Close version history">✕</button>
+    </div>
+    <div class="nexus-version-toolbar">
+      <input id="version-filter" type="search" placeholder="Filter versions…" aria-label="Filter versions">
+      <button id="version-create-btn" type="button">＋ Create checkpoint</button>
+      <button id="version-prune-btn" type="button">Prune old</button>
+    </div>
+    <div style="padding:6px; max-height:52vh; overflow-y:auto;" id="versions-list"></div>
+    <div class="nexus-recovery-foot">Up to 20 snapshots are kept. Pinned snapshots are protected from automatic retention cleanup. Automatic sync merges create a pre-merge recovery snapshot when the incoming state changes the notebook.</div>
   </div>
 </div>
 
@@ -585,11 +594,51 @@
 <div id="conflicts-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:50;">
   <div style="width:520px; max-width:92vw; max-height:74vh; overflow-y:auto; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25);">
     <div style="padding:14px 18px; border-bottom:1px solid var(--border); font-size:0.875rem; font-weight:600; display:flex; justify-content:space-between; align-items:center;">
-      <span>Sync conflicts</span>
+      <span>Sync conflicts</span><div style="display:flex;gap:6px;align-items:center;"><button type="button" id="conflicts-open-cleanup" style="border:1px solid var(--border); background:var(--paper); border-radius:6px; padding:4px 10px; font-size:0.75rem; cursor:pointer; font-family:var(--sans); color:var(--ink-soft);">Cleanup</button>
       <button type="button" id="conflicts-dismiss-all" style="border:1px solid var(--border); background:var(--paper); border-radius:6px; padding:4px 10px; font-size:0.75rem; cursor:pointer; font-family:var(--sans); color:var(--ink-soft);">Dismiss all</button>
     </div>
     <div style="padding:6px;" id="conflicts-list"></div>
     <div style="padding:10px 18px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--ink-soft);">These were edited on two devices between syncs, so the newer edit was kept automatically — nothing was deleted. Bring the other version back as a new line, or dismiss once you've checked it.</div>
+  </div>
+</div>
+
+<div id="sync-center-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:8vh; z-index:55;">
+  <div class="nexus-recovery-modal sync-center-modal" role="dialog" aria-modal="true" aria-labelledby="sync-center-title">
+    <div class="nexus-recovery-head">
+      <div><strong id="sync-center-title">Sync cleanup &amp; recovery</strong><div class="nexus-recovery-sub">Review sync conflicts, clean duplicate pages safely, and protect good versions before making changes.</div></div>
+      <button id="sync-center-close" type="button" class="nexus-icon-btn" aria-label="Close sync cleanup">✕</button>
+    </div>
+    <div id="sync-center-summary" class="sync-center-summary"></div>
+    <div class="sync-center-grid">
+      <section class="sync-center-card">
+        <div class="sync-center-card-head"><span>⚠ Conflicts</span><span id="sync-center-conflict-count" class="sync-center-count">0</span></div>
+        <p>Keep the resolved result clean by removing duplicate/stale conflict records. Active conflict flags stay visible until you resolve them.</p>
+        <div class="sync-center-actions">
+          <button type="button" id="sync-center-review-conflicts">Review conflicts</button>
+          <button type="button" id="sync-center-clean-conflicts">Clean stale &amp; duplicate records</button>
+          <button type="button" id="sync-center-consolidate-conflicts">Keep latest per item</button>
+        </div>
+      </section>
+      <section class="sync-center-card">
+        <div class="sync-center-card-head"><span>⧉ Duplicate pages</span><span id="sync-center-duplicate-count" class="sync-center-count">0</span></div>
+        <p>Find same-title pages created by syncing. Exact-content duplicates can be archived safely; different-content duplicates are shown for review instead of being deleted automatically.</p>
+        <div class="sync-center-actions">
+          <button type="button" id="sync-center-scan-duplicates">Scan duplicates</button>
+          <button type="button" id="sync-center-archive-exact">Archive exact duplicates</button>
+        </div>
+      </section>
+      <section class="sync-center-card">
+        <div class="sync-center-card-head"><span>↺ Version safety</span><span id="sync-center-version-count" class="sync-center-count">0</span></div>
+        <p>Keep more recovery points, pin important ones, compare against the current notebook, or create a named checkpoint before a risky sync cleanup.</p>
+        <div class="sync-center-actions">
+          <button type="button" id="sync-center-open-versions">Open version history</button>
+          <button type="button" id="sync-center-create-checkpoint">＋ Safety checkpoint</button>
+        </div>
+      </section>
+    </div>
+    <div id="sync-center-duplicates" class="sync-center-detail" hidden></div>
+    <div id="sync-center-conflicts-detail" class="sync-center-detail" hidden></div>
+    <div class="nexus-recovery-foot">Cleanup actions create a recovery snapshot first when they alter notebook content. Duplicate cleanup is intentionally conservative: only exact-content same-title copies are archived automatically.</div>
   </div>
 </div>
 
@@ -990,6 +1039,7 @@
 <script src="js/32-tabs.js"></script>
 <script src="js/33-footnotes.js"></script>
 <script src="js/34-sidebar-ui-ordering.js"></script>
+<script src="js/35-sync-recovery.js"></script>
 <script src="js/14-wiring-and-init.js"></script>
 </body>
 </html>

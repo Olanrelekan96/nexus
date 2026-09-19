@@ -38,7 +38,7 @@ assert.ok(index.includes('data-health-overlay'), 'Data health UI must be present
 assert.ok(/nexus-build" content="2026-09-19-quality-hardened-v1-/.test(index), 'quality build marker missing');
 assert.ok(index.includes('tasks-layout'), 'task layout control missing');
 const core = fs.readFileSync(path.join(root,'js','00-state-and-helpers.js'),'utf8');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*28/.test(core), 'current Help guide version missing');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*29/.test(core), 'current Help guide version missing');
 assert.ok(core.includes('ensureCompleteHelpGuide(docsId)'), 'existing Help pages must receive the complete guide update');
 const dbSidebar = fs.readFileSync(path.join(root,'js','21-database-sidebar.js'),'utf8');
 const querySidebar = fs.readFileSync(path.join(root,'js','22-query-sidebar.js'),'utf8');
@@ -77,10 +77,33 @@ assert.ok(tabs.includes('function closeNexusTab'), 'tab close behavior missing')
 assert.ok(tabs.includes('function activateNexusTab'), 'tab activation missing');
 assert.ok(tabs.includes('function nexusTabsActivateWorkspace'), 'workspace tab support missing');
 assert.ok(index.includes('id="nexus-tabs-shell"'), 'tab shell missing');
+assert.ok(index.includes('id="btn-sync-center"'), 'Sync cleanup center sidebar control missing');
+assert.ok(index.includes('id="sync-center-overlay"'), 'Sync cleanup center UI missing');
+assert.ok(index.includes('id="version-create-btn"'), 'named version checkpoint control missing');
+assert.ok(index.includes('id="version-filter"'), 'version history filter missing');
+assert.ok(index.includes('id="conflicts-open-cleanup"'), 'conflict cleanup shortcut missing');
+assert.ok(index.includes('id="sync-center-review-conflicts"'), 'sync center conflict review control missing');
+
+const syncRecovery = fs.readFileSync(path.join(root,'js','35-sync-recovery.js'),'utf8');
+assert.ok(syncRecovery.includes('function nexusCleanConflictLog'), 'sync conflict cleanup missing');
+assert.ok(syncRecovery.includes('function nexusConsolidateConflicts'), 'sync conflict consolidation missing');
+assert.ok(syncRecovery.includes('function scanNexusDuplicateGroups'), 'duplicate page scanner missing');
+assert.ok(syncRecovery.includes('function archiveExactDuplicatePages'), 'safe duplicate cleanup missing');
+assert.ok(syncRecovery.includes('function nexusProtectedSystemPage'), 'duplicate cleanup must protect system pages');
+assert.ok(fs.readFileSync(path.join(root,'js','20-quality-hardening.js'),'utf8').includes('Duplicate groups'), 'Data health duplicate metrics missing');
+
+assert.ok(syncRecovery.includes('NEXUS_VERSION_HISTORY_MAX = 20'), 'version history depth missing');
+assert.ok(syncRecovery.includes('function createNamedCheckpoint'), 'named checkpoint creation missing');
+assert.ok(syncRecovery.includes('function nexusSetVersionPinned'), 'version pinning missing');
+assert.ok(core.includes('Sync cleanup, duplicate recovery & conflict management'), 'sync cleanup Help topic missing');
+assert.ok(core.includes('Version history, checkpoints & pins'), 'version history Help topic missing');
+
 assert.ok(index.includes('id="nexus-tabs-menu-popover"'), 'tab menu popover missing');
 assert.ok(index.includes('id="sidebar-nav-list"'), 'sidebar navigation reorder container missing');
 assert.ok(index.includes('id="sidebar-order-reset-btn"'), 'sidebar order reset control missing');
 assert.ok(index.includes('js/34-sidebar-ui-ordering.js'), 'sidebar ordering module load missing');
+assert.ok(index.includes('js/35-sync-recovery.js'), 'sync recovery module load missing');
+
 const sidebarUi = fs.readFileSync(path.join(root,'js','34-sidebar-ui-ordering.js'),'utf8');
 assert.ok(sidebarUi.includes('NEXUS_SIDEBAR_ORDER_KEY'), 'sidebar order persistence key missing');
 assert.ok(sidebarUi.includes('function nexusSidebarMoveBefore'), 'sidebar reorder movement function missing');
@@ -93,7 +116,7 @@ assert.ok(/aria-label="Toggle sidebar"|aria-label="Expand sidebar"|aria-label="C
 assert.ok(cssTheme.includes('/* Persistent mobile sidebar toggle.'), 'persistent mobile sidebar CSS missing');
 assert.ok(core.includes('Mobile sidebar always-visible toggle'), 'mobile sidebar Help topic missing');
 assert.ok(core.includes('help-76'), 'mobile sidebar Help catalog id missing');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*28/.test(core), 'current Help version must be v28');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*29/.test(core), 'current Help version must be v29');
 assert.ok(index.includes('js/32-tabs.js'), 'tabs module load missing');
 
 const footnotes = fs.readFileSync(path.join(root,'js','33-footnotes.js'),'utf8');
@@ -109,6 +132,8 @@ assert.ok(cssTheme.includes('#page-footnotes'), 'footnote panel CSS missing');
 assert.ok(core.includes('Footnotes'), 'Footnotes Help topic missing');
 
 assert.ok(fs.readFileSync(path.join(root,'js','31-command-center.js'),'utf8').includes('function showCommandCenterView'), 'Command Center show function missing');
+assert.ok(fs.readFileSync(path.join(root,'js','31-command-center.js'),'utf8').includes('Sync cleanup & recovery'), 'Command Center sync cleanup command missing');
+
 assert.ok(core.includes('Release rule: whenever a user-visible feature'), 'Help maintenance instruction missing');
 const catalogCount = (core.match(/\{id:'[^']+', title:'/g) || []).length;
 assert.ok(catalogCount >= 60, `Help feature catalog unexpectedly small: ${catalogCount}`);
@@ -192,7 +217,7 @@ assert.ok(dashboard.includes('renderDashboardStats'), 'dashboard stats renderer 
 assert.ok(dashboard.includes('renderDashboardWorkspaces'), 'dashboard workspace renderer missing');
 assert.ok(dashboard.includes('renderDashboardHealth'), 'dashboard health renderer missing');
 assert.ok(core.includes('Dashboard home hub'), 'Dashboard Help topic missing');
-assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 28"), 'current Help version missing');
+assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 29"), 'current Help version missing');
 assert.ok(css.includes('#dashboard-view.visible'), 'Dashboard CSS missing');
 assert.ok(core.includes('Page transclusion'), 'Page transclusion Help topic missing');
 assert.ok(core.includes('Block transclusion'), 'Block transclusion Help topic missing');
@@ -409,7 +434,7 @@ seededTitles.forEach((title, i) => {
 });
 ctx.ensureCompleteHelpGuide('doc');
 const helpCountAfterFirst = Object.keys(ctx.state.blocks).length;
-assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 28, 'Help guide should be current after updater runs');
+assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 29, 'Help guide should be current after updater runs');
 
 /* Passcode re-entry hardening: the session start is persisted as non-secret
    metadata so timer throttling/background suspension cannot silently defeat
@@ -564,6 +589,6 @@ assert.ok(fs.readFileSync(path.join(root,'css','styles.css'),'utf8').includes('#
 assert.ok(lockCode.includes('Promise.resolve(flushed).catch(function(){});'), 'passcode lock should initiate the save flush without blocking the security boundary');
 assert.ok(lockCode.includes('function closeSecurityOverlays()'), 'lockNow should close all security overlays');
 const swCode = fs.readFileSync(path.join(root,'sw.js'),'utf8');
-assert.ok(swCode.includes("CACHE='nexus-shell-v4'"), 'mobile sidebar update must bump the PWA cache generation');
+assert.ok(swCode.includes("CACHE='nexus-shell-v5'"), 'mobile sidebar update must bump the PWA cache generation');
 assert.ok(swCode.includes("fetch(req,{cache:'no-store'})"), 'PWA fetch must revalidate updated security assets');
 assert.ok(index.includes('09-security-lock.js?v=20260919-passcode-v7-true-launch-off'), 'security script must be cache-busted for the passcode launch policy repair');

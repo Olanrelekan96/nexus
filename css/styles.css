@@ -3113,3 +3113,44 @@ button, input, textarea, select{touch-action:manipulation;}
      mobile so there is exactly one always-visible sidebar toggle. */
   #collapse-btn{display:none !important;}
 }
+
+/* Sync cleanup + richer recovery history */
+.nexus-recovery-modal{width:700px;max-width:94vw;background:var(--paper-raised);border:1px solid var(--border);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.24);overflow:hidden;}
+.nexus-recovery-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:16px 18px;border-bottom:1px solid var(--border);}
+.nexus-recovery-sub{margin-top:4px;font-size:.76rem;color:var(--ink-soft);font-weight:400;}
+.nexus-icon-btn{width:34px;height:34px;padding:0;border:1px solid var(--border);background:var(--paper);border-radius:8px;color:var(--ink);cursor:pointer;}
+.nexus-version-toolbar{display:flex;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--paper);}
+.nexus-version-toolbar input{flex:1;min-width:0;border:1px solid var(--border);background:var(--paper-raised);color:var(--ink);border-radius:8px;padding:8px 10px;font:inherit;}
+.nexus-version-toolbar button,.version-actions button,.sync-center-actions button{border:1px solid var(--border);background:var(--paper-raised);color:var(--ink);border-radius:8px;padding:7px 10px;cursor:pointer;font:inherit;font-size:.78rem;}
+.version-item{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:11px 10px;border-bottom:1px solid var(--border);}
+.version-item.pinned{background:color-mix(in srgb,var(--focus) 7%,transparent);}
+.version-main{min-width:0;}
+.version-title{font-weight:700;font-size:.82rem;word-break:break-word;}
+.version-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+.version-actions button:disabled{opacity:.45;cursor:not-allowed;}
+.nexus-recovery-foot{padding:10px 18px;border-top:1px solid var(--border);font-size:.72rem;color:var(--ink-soft);line-height:1.45;}
+.sync-center-modal{width:820px;}
+.sync-center-summary{margin:12px 16px 2px;padding:10px 12px;border-radius:10px;background:var(--paper);border:1px solid var(--border);font-size:.78rem;color:var(--ink-soft);}
+.sync-center-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 16px;}
+.sync-center-card{border:1px solid var(--border);border-radius:12px;background:var(--paper);padding:12px;}
+.sync-center-card-head{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:.82rem;font-weight:700;}
+.sync-center-count{min-width:24px;height:24px;padding:0 7px;border-radius:999px;background:var(--paper-raised);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:.7rem;}
+.sync-center-card p{margin:8px 0 10px;font-size:.73rem;line-height:1.45;color:var(--ink-soft);}
+.sync-center-actions{display:flex;flex-wrap:wrap;gap:6px;}
+.sync-center-detail{margin:0 16px 12px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--paper);max-height:260px;overflow:auto;}
+.duplicate-group{padding:8px 0;border-bottom:1px solid var(--border);}
+.duplicate-group:last-child{border-bottom:0;}
+.duplicate-group-head{font-weight:700;font-size:.8rem;margin-bottom:6px;}
+.duplicate-row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;font-size:.72rem;align-items:center;}
+.duplicate-row>div{min-width:0;display:flex;flex-direction:column;gap:2px;}
+.duplicate-row span{color:var(--ink-soft);font-size:.66rem;}
+.duplicate-row em{font-style:normal;font-size:.64rem;color:var(--ink-soft);}
+.sync-center-empty{color:var(--ink-soft);font-size:.75rem;}
+@media(max-width:760px){
+  .sync-center-grid{grid-template-columns:1fr;}
+  .nexus-version-toolbar{flex-wrap:wrap;}
+  .nexus-version-toolbar input{flex-basis:100%;}
+  .version-item{align-items:flex-start;flex-direction:column;}
+  .version-actions{width:100%;justify-content:flex-start;}
+  .sync-center-modal,.nexus-recovery-modal{max-width:96vw;}
+}
