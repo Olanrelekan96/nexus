@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 19;
+var NEXUS_HELP_GUIDE_VERSION = 20;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -338,6 +338,7 @@ var NEXUS_HELP_FEATURE_CATALOG = [
   {id:'help-54', title:'Mobile editing'},
   {id:'help-55', title:'Safety, recovery & good operating practice'},
   {id:'help-56', title:'Database workspace & sidebar index'},
+  {id:'help-74', title:'Footnotes'},
   {id:'help-57', title:'Query workspace & sidebar index'},
   {id:'help-58', title:'Task gallery view'},
   {id:'help-59', title:'Logseq-inspired Daily Notes'},
@@ -455,6 +456,14 @@ function ensureCompleteHelpGuide(pid){
     "← Back and Forward → move through recently opened pages. They are navigation history, separate from Undo/Redo editing history.",
     "Undo and Redo operate on in-tab notebook edits. Nexus keeps up to 100 undo states and saves through the normal persistence queue. Reload-safe recovery is provided by Version history instead.",
     "Use the page zoom controls or a block's ⤢ Zoom in action to focus on a subtree. Zoom out returns to the whole page; while zoomed, adding a line places it under the focused block when the current page allows editing."
+  ]);
+
+  addMaintainedSection("Footnotes", [
+    "Use [^note] inside any block to create a footnote reference, and define it anywhere on the same page with [^note]: Footnote text. Identifiers can contain letters, numbers, colons, underscores and hyphens.",
+    "Nexus collects definitions from the whole page, numbers references by first use, and renders a Footnotes panel beneath the outline. Click a numbered reference to jump to its definition; click the number beside a definition to return to a reference. Missing definitions are marked with a question mark so broken citations are easy to spot.",
+    "Use the / Footnote… command while editing to insert a reference and create its definition in one step. The Footnotes panel also has + Add footnote for definitions that should exist without an inline reference yet.",
+    "Footnote syntax remains ordinary page text, so it is preserved by search, undo/redo, backup/restore, version history, locks, device sync and Markdown import/export. Footnotes are included in printed/PDF page output through the rendered page panel.",
+    "Developer release rule: whenever footnote syntax, numbering, navigation, definition storage, editor behavior or rendering changes, update this Help section, the feature catalog and the guide version in the same release and run the full regression suite."
   ]);
 
   addMaintainedSection("Help & Tutorial maintenance", [

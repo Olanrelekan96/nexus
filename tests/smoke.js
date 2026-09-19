@@ -38,7 +38,7 @@ assert.ok(index.includes('data-health-overlay'), 'Data health UI must be present
 assert.ok(/nexus-build" content="2026-09-19-quality-hardened-v1-/.test(index), 'quality build marker missing');
 assert.ok(index.includes('tasks-layout'), 'task layout control missing');
 const core = fs.readFileSync(path.join(root,'js','00-state-and-helpers.js'),'utf8');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*19/.test(core), 'current Help guide version missing');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*20/.test(core), 'current Help guide version missing');
 assert.ok(core.includes('ensureCompleteHelpGuide(docsId)'), 'existing Help pages must receive the complete guide update');
 const dbSidebar = fs.readFileSync(path.join(root,'js','21-database-sidebar.js'),'utf8');
 const querySidebar = fs.readFileSync(path.join(root,'js','22-query-sidebar.js'),'utf8');
@@ -73,7 +73,21 @@ assert.ok(tabs.includes('function closeNexusTab'), 'tab close behavior missing')
 assert.ok(tabs.includes('function activateNexusTab'), 'tab activation missing');
 assert.ok(tabs.includes('function nexusTabsActivateWorkspace'), 'workspace tab support missing');
 assert.ok(index.includes('id="nexus-tabs-shell"'), 'tab shell missing');
+assert.ok(index.includes('id="nexus-tabs-menu-popover"'), 'tab menu popover missing');
+assert.ok(cssTheme.includes('.nexus-tabs-menu-popover[hidden]{display:none !important;}'), 'tab menu must respect hidden state');
 assert.ok(index.includes('js/32-tabs.js'), 'tabs module load missing');
+
+const footnotes = fs.readFileSync(path.join(root,'js','33-footnotes.js'),'utf8');
+assert.ok(index.includes('js/33-footnotes.js'), 'footnotes module load missing');
+assert.ok(footnotes.includes('FOOTNOTE_REF_RE'), 'footnote reference parser missing');
+assert.ok(footnotes.includes('FOOTNOTE_DEF_RE'), 'footnote definition parser missing');
+assert.ok(footnotes.includes('function getPageFootnoteModel'), 'footnote page model missing');
+assert.ok(footnotes.includes('function renderFootnotes'), 'footnote panel renderer missing');
+assert.ok(footnotes.includes('function createFootnoteOnPage'), 'footnote creation flow missing');
+assert.ok(footnotes.includes("label:'Footnote…'"), 'slash Footnote command missing');
+assert.ok(cssTheme.includes('.footnote-ref'), 'footnote ref CSS missing');
+assert.ok(cssTheme.includes('#page-footnotes'), 'footnote panel CSS missing');
+assert.ok(core.includes('Footnotes'), 'Footnotes Help topic missing');
 
 assert.ok(fs.readFileSync(path.join(root,'js','31-command-center.js'),'utf8').includes('function showCommandCenterView'), 'Command Center show function missing');
 assert.ok(core.includes('Release rule: whenever a user-visible feature'), 'Help maintenance instruction missing');
@@ -148,7 +162,7 @@ assert.ok(dashboard.includes('renderDashboardStats'), 'dashboard stats renderer 
 assert.ok(dashboard.includes('renderDashboardWorkspaces'), 'dashboard workspace renderer missing');
 assert.ok(dashboard.includes('renderDashboardHealth'), 'dashboard health renderer missing');
 assert.ok(core.includes('Dashboard home hub'), 'Dashboard Help topic missing');
-assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 19"), 'current Help version missing');
+assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 20"), 'current Help version missing');
 assert.ok(css.includes('#dashboard-view.visible'), 'Dashboard CSS missing');
 assert.ok(core.includes('Page transclusion'), 'Page transclusion Help topic missing');
 assert.ok(core.includes('Block transclusion'), 'Block transclusion Help topic missing');
@@ -339,7 +353,7 @@ seededTitles.forEach((title, i) => {
 });
 ctx.ensureCompleteHelpGuide('doc');
 const helpCountAfterFirst = Object.keys(ctx.state.blocks).length;
-assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 19, 'Help guide should be current after updater runs');
+assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 20, 'Help guide should be current after updater runs');
 const helpCoverage = ctx.getHelpGuideCoverage('doc');
 assert.ok(helpCoverage.complete, 'fresh Help guide should have complete maintained-topic coverage');
 ctx.ensureCompleteHelpGuide('doc');
