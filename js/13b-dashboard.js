@@ -27,6 +27,7 @@ function hideDashboardView(){
 }
 
 function showDashboardView(){
+  if(typeof hideCommandCenterView === 'function') hideCommandCenterView();
   if(typeof hideFlashcardsView === 'function') hideFlashcardsView();
   if(typeof hideStickyNotesView === 'function') hideStickyNotesView();
   var page = document.getElementById('page-view');

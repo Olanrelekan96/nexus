@@ -513,6 +513,7 @@ function goForward(){
 function openPage(pageId, skipHistory){
   if(!state.pages[pageId]) return;
   if(typeof hideDashboardView === 'function') hideDashboardView();
+  if(typeof hideCommandCenterView === 'function') hideCommandCenterView();
   if(typeof hideFlashcardsView === 'function') hideFlashcardsView();
   if(typeof hideStickyNotesView === 'function') hideStickyNotesView();
   if(typeof hideZettelkastenView === 'function') hideZettelkastenView();

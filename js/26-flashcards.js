@@ -100,6 +100,7 @@ function makeFlashcard(front,back,deckId,sourcePageId,sourceBlockId){
 function saveFlashcards(){ save(); renderFlashcardsView(); renderFlashcardSidebar(); if(typeof renderDashboard==='function') renderDashboard(); }
 
 function showFlashcardsView(){
+  if(typeof hideCommandCenterView === 'function') hideCommandCenterView();
   if(typeof hideStickyNotesView === 'function') hideStickyNotesView();
   var page=document.getElementById('page-view'), graph=document.getElementById('graph-view'), tasks=document.getElementById('tasks-view'), dash=document.getElementById('dashboard-view'), view=document.getElementById('flashcards-view');
   if(!view) return;

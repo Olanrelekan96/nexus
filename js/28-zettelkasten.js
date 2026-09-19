@@ -219,8 +219,10 @@ function hideZettelkastenView(){
   var v=document.getElementById('zettelkasten-view'); if(v) v.classList.remove('visible');
   zettelkastenVisible=false;
   var b=document.getElementById('btn-zettelkasten'); if(b){b.classList.remove('active');b.removeAttribute('aria-current');}
+  if(typeof clearZettelkastenMobileVisualState==='function') clearZettelkastenMobileVisualState();
 }
 function showZettelkastenView(){
+  if(typeof hideCommandCenterView==='function')hideCommandCenterView();
   if(typeof hideDashboardView==='function')hideDashboardView();
   if(typeof hideFlashcardsView==='function')hideFlashcardsView();
   if(typeof hideStickyNotesView==='function')hideStickyNotesView();
@@ -230,7 +232,10 @@ function showZettelkastenView(){
   view.classList.add('visible'); zettelkastenVisible=true;
   var b=document.getElementById('btn-zettelkasten'); if(b){b.classList.add('active');b.setAttribute('aria-current','page');}
   ensureZettelkastenMetadata(); renderZettelkastenView(); renderZettelkastenSidebar();
-  if(typeof closeSidebarIfNarrow==='function')closeSidebarIfNarrow();
+  /* On mobile the Zettelkasten is an independent drawer. Do not mutate the
+     main navigation sidebar state when opening/closing this hub. */
+  if(typeof applyZettelkastenMobileMode==='function') applyZettelkastenMobileMode();
+  else if(typeof closeSidebarIfNarrow==='function' && !window.matchMedia('(max-width:860px)').matches) closeSidebarIfNarrow();
 }
 
 function zettelStat(value,label,icon){

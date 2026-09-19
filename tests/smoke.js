@@ -26,11 +26,19 @@ assert.ok(index.includes('data-passcodereentry="1"'), '1-hour passcode interval 
 assert.ok(index.includes('data-passcodereentry="6"'), '6-hour passcode interval missing');
 assert.ok(index.includes('data-passcodereentry="12"'), '12-hour passcode interval missing');
 assert.ok(index.includes('data-passcodereentry="24"'), '24-hour passcode interval missing');
+assert.ok(index.includes('data-theme="aurora"'), 'Aurora theme missing');
+assert.ok(index.includes('data-theme="amethyst"'), 'Amethyst theme missing');
+assert.ok(index.includes('data-theme="meadow"'), 'Meadow theme missing');
+assert.ok(index.includes('data-theme="ember"'), 'Ember theme missing');
+const cssTheme = fs.readFileSync(path.join(root,'css','styles.css'),'utf8');
+for (const theme of ['aurora','amethyst','meadow','ember']) {
+  assert.ok(cssTheme.includes(`:root[data-theme="${theme}"]`), `${theme} theme CSS missing`);
+}
 assert.ok(index.includes('data-health-overlay'), 'Data health UI must be present');
 assert.ok(/nexus-build" content="2026-09-19-quality-hardened-v1-/.test(index), 'quality build marker missing');
 assert.ok(index.includes('tasks-layout'), 'task layout control missing');
 const core = fs.readFileSync(path.join(root,'js','00-state-and-helpers.js'),'utf8');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*15/.test(core), 'current Help guide version missing');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*19/.test(core), 'current Help guide version missing');
 assert.ok(core.includes('ensureCompleteHelpGuide(docsId)'), 'existing Help pages must receive the complete guide update');
 const dbSidebar = fs.readFileSync(path.join(root,'js','21-database-sidebar.js'),'utf8');
 const querySidebar = fs.readFileSync(path.join(root,'js','22-query-sidebar.js'),'utf8');
@@ -52,6 +60,22 @@ assert.ok(core.includes('Logseq-inspired Daily Notes'), 'daily notes Help topic 
 assert.ok(core.includes('Page icons & banners'), 'page appearance Help topic missing');
 assert.ok(core.includes('getHelpGuideCoverage'), 'Help coverage checker missing');
 assert.ok(core.includes('Passcode re-entry interval'), 'passcode re-entry Help topic missing');
+assert.ok(core.includes('Mobile Zettelkasten collapse & expand'), 'mobile Zettelkasten Help topic missing');
+assert.ok(core.includes('help-71'), 'Command Center Help catalog id missing');
+assert.ok(core.includes('Central Command Center'), 'Command Center Help topic missing');
+assert.ok(core.includes('Workspace tabs'), 'Workspace tabs Help topic missing');
+assert.ok(core.includes('Additional crafted themes'), 'crafted themes Help topic missing');
+assert.ok(core.includes('help-73'), 'crafted themes Help catalog id missing');
+assert.ok(core.includes('help-72'), 'Workspace tabs Help catalog id missing');
+const tabs = fs.readFileSync(path.join(root,'js','32-tabs.js'),'utf8');
+assert.ok(tabs.includes('NEXUS_TABS_STORAGE_KEY'), 'tab persistence key missing');
+assert.ok(tabs.includes('function closeNexusTab'), 'tab close behavior missing');
+assert.ok(tabs.includes('function activateNexusTab'), 'tab activation missing');
+assert.ok(tabs.includes('function nexusTabsActivateWorkspace'), 'workspace tab support missing');
+assert.ok(index.includes('id="nexus-tabs-shell"'), 'tab shell missing');
+assert.ok(index.includes('js/32-tabs.js'), 'tabs module load missing');
+
+assert.ok(fs.readFileSync(path.join(root,'js','31-command-center.js'),'utf8').includes('function showCommandCenterView'), 'Command Center show function missing');
 assert.ok(core.includes('Release rule: whenever a user-visible feature'), 'Help maintenance instruction missing');
 const catalogCount = (core.match(/\{id:'[^']+', title:'/g) || []).length;
 assert.ok(catalogCount >= 60, `Help feature catalog unexpectedly small: ${catalogCount}`);
@@ -124,7 +148,7 @@ assert.ok(dashboard.includes('renderDashboardStats'), 'dashboard stats renderer 
 assert.ok(dashboard.includes('renderDashboardWorkspaces'), 'dashboard workspace renderer missing');
 assert.ok(dashboard.includes('renderDashboardHealth'), 'dashboard health renderer missing');
 assert.ok(core.includes('Dashboard home hub'), 'Dashboard Help topic missing');
-assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 15"), 'current Help version missing');
+assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 19"), 'current Help version missing');
 assert.ok(css.includes('#dashboard-view.visible'), 'Dashboard CSS missing');
 assert.ok(core.includes('Page transclusion'), 'Page transclusion Help topic missing');
 assert.ok(core.includes('Block transclusion'), 'Block transclusion Help topic missing');
@@ -315,12 +339,36 @@ seededTitles.forEach((title, i) => {
 });
 ctx.ensureCompleteHelpGuide('doc');
 const helpCountAfterFirst = Object.keys(ctx.state.blocks).length;
-assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 15, 'Help guide should be current after updater runs');
+assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 19, 'Help guide should be current after updater runs');
 const helpCoverage = ctx.getHelpGuideCoverage('doc');
 assert.ok(helpCoverage.complete, 'fresh Help guide should have complete maintained-topic coverage');
 ctx.ensureCompleteHelpGuide('doc');
 const helpCountAfterSecond = Object.keys(ctx.state.blocks).length;
 assert.strictEqual(helpCountAfterSecond, helpCountAfterFirst, 'Help updater must be idempotent and avoid duplicate sections');
+
+
+// Persistent tab-state smoke test (DOM-free): the module must store and reload
+// only UI state, independent of notebook contents.
+const tabsSource = fs.readFileSync(path.join(root,'js','32-tabs.js'),'utf8');
+const tabStore = {};
+const tabCtx = vm.createContext({
+  console,
+  document: undefined,
+  window: {},
+  state: null,
+  localStorage: {
+    getItem: k => Object.prototype.hasOwnProperty.call(tabStore,k) ? tabStore[k] : null,
+    setItem: (k,v) => { tabStore[k]=v; }
+  },
+  defaultPageIcon: () => '□'
+});
+vm.runInContext(tabsSource, tabCtx);
+tabCtx.nexusTabsState = {tabs:[{id:'page:p1',type:'page',target:'p1'},{id:'workspace:dashboard',type:'workspace',target:'dashboard'}],active:'workspace:dashboard'};
+tabCtx.nexusTabsPersist();
+tabCtx.nexusTabsState = {tabs:[],active:null};
+tabCtx.nexusTabsRead();
+assert.strictEqual(tabCtx.nexusTabsState.tabs.length, 2, 'Workspace tabs should persist open-tab state');
+assert.strictEqual(tabCtx.nexusTabsState.active, 'workspace:dashboard', 'Workspace tabs should persist active tab');
 
 const makeState = (device, order) => ({
   pages: {p: {id:'p',title:'P',type:'page',createdAt:1,updatedAt:device==='B'?3:1,updatedBy:device,properties:[],rootBlocks:order.slice()}},
@@ -357,3 +405,48 @@ assert.ok(stickyModule.includes('renderStickyNoteSidebar'), 'sticky note sidebar
 assert.ok(core.includes("help-66"), 'sticky note Help catalog id missing');
 assert.ok(core.includes("help-67"), 'Zettelkasten Help catalog id missing');
 assert.ok(/Sticky Note Cards/.test(core), 'sticky note Help section missing');
+
+const zkMobile = fs.readFileSync(path.join(root,'js','30-zettelkasten-mobile.js'),'utf8');
+assert.ok(zkMobile.includes('ZETTELKASTEN_MOBILE_KEY'), 'mobile Zettelkasten preference key missing');
+assert.ok(zkMobile.includes('setZettelkastenMobileCollapsed'), 'mobile Zettelkasten collapse state control missing');
+assert.ok(zkMobile.includes('localStorage.setItem(ZETTELKASTEN_MOBILE_KEY'), 'mobile Zettelkasten state must persist locally');
+assert.ok(!zkMobile.includes('setSidebarCollapsed('), 'Zettelkasten mobile controls must not mutate the main sidebar state');
+assert.ok(index.includes('zettelkasten-mobile-backdrop'), 'Zettelkasten mobile backdrop missing');
+assert.ok(index.includes('zettelkasten-mobile-reopen'), 'Zettelkasten mobile reopen control missing');
+assert.ok(index.includes('zettelkasten-mobile-collapse'), 'Zettelkasten mobile collapse control missing');
+
+// Focused runtime smoke test for independent collapse/expand persistence.
+const mobileCtx = {
+  console, setTimeout, localStorage:{_v:null,getItem(){return this._v;},setItem(k,v){this._v=v;}},
+  window:{matchMedia:()=>({matches:true}),addEventListener:()=>{}},
+  zettelkastenVisible:true
+};
+const makeEl = () => ({ style:{}, attrs:{}, classList:{s:new Set(), add(...xs){xs.forEach(x=>this.s.add(x));}, remove(...xs){xs.forEach(x=>this.s.delete(x));}, toggle(x,on){if(on)this.s.add(x);else this.s.delete(x);}, contains(x){return this.s.has(x);}}, setAttribute(k,v){this.attrs[k]=v;}, getAttribute(k){return this.attrs[k];}, addEventListener(){}, textContent:'', title:''});
+mobileCtx.document={addEventListener(){}, getElementById(id){return this._els[id] || null;}, _els:{}};
+['app','zettelkasten-view','page-view','zettelkasten-mobile-backdrop','zettelkasten-mobile-reopen','zettelkasten-mobile-collapse','zettelkasten-mobile-close'].forEach(id=>mobileCtx.document._els[id]=makeEl());
+vm.createContext(mobileCtx);
+vm.runInContext(zkMobile, mobileCtx, {filename:'30-zettelkasten-mobile.js'});
+mobileCtx.zettelkastenVisible = true;
+mobileCtx.applyZettelkastenMobileMode();
+assert.ok(mobileCtx.document._els['app'].classList.contains('zettelkasten-mobile-active'), 'Zettelkasten should enter mobile mode');
+assert.ok(mobileCtx.document._els['app'].classList.contains('zettelkasten-mobile-drawer-open'), 'Zettelkasten should open as a mobile drawer');
+mobileCtx.collapseZettelkastenMobile();
+assert.ok(mobileCtx.document._els['app'].classList.contains('zettelkasten-mobile-collapsed'), 'collapse should hide the mobile drawer');
+assert.strictEqual(mobileCtx.localStorage._v, '1', 'collapsed state should persist');
+assert.ok(mobileCtx.document._els['page-view'].classList.contains('visible'), 'collapsed state should reveal the editor/content');
+assert.ok(mobileCtx.document._els['page-view'].classList.contains('zettelkasten-mobile-content-expanded'), 'collapsed state should expand content area');
+mobileCtx.expandZettelkastenMobile();
+assert.ok(!mobileCtx.document._els['app'].classList.contains('zettelkasten-mobile-collapsed'), 'expand should reopen the mobile drawer');
+assert.strictEqual(mobileCtx.localStorage._v, '0', 'expanded state should persist');
+assert.ok(!mobileCtx.document._els['app'].classList.contains('sidebar-collapsed'), 'Zettelkasten collapse must not alter main sidebar state');
+assert.ok(fs.readFileSync(path.join(root,'css','styles.css'),'utf8').includes('#app.zettelkasten-mobile-collapsed #page-view.zettelkasten-mobile-content-expanded'), 'collapsed Zettelkasten should preserve a full-width content layout');
+
+// Command Center smoke: permanent entry, independent workspace, shortcut and command registry.
+const ccSource = fs.readFileSync(path.join(root,'js','31-command-center.js'),'utf8');
+assert.ok(ccSource.includes('Command Center'), 'Command Center module should contain its label');
+assert.ok(ccSource.includes('Central Command Center'), 'Command Center module title missing');
+assert.ok(ccSource.includes('commandCenterCommands'), 'Command Center registry missing');
+assert.ok(ccSource.includes("e.shiftKey&&(e.key==='k'"), 'Command Center keyboard shortcut missing');
+assert.ok(index.includes('id="btn-command-center"'), 'Command Center sidebar control missing');
+assert.ok(index.includes('id="command-center-search"'), 'Command Center search control missing');
+assert.ok(fs.readFileSync(path.join(root,'css','styles.css'),'utf8').includes('#command-center-view{display:none'), 'Command Center should be hidden until opened');

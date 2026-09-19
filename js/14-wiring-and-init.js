@@ -18,6 +18,7 @@ document.getElementById('btn-today').onclick = goToday;
 document.getElementById('btn-help').onclick = function(){ openPageByTitle(DOCS_TITLE, 'page'); };
 document.getElementById('btn-new-page').onclick = openPalette;
 document.getElementById('btn-graph').onclick = function(){
+  if(typeof hideCommandCenterView === 'function') hideCommandCenterView();
   if(typeof hideDashboardView === 'function') hideDashboardView();
   if(typeof hideFlashcardsView === 'function') hideFlashcardsView();
   if(typeof hideStickyNotesView === 'function') hideStickyNotesView();
@@ -47,6 +48,7 @@ document.getElementById('query-filter').addEventListener('input', function(e){
   renderQuerySidebarSection();
 });
 document.getElementById('btn-tasks').onclick = function(){
+  if(typeof hideCommandCenterView === 'function') hideCommandCenterView();
   if(typeof hideDashboardView === 'function') hideDashboardView();
   if(typeof hideFlashcardsView === 'function') hideFlashcardsView();
   if(typeof hideStickyNotesView === 'function') hideStickyNotesView();

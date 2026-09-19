@@ -163,8 +163,14 @@ function applySpellcheckToDom(settings){
   });
 }
 
+var NEXUS_THEME_META_COLORS = {
+  paper:'#F6F4EE', dark:'#111613', slate:'#F4F7FA', sepia:'#F5ECDF', ocean:'#EAF4F6', rose:'#FBF0EF', contrast:'#FFFFFF', midnight:'#0B0F1A',
+  aurora:'#09131A', amethyst:'#F7F3FB', meadow:'#EEF7F0', ember:'#17110F'
+};
 function applySettings(settings){
   document.documentElement.setAttribute('data-theme', settings.theme);
+  var themeMeta = document.querySelector('meta[name="theme-color"]');
+  if(themeMeta) themeMeta.setAttribute('content', NEXUS_THEME_META_COLORS[settings.theme] || NEXUS_THEME_META_COLORS.paper);
   document.documentElement.setAttribute('data-textsize', settings.textSize);
   applySpellcheckToDom(settings);
   SETTINGS_ROWS.forEach(function(row){

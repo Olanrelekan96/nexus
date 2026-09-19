@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 15;
+var NEXUS_HELP_GUIDE_VERSION = 19;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -350,7 +350,11 @@ var NEXUS_HELP_FEATURE_CATALOG = [
   {id:'help-66', title:'Sticky Note Cards'},
   {id:'help-67', title:'Zettelkasten method'},
   {id:'help-68', title:'Folder organization & nested folders'},
-  {id:'help-69', title:'Passcode re-entry interval'}
+  {id:'help-69', title:'Passcode re-entry interval'},
+  {id:'help-70', title:'Mobile Zettelkasten collapse & expand'},
+  {id:'help-71', title:'Central Command Center'},
+  {id:'help-72', title:'Workspace tabs'},
+  {id:'help-73', title:'Additional crafted themes'}
 ]
 function getHelpGuideCoverage(pid){
   var page = state.pages[pid];
@@ -630,10 +634,18 @@ function ensureCompleteHelpGuide(pid){
   ]);
 
   addMaintainedSection("Settings & personalization", [
-    "Appearance: choose Small, Medium or Large text and one of Paper, Dark, Slate, Sepia, Ocean, Rose, High Contrast or Midnight themes.",
+    "Appearance: choose Small, Medium or Large text and one of Paper, Dark, Slate, Sepia, Ocean, Rose, High Contrast, Midnight, Aurora, Amethyst, Meadow or Ember themes.",
     "Editing: choose whether new pages open in Outline mode or Doc mode, and turn browser spellcheck on or off.",
     "Safety: configure backup reminders, automatic backups and automatic Google Drive sync, inspect Data health, request persistent storage, and choose whether deleting a page asks for confirmation first.",
     "Privacy: set, change, regenerate recovery information for, or remove the passcode lock. Removing the passcode returns local storage to an unencrypted-at-rest state."
+  ]);
+
+
+  addMaintainedSection("Additional crafted themes", [
+    "Nexus now includes four additional visual systems: Aurora, a deep teal night theme with an aurora glow; Amethyst, a soft lavender workspace with violet accents; Meadow, a fresh green workspace with warm natural accents; and Ember, a warm dark canvas with ember-orange highlights.",
+    "Choose a theme in Settings → Appearance → Theme. Each theme changes the canvas, sidebar, surfaces, links, tags, focus states, selection styling and visual glow/shadow treatment while keeping the same Nexus layout and data.",
+    "Theme choice is stored in your settings and applies immediately. The browser’s theme-color metadata also updates to match the chosen palette, improving the appearance of installed/PWA Nexus on supported browsers.",
+    "Developer release rule: whenever a theme is added, renamed, removed, or its palette or visual behavior changes, update this Help section, register the theme in the feature catalog, bump the guide version and run npm test in the same release."
   ]);
 
   addMaintainedSection("Mobile editing", [
@@ -691,6 +703,27 @@ function ensureCompleteHelpGuide(pid){
     "Right-click a folder for New subfolder, Rename, Move, Collapse/Expand and Delete. Deleting a folder is safe: its pages and subfolders are moved to the folder’s parent rather than silently destroyed. Folder paths are used for navigation and remain separate from page titles, tags and Zettelkasten links.",
     "Folder assignments are metadata on the existing page objects, so they survive reloads, Backup/Restore, Version History and device sync. Locked pages cannot be moved through the sidebar menu because a lock keeps the page organization metadata protected from casual changes.",
     "Developer release rule: whenever folder fields, nested hierarchy, moving, drag/drop, sidebar rendering or organization behavior changes, update this Help section, the feature catalog and the guide version in the same release."
+  ]);
+
+  addMaintainedSection("Mobile Zettelkasten collapse & expand", [
+    "On phone and tablet widths, Zettelkasten behaves as its own drawer instead of replacing the editor. Open 🧠 Zettelkasten from the sidebar, then use « Zettelkasten in the hub header to collapse the drawer without changing the state of the main navigation sidebar.",
+    "When the Zettelkasten drawer is collapsed, the current editor/content page remains visible and expands to the full available content width. A floating 🧠 Zettelkasten button appears near the top of the content area; tap it to reopen the drawer. When expanded, the drawer sits above the content with a dimmed backdrop and a clear ✕ Close control.",
+    "The collapsed/expanded preference is stored on the device and survives navigation, orientation changes and reloads. Closing the Zettelkasten hub does not overwrite the preference, so reopening the hub restores the last mobile drawer state.",
+    "Main-sidebar independence rule: Zettelkasten collapse/expand never writes or toggles the main sidebar's collapsed state. Future changes to mobile Zettelkasten controls, drawer animation, persistence or content sizing must update this Help section, the feature catalog and the guide version in the same release."
+  ]);
+
+  addMaintainedSection("Central Command Center", [
+    "⚡ Command Center is Nexus's central control room. It is a workspace surface, not a replacement for Dashboard, and it never creates a second source of truth.",
+    "Open it from the permanent sidebar button or press ⌘⇧K (Ctrl+Shift+K on Windows/Linux). Search commands such as task, database, query, Zettelkasten, backup, settings or sync; press Enter to run the first matching command. Esc clears the search or closes the hub.",
+    "The hub provides live counts, command groups for navigation/work, knowledge, capture, creation, context and system actions, recent pages, current-page context and the current save-health indicator. Use ⌘K Command palette when you need the compact palette instead.",
+    "Developer release rule: whenever Command Center commands, shortcuts, categories, navigation, creation actions, health summaries or user-visible behavior change, update this Help section, register the topic in the feature catalog, bump the guide version and run npm test in the same release."
+  ]);
+
+  addMaintainedSection("Workspace tabs", [
+    "Nexus tabs keep multiple pages and major Nexus hubs open at the top of the app without replacing the main sidebar. Opening a page or supported hub automatically adds it to the tab strip and activates it.",
+    "Click a tab to switch instantly. Use the × on a tab to close it, ＋ to open a new page, or the ⋯ menu to close other tabs or close all tabs. Closing the active tab moves you to a neighboring tab when possible, otherwise Nexus returns to the current page.",
+    "Tabs are stored separately from notebook content, so tab layout is a local UI preference. The open-tab list and active tab survive navigation and reload when their targets still exist; missing or deleted pages are removed safely.",
+    "On mobile the tab strip scrolls horizontally and keeps touch targets large enough for tapping. The tabs system is independent from the main navigation sidebar and does not change sidebar collapse state."
   ]);
 
   addMaintainedSection("Safety, recovery & good operating practice", [

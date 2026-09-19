@@ -111,6 +111,7 @@ function renderPaletteResults(q){
      as navigation. Slash commands continue to handle editor-local actions;
      this palette is for app-wide actions. */
   var globalCommands = [
+    {label:'Command Center', sub:'Command', keywords:'control room commands hub center', action:function(){ if(typeof showCommandCenterView==='function') showCommandCenterView(); }},
     {label:'New page', sub:'Command', keywords:'new create page', action:function(){ document.getElementById('btn-new-page').click(); }},
     {label:'Search everything', sub:'Command', keywords:'search find all notes', action:function(){ openGlobalSearch(); }},
     {label:'Tasks', sub:'Command', keywords:'tasks todo checklist', action:function(){ document.getElementById('btn-tasks').click(); }},

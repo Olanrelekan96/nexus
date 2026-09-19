@@ -10,7 +10,7 @@
 <link id="pwa-icon" rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link id="pwa-apple-icon" rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="css/styles.css">
-<meta name="nexus-build" content="2026-09-19-quality-hardened-v1-database-query-daily-appearance-transclusion-flashcards-sticky-notes-zettelkasten-folders">
+<meta name="nexus-build" content="2026-09-19-quality-hardened-v1-database-query-daily-appearance-transclusion-flashcards-sticky-notes-zettelkasten-folders-zk-mobile-collapse-command-tabs">
 <meta name="description" content="Nexus — an offline-first personal knowledge OS for notes, tasks, databases and linked thinking.">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -36,6 +36,7 @@
     <input id="search-box" type="text" placeholder="Search or jump to… (⌘K)" aria-label="Search or jump to a page" title="Also takes #tag, [[Page]], key:value, is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;">
 
     <button class="side-btn dashboard-home-btn" id="btn-dashboard">⌂ Dashboard <span class="side-btn-hint">Home</span></button>
+    <button class="side-btn command-center-side-btn" id="btn-command-center">⚡ Command Center <span class="side-btn-hint">⌘⇧K</span></button>
     <button class="side-btn" id="btn-today">📅 Today's note</button>
     <button class="side-btn" id="btn-new-page">＋ New page</button>
     <button class="side-btn" id="btn-help">📖 Help &amp; tutorial</button>
@@ -142,9 +143,22 @@
   </aside>
 
   <div id="sidebar-backdrop"></div>
+  <div id="zettelkasten-mobile-backdrop" aria-hidden="true"></div>
 
   <main id="main">
+    <nav id="nexus-tabs-shell" class="nexus-tabs-shell" aria-label="Open tabs">
+      <div id="nexus-tabs-bar" class="nexus-tabs-bar" role="tablist" aria-label="Open Nexus tabs"></div>
+      <div class="nexus-tabs-actions">
+        <button id="nexus-tabs-new" class="nexus-tab-tool" type="button" title="Open a new page" aria-label="Open a new page">＋</button>
+        <button id="nexus-tabs-menu" class="nexus-tab-tool" type="button" title="Tab options" aria-label="Tab options">⋯</button>
+      </div>
+      <div id="nexus-tabs-menu-popover" class="nexus-tabs-menu-popover" hidden>
+        <button type="button" data-tab-action="close-others">Close other tabs</button>
+        <button type="button" data-tab-action="close-all">Close all tabs</button>
+      </div>
+    </nav>
     <section id="page-view">
+      <button id="zettelkasten-mobile-reopen" type="button" title="Expand Zettelkasten" aria-label="Expand Zettelkasten" aria-expanded="false">🧠 Zettelkasten</button>
       <div id="backup-banner" role="status">
         <span id="backup-banner-text"></span>
         <div class="banner-actions">
@@ -233,6 +247,46 @@
         <h3>Linked references</h3>
         <div id="backlinks"></div>
       </div>
+    </section>
+
+    <section id="command-center-view" aria-labelledby="command-center-title">
+      <div class="command-center-topbar">
+        <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
+        <button class="topbtn" id="command-center-open-palette" type="button">⌘K Command palette</button>
+        <button class="topbtn" id="command-center-close" type="button">← Back to page</button>
+      </div>
+      <div class="command-center-header">
+        <div>
+          <div class="command-center-eyebrow">NEXUS CONTROL ROOM</div>
+          <h1 id="command-center-title">Command Center</h1>
+          <p class="command-center-subtitle">One place to navigate, create, search, review, organize, protect and maintain your Nexus workspace.</p>
+        </div>
+        <div class="command-center-header-actions">
+          <button class="primary" id="command-center-focus-search" type="button">⌘⇧K Focus</button>
+        </div>
+      </div>
+      <div class="command-center-search-wrap">
+        <span class="command-center-search-icon">⌕</span>
+        <input id="command-center-search" type="search" autocomplete="off" aria-label="Search commands" placeholder="What do you want to do? Search commands, workspaces or pages…">
+        <span class="command-center-search-hint">Enter to run · Esc to clear</span>
+      </div>
+      <div id="command-center-stats" class="command-center-stats"></div>
+      <div class="command-center-section-head">
+        <div><span class="command-center-kicker">COMMANDS</span><h2>Everything in one control surface</h2></div>
+        <span id="command-center-command-count" class="command-center-count"></span>
+      </div>
+      <div id="command-center-results" class="command-center-results"></div>
+      <div class="command-center-bottom-grid">
+        <section class="command-center-panel">
+          <div class="command-center-panel-head"><div><span class="command-center-kicker">RECENT</span><h2>Recent pages</h2></div></div>
+          <div id="command-center-recent" class="command-center-recent"></div>
+        </section>
+        <section class="command-center-panel">
+          <div class="command-center-panel-head"><div><span class="command-center-kicker">CURRENT</span><h2>Current context</h2></div></div>
+          <div id="command-center-current" class="command-center-current"></div>
+        </section>
+      </div>
+      <div class="command-center-footer">Command Center centralizes actions but does not replace the Dashboard Home hub, normal pages, or their data. Your existing notebook remains the source of truth.</div>
     </section>
 
     <section id="dashboard-view" aria-labelledby="dashboard-title">
@@ -388,6 +442,8 @@
     <section id="zettelkasten-view" aria-labelledby="zettelkasten-title">
       <div class="zettelkasten-topbar">
         <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
+        <button class="topbtn" id="zettelkasten-mobile-collapse" type="button" title="Collapse Zettelkasten on mobile" aria-label="Collapse Zettelkasten on mobile" aria-expanded="true">« Zettelkasten</button>
+        <button class="topbtn zettelkasten-mobile-close" id="zettelkasten-mobile-close" type="button" title="Close Zettelkasten" aria-label="Close Zettelkasten">✕ Close</button>
         <button class="topbtn" id="btn-close-zettelkasten" type="button">← Back to page</button>
       </div>
       <div class="zettelkasten-header">
@@ -557,6 +613,10 @@
           <button type="button" class="settings-opt" data-theme="rose"><span class="settings-swatch" style="background:#FBF0EF; border:1px solid #F0D9D6;"></span>Rose</button>
           <button type="button" class="settings-opt" data-theme="contrast"><span class="settings-swatch" style="background:#FFFFFF; border:1px solid #4D4D4D;"></span>High Contrast</button>
           <button type="button" class="settings-opt" data-theme="midnight"><span class="settings-swatch" style="background:#0B0F1A;"></span>Midnight</button>
+          <button type="button" class="settings-opt theme-opt" data-theme="aurora" title="Deep teal night with an aurora glow"><span class="settings-swatch" style="background:linear-gradient(135deg,#071117,#64dbc2); border:1px solid #29474A;"></span>Aurora</button>
+          <button type="button" class="settings-opt theme-opt" data-theme="amethyst" title="Lavender paper with rich violet accents"><span class="settings-swatch" style="background:linear-gradient(135deg,#F7F3FB,#7B4DB4); border:1px solid #DED4EA;"></span>Amethyst</button>
+          <button type="button" class="settings-opt theme-opt" data-theme="meadow" title="Fresh green canvas with warm natural accents"><span class="settings-swatch" style="background:linear-gradient(135deg,#EEF7F0,#2F7B50); border:1px solid #CEDFD2;"></span>Meadow</button>
+          <button type="button" class="settings-opt theme-opt" data-theme="ember" title="Warm dark canvas with ember-orange highlights"><span class="settings-swatch" style="background:linear-gradient(135deg,#17110F,#FFB27A); border:1px solid #463229;"></span>Ember</button>
         </div>
       </div>
       <div class="settings-section-title">Editing</div>
@@ -913,6 +973,9 @@
 <script src="js/27-sticky-notes.js"></script>
 <script src="js/28-zettelkasten.js"></script>
 <script src="js/29-folders.js"></script>
+<script src="js/30-zettelkasten-mobile.js"></script>
+<script src="js/31-command-center.js"></script>
+<script src="js/32-tabs.js"></script>
 <script src="js/14-wiring-and-init.js"></script>
 </body>
 </html>

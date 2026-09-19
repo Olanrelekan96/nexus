@@ -38,7 +38,7 @@ function ensureStickyNotesWorkspace(){if(!state)return;ensureStickyNoteState();e
 function isPermanentStickyNotesPage(page){return !!(page&&page.systemStickyNotesPage&&page.permanentSidebarStickyNotes&&page.title.toLowerCase()===DEFAULT_STICKY_NOTES_TITLE.toLowerCase());}
 function saveStickyNotes(){save();renderStickyNotesView();renderStickyNoteSidebar();if(typeof renderDashboard==='function')renderDashboard();}
 function showStickyNotesView(){
-  ensureStickyNotesWorkspace();if(typeof hideDashboardView==='function')hideDashboardView();if(typeof hideFlashcardsView==='function')hideFlashcardsView();
+  ensureStickyNotesWorkspace();if(typeof hideCommandCenterView==='function')hideCommandCenterView();if(typeof hideDashboardView==='function')hideDashboardView();if(typeof hideFlashcardsView==='function')hideFlashcardsView();
   var page=document.getElementById('page-view'),graph=document.getElementById('graph-view'),tasks=document.getElementById('tasks-view'),view=document.getElementById('sticky-notes-view');if(!view)return;
   if(page)page.classList.remove('visible');if(graph)graph.classList.remove('visible');if(tasks)tasks.classList.remove('visible');view.classList.add('visible');stickyNotesVisible=true;
   var btn=document.getElementById('btn-sticky-notes');if(btn){btn.classList.add('active');btn.setAttribute('aria-current','page');}renderStickyNotesView();renderStickyNoteSidebar();if(typeof closeSidebarIfNarrow==='function')closeSidebarIfNarrow();
