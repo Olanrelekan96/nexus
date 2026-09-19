@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 26;
+var NEXUS_HELP_GUIDE_VERSION = 28;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -358,7 +358,7 @@ var NEXUS_HELP_FEATURE_CATALOG = [
   {id:'help-73', title:'Additional crafted themes'},
   {id:'help-75', title:'Pinned tabs & sidebar drag-and-drop ordering'},
   {id:'help-76', title:'Mobile sidebar always-visible toggle'},
-  {id:'help-77', title:'Passcode launch request & remembered session'}
+  {id:'help-77', title:'Launch passcode policy & device auto-unlock'}
 ]
 function getHelpGuideCoverage(pid){
   var page = state.pages[pid];
@@ -710,12 +710,12 @@ function ensureCompleteHelpGuide(pid){
     "Developer release rule: whenever passcode session timing, automatic re-lock behavior, interval choices, save-before-lock behavior, overlay handling or related privacy UI changes, update this Help section, the feature catalog and the guide version in the same release and run the full regression suite."
   ]);
 
-  addMaintainedSection("Passcode launch request & remembered session", [
-    "Settings → Privacy → Request passcode on launch controls whether Nexus asks for the passcode every time this browser tab is freshly reloaded. It is On by default so the normal encrypted-lock behavior remains the secure default.",
-    "Turn it Off only when you want a convenient same-tab resume. Nexus stores the unlocked data-encryption key only in sessionStorage for the current browser tab, never in persistent local storage. A new tab has no remembered key and still asks for the passcode.",
-    "Turning launch prompting Off does not disable the 1/6/12/24-hour re-entry interval. The existing absolute deadline remains authoritative: when it expires, Nexus clears the remembered key and requires the passcode. The same rule is checked after reload, foregrounding and browser lifecycle events.",
-    "Turning launch prompting On clears the remembered session key. Removing the passcode or manually locking Nexus also clears it. This setting is a convenience control, not a second encryption layer; use On when you want a passcode prompt at every fresh launch.",
-    "Developer release rule: whenever launch prompting, remembered-session storage, tab-scoped unlock state, startup security gating or interaction with the re-entry interval changes, update this Help section, the feature catalog and guide version in the same release and run the full regression suite."
+  addMaintainedSection("Launch passcode policy & device auto-unlock", [
+    "Settings → Privacy → Request passcode on launch controls what Nexus does after a real browser/app launch. On means the lock screen is shown on launch. Off means Nexus may auto-unlock this browser profile without asking, provided the normal 1/6/12/24-hour re-entry deadline has not expired.",
+    "When launch prompting is Off, Nexus stores a device-local Web Crypto key in its IndexedDB security store. The key is not included in Backup/Restore, Google Drive sync, LAN sync or notebook exports, and it is deleted when you manually lock Nexus, remove the passcode, enable launch prompting again, or the re-entry interval expires.",
+    "The selected re-entry interval remains authoritative. Auto-unlock does not restart or extend it: Nexus checks the persisted absolute deadline on startup and throughout the session. Once the deadline is reached, Nexus clears the auto-unlock key and requires the passcode.",
+    "Turning launch prompting Off is a convenience/security trade-off: anyone who can access the same browser profile or device during the active re-entry interval can open the protected notebook without entering the passcode. Keep it On on shared or otherwise untrusted devices.",
+    "Developer release rule: whenever launch policy, auto-unlock storage, expiry, lock behavior or the security warning changes, update this Help section, the feature catalog, the guide version and regression tests in the same release."
   ]);
 
   addMaintainedSection("Folder organization & nested folders", [

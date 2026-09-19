@@ -11,6 +11,7 @@ function makeContext(shared) {
   const clock = shared && shared.clock ? shared.clock : {now:1700000000000};
   const storage = shared ? shared.localStorage : {};
   const session = shared ? shared.sessionStorage : {};
+  const persistent = shared ? (shared.persistentStore || (shared.persistentStore = {})) : {};
   const elements = {};
   function element(){
     return {style:{},value:'',textContent:'',disabled:false,dataset:{},
@@ -48,7 +49,25 @@ function makeContext(shared) {
     document:documentStub,
     window:{addEventListener:()=>{}, getSelection:()=>({})},
     navigator:{},
+    __persistentStore:persistent,
   };
+  ctx.openAttachmentDb = () => Promise.resolve({
+    transaction: (store) => {
+      if(store !== 'security') throw new Error('unexpected store '+store);
+      const record = {
+        put: (value, key) => { persistent[key] = value; },
+        get: (key) => {
+          const req = {result: persistent[key] || null};
+          setTimeout(() => req.onsuccess && req.onsuccess(), 0);
+          return req;
+        },
+        delete: (key) => { delete persistent[key]; }
+      };
+      const tx = {objectStore:()=>record};
+      setTimeout(() => tx.oncomplete && tx.oncomplete(), 0);
+      return tx;
+    }
+  });
   Object.defineProperty(ctx.Date, 'now', {value:()=>clock.now});
   ctx.__advance = ms => { clock.now += ms; };
   ctx.__now = () => clock.now;
@@ -74,11 +93,16 @@ function makeContext(shared) {
   assert.strictEqual(ctx.passcodeRequestOnLaunch(), false);
   assert.strictEqual(await ctx.persistPasscodeSessionKey(), true, 'launch-off should persist session key');
   assert.ok(shared.sessionStorage[ctx.PASSCODE_SESSION_KEY], 'session DEK should be present');
+  assert.strictEqual(await ctx.persistPersistentPasscodeKey(), true, 'launch-off should persist a durable auto-unlock key');
+  assert.ok(shared.persistentStore[ctx.PASSCODE_PERSISTENT_KEY], 'durable auto-unlock key should be present');
 
   // Same-tab reload: same sessionStorage + same localStorage, new JS context.
   const reload = makeContext(shared);
   reload.lockCryptoKey = null;
   assert.strictEqual(reload.passcodeRequestOnLaunch(), false);
+  const durableRestored = await reload.restorePersistentPasscodeKey();
+  assert.strictEqual(durableRestored, true, 'launch-off should restore the durable key after relaunch');
+  reload.lockCryptoKey = null;
   const restored = await reload.restorePasscodeSessionKey();
   assert.strictEqual(restored, true, 'launch-off should restore the same-tab session key');
   assert.ok(reload.lockCryptoKey, 'restored DEK should be available');
@@ -89,6 +113,7 @@ function makeContext(shared) {
   reload.currentSettings.passcodeRequestOnLaunch = 'on';
   await reload.updatePasscodeLaunchSessionPolicy();
   assert.strictEqual(shared.sessionStorage[reload.PASSCODE_SESSION_KEY], undefined, 'launch-on should clear remembered session key');
+  assert.strictEqual(shared.persistentStore[reload.PASSCODE_PERSISTENT_KEY], undefined, 'launch-on should clear durable auto-unlock key');
   assert.strictEqual(reload.passcodeRequestOnLaunch(), true);
 
   // Expired same-tab session must no longer restore even while launch prompt is OFF.
@@ -98,5 +123,6 @@ function makeContext(shared) {
   const expired = makeContext(shared);
   expired.currentSettings.passcodeRequestOnLaunch = 'off';
   assert.strictEqual(await expired.restorePasscodeSessionKey(), false, 'expired session must require passcode');
-  console.log('Passcode launch-session policy test passed: launch off restores same-tab unlock; launch on clears it; expired sessions are rejected.');
+  assert.strictEqual(await expired.restorePersistentPasscodeKey(), false, 'expired durable session must require passcode');
+  console.log('Passcode launch-session policy test passed: launch off restores durable/same-tab unlock; launch on clears both; expired sessions are rejected.');
 })().catch(err=>{ console.error(err); process.exit(1); });

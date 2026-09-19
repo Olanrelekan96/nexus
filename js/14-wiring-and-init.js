@@ -295,22 +295,29 @@ window.addEventListener('online', gdriveSyncOnResume);
 function startNotebookWithSecurityGate(){
   if(!isLockEnabled()){
     if(typeof clearPasscodeSessionKey === 'function') clearPasscodeSessionKey();
+    if(typeof clearPersistentPasscodeKey === 'function') clearPersistentPasscodeKey();
     bootNotebook();
     return;
   }
   if(typeof passcodeRequestOnLaunch !== 'function' || passcodeRequestOnLaunch()){
     if(typeof clearPasscodeSessionKey === 'function') clearPasscodeSessionKey();
+    if(typeof clearPersistentPasscodeKey === 'function') clearPersistentPasscodeKey();
     showLockScreen(); /* bootNotebook() runs once attemptUnlockFromScreen() succeeds */
     return;
   }
-  /* Launch prompt is OFF: restore the DEK only for this browser tab and only
-     while the normal absolute re-entry deadline remains valid. A new tab has
-     no session key and therefore still asks for the passcode. */
-  restorePasscodeSessionKey().then(function(restored){
+  /* Launch prompt is OFF: prefer the durable device-local DEK. This is what
+     makes the setting meaningful across a real browser/app relaunch, not just
+     a same-tab reload. The key is never synced or backed up and is cleared
+     automatically when the re-entry deadline expires or the user locks. */
+  restorePersistentPasscodeKey().then(function(restored){
+    if(restored) return true;
+    return restorePasscodeSessionKey();
+  }).then(function(restored){
     if(!restored){ showLockScreen(); return; }
     var deadline = loadPasscodeReentryDeadline();
     if(!deadline || Date.now() >= deadline){
       clearPasscodeSessionKey();
+      if(typeof clearPersistentPasscodeKey === 'function') clearPersistentPasscodeKey();
       lockCryptoKey = null;
       passcodeUnlockedAt = 0;
       persistPasscodeReentryState(0,0);
@@ -323,6 +330,7 @@ function startNotebookWithSecurityGate(){
     bootNotebook();
   }).catch(function(){
     if(typeof clearPasscodeSessionKey === 'function') clearPasscodeSessionKey();
+    if(typeof clearPersistentPasscodeKey === 'function') clearPersistentPasscodeKey();
     if(typeof lockCryptoKey !== 'undefined') lockCryptoKey = null;
     showLockScreen();
   });

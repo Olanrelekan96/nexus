@@ -131,12 +131,17 @@ function openAttachmentDb(){
     // upgrading from an earlier version keep everything they already
     // have untouched; onupgradeneeded only adds whichever stores are
     // still missing.
-    var req = indexedDB.open(ATT_DB_NAME, 3);
+    var req = indexedDB.open(ATT_DB_NAME, 4);
     req.onupgradeneeded = function(){
       var db = req.result;
       if(!db.objectStoreNames.contains(ATT_STORE)) db.createObjectStore(ATT_STORE, {keyPath:'id'});
       if(!db.objectStoreNames.contains(VERS_STORE)) db.createObjectStore(VERS_STORE, {keyPath:'ts'});
       if(!db.objectStoreNames.contains(NB_STORE)) db.createObjectStore(NB_STORE);
+      /* v4 adds the device-local security store used when
+         "Request passcode on launch" is turned off. The stored value is a
+         non-exportable CryptoKey, never part of backups/sync, and is valid
+         only until the normal re-entry deadline. */
+      if(!db.objectStoreNames.contains('security')) db.createObjectStore('security');
     };
     // Fires if another tab still has an older DB version open — the
     // upgrade (and therefore this promise) waits for that tab to close

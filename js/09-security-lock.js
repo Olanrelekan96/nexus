@@ -35,9 +35,9 @@
 
    The unwrapped DEK (lockCryptoKey) lives only in memory for the
    current tab/session by default. When "Request passcode on launch" is
-   turned off, Nexus may keep a sessionStorage copy of that DEK for the
-   same browser tab only, guarded by the normal re-entry deadline; a new
-   tab does not inherit it. Salts and iteration counts
+   turned off, Nexus keeps a device-local CryptoKey in IndexedDB (plus a
+   same-tab fallback) for auto-unlock, guarded by the normal re-entry
+   deadline. The key is never included in backup/sync. Salts and iteration counts
    are public (localStorage, see LOCK_KEY) and don't weaken the
    passcode; they just let the same passcode/recovery key re-derive
    the same wrapping key next time. A small known string, encrypted
@@ -84,6 +84,8 @@ var PASSCODE_REENTRY_STATE_KEY = LOCK_KEY + '_reentry_v3';
 var PASSCODE_REENTRY_HEARTBEAT_MS = 15000;
 var PASSCODE_LAUNCH_DEFAULT = 'on';
 var PASSCODE_SESSION_KEY = LOCK_KEY + '_session_dek_v1';
+var PASSCODE_PERSISTENT_STORE = 'security';
+var PASSCODE_PERSISTENT_KEY = 'launch_dek_v1';
 
 /* The interval must survive browser timer throttling/suspension. Keep the
    session start + absolute deadline in localStorage as non-secret metadata
@@ -141,6 +143,71 @@ function passcodeRequestOnLaunch(){
 function clearPasscodeSessionKey(){
   try{ sessionStorage.removeItem(PASSCODE_SESSION_KEY); }catch(e){}
 }
+function clearPersistentPasscodeKey(){
+  if(typeof openAttachmentDb !== 'function') return Promise.resolve(false);
+  return openAttachmentDb().then(function(db){
+    return new Promise(function(resolve){
+      try{
+        var tx = db.transaction(PASSCODE_PERSISTENT_STORE, 'readwrite');
+        tx.objectStore(PASSCODE_PERSISTENT_STORE).delete(PASSCODE_PERSISTENT_KEY);
+        tx.oncomplete = function(){ resolve(true); };
+        tx.onerror = tx.onabort = function(){ resolve(false); };
+      }catch(e){ resolve(false); }
+    });
+  }).catch(function(){ return false; });
+}
+function persistPersistentPasscodeKey(){
+  if(passcodeRequestOnLaunch() || !lockCryptoKey) return Promise.resolve(false);
+  var state = loadPasscodeReentryState();
+  var deadline = state.deadlineAt || (passcodeUnlockedAt ? passcodeUnlockedAt + passcodeReentryMs() : 0);
+  if(!deadline || Date.now() >= deadline){ return clearPersistentPasscodeKey().then(function(){ return false; }); }
+  return openAttachmentDb().then(function(db){
+    return new Promise(function(resolve){
+      try{
+        var tx = db.transaction(PASSCODE_PERSISTENT_STORE, 'readwrite');
+        tx.objectStore(PASSCODE_PERSISTENT_STORE).put({v:1, key:lockCryptoKey, startedAt:state.startedAt || passcodeUnlockedAt || Date.now(), deadlineAt:deadline}, PASSCODE_PERSISTENT_KEY);
+        tx.oncomplete = function(){ resolve(true); };
+        tx.onerror = tx.onabort = function(){ resolve(false); };
+      }catch(e){ resolve(false); }
+    });
+  }).catch(function(){ return false; });
+}
+function restorePersistentPasscodeKey(){
+  if(passcodeRequestOnLaunch() || !isLockEnabled()) return Promise.resolve(false);
+  var reentry = loadPasscodeReentryState();
+  if(!reentry.deadlineAt || Date.now() >= reentry.deadlineAt){
+    return clearPersistentPasscodeKey().then(function(){ return false; });
+  }
+  return openAttachmentDb().then(function(db){
+    return new Promise(function(resolve){
+      try{
+        var tx = db.transaction(PASSCODE_PERSISTENT_STORE, 'readonly');
+        var req = tx.objectStore(PASSCODE_PERSISTENT_STORE).get(PASSCODE_PERSISTENT_KEY);
+        req.onsuccess = function(){ resolve(req.result || null); };
+        req.onerror = function(){ resolve(null); };
+      }catch(e){ resolve(null); }
+    });
+  }).then(function(raw){
+    if(!raw || raw.v !== 1 || !raw.key || Number(raw.deadlineAt) <= Date.now()){
+      return clearPersistentPasscodeKey().then(function(){ return false; });
+    }
+    var deadline = Math.min(Number(raw.deadlineAt), Number(reentry.deadlineAt));
+    if(!Number.isFinite(deadline) || deadline <= Date.now()){
+      return clearPersistentPasscodeKey().then(function(){ return false; });
+    }
+    var meta = loadLockMeta();
+    if(!meta || !meta.verifier){ return clearPersistentPasscodeKey().then(function(){ return false; }); }
+    return decryptWithKey(raw.key, meta.verifier).then(function(text){
+      if(text !== LOCK_VERIFIER_TEXT) return clearPersistentPasscodeKey().then(function(){ return false; });
+      lockCryptoKey = raw.key;
+      passcodeUnlockedAt = Number(raw.startedAt) || Number(reentry.startedAt) || Date.now();
+      if(Number(loadPasscodeReentryDeadline()) !== deadline){
+        persistPasscodeReentryState(passcodeUnlockedAt, deadline);
+      }
+      return true;
+    }).catch(function(){ return clearPersistentPasscodeKey().then(function(){ return false; }); });
+  });
+}
 function persistPasscodeSessionKey(){
   if(passcodeRequestOnLaunch() || !lockCryptoKey) return Promise.resolve(false);
   var state = loadPasscodeReentryState();
@@ -170,9 +237,9 @@ function restorePasscodeSessionKey(){
 function updatePasscodeLaunchSessionPolicy(){
   if(!isLockEnabled() || passcodeRequestOnLaunch() || !lockCryptoKey){
     clearPasscodeSessionKey();
-    return Promise.resolve(false);
+    return clearPersistentPasscodeKey();
   }
-  return persistPasscodeSessionKey();
+  return Promise.all([persistPasscodeSessionKey(), persistPersistentPasscodeKey()]).then(function(result){ return result[0] || result[1]; });
 }
 function updatePasscodeReentryStatus(){
   var el = document.getElementById('passcode-reentry-status');
@@ -237,7 +304,8 @@ function refreshLockSessionTimer(){
   passcodeReentryLockPending = false;
   schedulePasscodeReentry();
   updatePasscodeReentryStatus();
-  persistPasscodeSessionKey();
+  try{ persistPasscodeSessionKey().catch(function(){}); }catch(ignore){}
+  try{ persistPersistentPasscodeKey().catch(function(){}); }catch(ignore){}
 }
 function enforcePasscodeReentry(){
   passcodeReentryTimer = null;
@@ -296,6 +364,8 @@ function saveLockMeta(meta){
 }
 function clearLockMeta(){
   try{ localStorage.removeItem(LOCK_KEY); }catch(e){}
+  clearPasscodeSessionKey();
+  clearPersistentPasscodeKey();
 }
 function isLockEnabled(){ return !!loadLockMeta(); }
 
@@ -595,6 +665,8 @@ function removePasscode(){
       clearPasscodeReentryTimer();
       passcodeUnlockedAt = 0;
       persistPasscodeReentryStartedAt(0);
+      clearPasscodeSessionKey();
+      clearPersistentPasscodeKey();
       lockCryptoKey = null;
       clearLockMeta();
       var writes = [];
@@ -624,6 +696,7 @@ function lockNow(){
   passcodeReentryLockPending = false;
   lockCryptoKey = null;
   clearPasscodeSessionKey();
+  clearPersistentPasscodeKey();
   showLockScreen();
 }
 

@@ -255,7 +255,7 @@ function refreshLockSettingsUI(){
       ? 'Set a passcode first. This option becomes available when encryption is enabled.'
       : (currentSettings.passcodeRequestOnLaunch === 'on'
         ? 'On — a fresh Nexus launch asks for your passcode. The re-entry interval remains an in-session timer.'
-        : 'Off — Nexus can resume the unlocked session on reload in this browser tab. The selected 1/6/12/24-hour interval still forces a passcode when it expires.');
+        : 'Off — Nexus may auto-unlock this browser profile until the selected 1/6/12/24-hour interval expires. A device-local unlock key is kept only for that active interval.');
   }
   if(typeof updatePasscodeReentryStatus === 'function') updatePasscodeReentryStatus();
   var hasRecovery = on && !!meta.wrappedDEKRecovery;
@@ -457,7 +457,7 @@ Array.prototype.slice.call(document.querySelectorAll('#settings-passcode-launch-
     if(typeof setDataHealthStatus === 'function') setDataHealthStatus('saved', 'Passcode launch policy saved');
     if(typeof toast === 'function') toast(currentSettings.passcodeRequestOnLaunch === 'on'
       ? 'Nexus will request your passcode on a fresh launch.'
-      : 'Nexus can resume this unlocked tab until the passcode interval expires.');
+      : 'Nexus may auto-unlock this browser profile until the passcode interval expires.');
   });
 });
 
