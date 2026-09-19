@@ -10,7 +10,7 @@
 <link id="pwa-icon" rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link id="pwa-apple-icon" rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="css/styles.css">
-<meta name="nexus-build" content="2026-09-19-quality-hardened-v1-database-query-daily-appearance-transclusion-flashcards-sticky-notes-zettelkasten-folders-zk-mobile-collapse-command-tabs">
+<meta name="nexus-build" content="2026-09-19-quality-hardened-v1-database-query-daily-appearance-transclusion-flashcards-sticky-notes-zettelkasten-folders-zk-mobile-collapse-command-tabs-tab-pins-sidebar-reorder">
 <meta name="description" content="Nexus — an offline-first personal knowledge OS for notes, tasks, databases and linked thinking.">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -32,9 +32,11 @@
     <div class="brand-row">
       <div class="brand">Nexus<small>Knowledge OS · works offline</small></div>
       <button id="collapse-btn" title="Collapse sidebar" aria-label="Collapse sidebar">«</button>
+      <button id="sidebar-order-reset-btn" title="Reset sidebar navigation order" aria-label="Reset sidebar navigation order">↺</button>
     </div>
     <input id="search-box" type="text" placeholder="Search or jump to… (⌘K)" aria-label="Search or jump to a page" title="Also takes #tag, [[Page]], key:value, is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;">
 
+    <div id="sidebar-nav-list" class="sidebar-nav-list" aria-label="Sidebar navigation actions">
     <button class="side-btn dashboard-home-btn" id="btn-dashboard">⌂ Dashboard <span class="side-btn-hint">Home</span></button>
     <button class="side-btn command-center-side-btn" id="btn-command-center">⚡ Command Center <span class="side-btn-hint">⌘⇧K</span></button>
     <button class="side-btn" id="btn-today">📅 Today's note</button>
@@ -51,6 +53,8 @@
     <button class="side-btn" id="btn-insert-query">⌕ Insert query</button>
     <button class="side-btn" id="btn-insert-table">▤ Insert database</button>
     <button class="side-btn" id="btn-insert-code">❯_ Insert code block</button>
+
+    </div>
 
     <div class="side-section" id="pinned-section" style="display:none;">
       <div class="side-label"><span>Pinned</span></div>
@@ -977,6 +981,7 @@
 <script src="js/31-command-center.js"></script>
 <script src="js/32-tabs.js"></script>
 <script src="js/33-footnotes.js"></script>
+<script src="js/34-sidebar-ui-ordering.js"></script>
 <script src="js/14-wiring-and-init.js"></script>
 </body>
 </html>

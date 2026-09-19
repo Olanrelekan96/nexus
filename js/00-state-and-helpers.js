@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 20;
+var NEXUS_HELP_GUIDE_VERSION = 21;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -355,7 +355,8 @@ var NEXUS_HELP_FEATURE_CATALOG = [
   {id:'help-70', title:'Mobile Zettelkasten collapse & expand'},
   {id:'help-71', title:'Central Command Center'},
   {id:'help-72', title:'Workspace tabs'},
-  {id:'help-73', title:'Additional crafted themes'}
+  {id:'help-73', title:'Additional crafted themes'},
+  {id:'help-75', title:'Pinned tabs & sidebar drag-and-drop ordering'}
 ]
 function getHelpGuideCoverage(pid){
   var page = state.pages[pid];
@@ -733,6 +734,14 @@ function ensureCompleteHelpGuide(pid){
     "Click a tab to switch instantly. Use the × on a tab to close it, ＋ to open a new page, or the ⋯ menu to close other tabs or close all tabs. Closing the active tab moves you to a neighboring tab when possible, otherwise Nexus returns to the current page.",
     "Tabs are stored separately from notebook content, so tab layout is a local UI preference. The open-tab list and active tab survive navigation and reload when their targets still exist; missing or deleted pages are removed safely.",
     "On mobile the tab strip scrolls horizontally and keeps touch targets large enough for tapping. The tabs system is independent from the main navigation sidebar and does not change sidebar collapse state."
+  ]);
+
+  addMaintainedSection("Pinned tabs & sidebar drag-and-drop ordering", [
+    "Tabs can be pinned with the small 📌 control on each tab or with Ctrl/Cmd+Shift+P on the active tab. Pinned tabs stay at the front of the tab strip and are protected from accidental closing; unpin a tab before closing it.",
+    "Close other tabs and Close all tabs keep pinned tabs. Closing or deleting a page removes its tab safely, while pinned tabs for still-existing pages survive navigation and reload because tab state is stored as a local UI preference.",
+    "The fixed navigation controls at the top of the sidebar can be reordered by dragging the ⠿ handle beside an action. The order is stored on this device and does not alter notebook data, page order, folders or tags. Use the Developer/Help tooling reset action if you need to restore the original navigation order.",
+    "Page entries already support drag-and-drop ordering within the Pinned and Unfiled lists, and folder pages can be dragged into folders. Search-filtered lists intentionally do not expose reordering so relevance ranking cannot be accidentally converted into saved order.",
+    "Developer release rule: whenever tab pinning, tab close semantics, tab ordering, sidebar navigation ordering, drag/drop affordances or related persistence changes, update this Help section, the feature catalog, guide version and regression tests in the same release."
   ]);
 
   addMaintainedSection("Safety, recovery & good operating practice", [

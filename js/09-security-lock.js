@@ -76,6 +76,23 @@ var PASSCODE_REENTRY_CHOICES = ['1','6','12','24'];
 var passcodeUnlockedAt = 0;
 var passcodeReentryTimer = null;
 var passcodeReentryLockPending = false;
+var PASSCODE_REENTRY_STATE_KEY = LOCK_KEY + '_reentry';
+
+/* The interval must survive browser timer throttling/suspension. Keep the
+   session start time in localStorage as non-secret metadata so the deadline
+   can always be recomputed when Nexus returns to the foreground. */
+function loadPasscodeReentryStartedAt(){
+  try{
+    var n = Number(localStorage.getItem(PASSCODE_REENTRY_STATE_KEY));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }catch(e){ return 0; }
+}
+function persistPasscodeReentryStartedAt(value){
+  try{
+    if(value) localStorage.setItem(PASSCODE_REENTRY_STATE_KEY, String(value));
+    else localStorage.removeItem(PASSCODE_REENTRY_STATE_KEY);
+  }catch(e){}
+}
 
 function passcodeReentryHours(){
   var v = (typeof currentSettings !== 'undefined' && currentSettings.passcodeReentryHours) || PASSCODE_REENTRY_DEFAULT;
@@ -107,7 +124,9 @@ function clearPasscodeReentryTimer(){
 }
 function schedulePasscodeReentry(){
   clearPasscodeReentryTimer();
-  if(!isLockEnabled() || !lockCryptoKey || !passcodeUnlockedAt || appLocked) return;
+  if(!isLockEnabled() || !lockCryptoKey || appLocked) return;
+  if(!passcodeUnlockedAt) passcodeUnlockedAt = loadPasscodeReentryStartedAt();
+  if(!passcodeUnlockedAt){ refreshLockSessionTimer(); return; }
   var delay = Math.max(250, (passcodeUnlockedAt + passcodeReentryMs()) - Date.now());
   passcodeReentryTimer = setTimeout(enforcePasscodeReentry, delay);
   updatePasscodeReentryStatus();
@@ -116,16 +135,19 @@ function refreshLockSessionTimer(){
   if(!isLockEnabled() || !lockCryptoKey){
     passcodeUnlockedAt = 0;
     clearPasscodeReentryTimer();
+    persistPasscodeReentryStartedAt(0);
     updatePasscodeReentryStatus();
     return;
   }
   passcodeUnlockedAt = Date.now();
+  persistPasscodeReentryStartedAt(passcodeUnlockedAt);
   passcodeReentryLockPending = false;
   schedulePasscodeReentry();
   updatePasscodeReentryStatus();
 }
 function enforcePasscodeReentry(){
   passcodeReentryTimer = null;
+  if(!passcodeUnlockedAt) passcodeUnlockedAt = loadPasscodeReentryStartedAt();
   if(appLocked || !isLockEnabled() || !lockCryptoKey || !passcodeUnlockedAt) return;
   if((Date.now() - passcodeUnlockedAt) < passcodeReentryMs()){ schedulePasscodeReentry(); return; }
   if(passcodeReentryLockPending) return;
@@ -135,6 +157,7 @@ function enforcePasscodeReentry(){
     passcodeReentryLockPending = false;
     if(!appLocked && isLockEnabled() && lockCryptoKey){
       passcodeUnlockedAt = 0;
+      persistPasscodeReentryStartedAt(0);
       lockNow();
       toast('Passcode interval expired. Enter your passcode to continue.');
     }
@@ -171,6 +194,17 @@ function clearLockMeta(){
   try{ localStorage.removeItem(LOCK_KEY); }catch(e){}
 }
 function isLockEnabled(){ return !!loadLockMeta(); }
+
+/* Browser/mobile timer throttling can delay setTimeout for a long time.
+   These lifecycle hooks compare real elapsed time immediately when the app
+   becomes visible again, so a missed timer cannot leave the notebook unlocked. */
+function checkPasscodeReentryOnResume(){
+  if(document.visibilityState === 'hidden') return;
+  try{ enforcePasscodeReentry(); }catch(ignore){}
+  updatePasscodeReentryStatus();
+}
+document.addEventListener('visibilitychange', checkPasscodeReentryOnResume);
+window.addEventListener('pageshow', checkPasscodeReentryOnResume);
 
 /* ---------- Portable encryption for exports/backups/sync ----------
    The everyday DEK (lockCryptoKey) is randomly generated once per
@@ -454,6 +488,7 @@ function removePasscode(){
     }).then(function(decrypted){
       clearPasscodeReentryTimer();
       passcodeUnlockedAt = 0;
+      persistPasscodeReentryStartedAt(0);
       lockCryptoKey = null;
       clearLockMeta();
       var writes = [];
@@ -473,6 +508,7 @@ function lockNow(){
   closeSettings();
   clearPasscodeReentryTimer();
   passcodeUnlockedAt = 0;
+  persistPasscodeReentryStartedAt(0);
   passcodeReentryLockPending = false;
   lockCryptoKey = null;
   showLockScreen();

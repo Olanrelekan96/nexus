@@ -234,6 +234,22 @@
   }
   .nexus-tab-tool:hover{color:var(--ink);background:var(--paper);}
   .nexus-tabs-actions{display:flex;gap:5px;align-items:center;flex:0 0 auto;}
+
+  .nexus-tab{position:relative;}
+  .nexus-tab.pinned{background:color-mix(in srgb,var(--link-bg) 45%,var(--paper-raised));border-color:color-mix(in srgb,var(--focus) 22%,var(--border));}
+  .nexus-tab-main{min-width:0;flex:1 1 auto;cursor:pointer;}
+  .nexus-tab-pin{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--ink-soft);font-size:.78rem;opacity:.65;flex:0 0 24px;outline:0;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
+  .nexus-tab.pinned .nexus-tab-pin{opacity:1;color:var(--link);}
+  .nexus-tab-pin:hover,.nexus-tab-pin:focus-visible{background:var(--border);opacity:1;}
+  .sidebar-nav-list{display:flex;flex-direction:column;gap:2px;}
+  .sidebar-nav-list .side-btn{position:relative;}
+  .sidebar-nav-drag-handle{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-right:4px;color:var(--ink-soft);opacity:.35;cursor:grab;vertical-align:-3px;font-size:.75rem;line-height:1;user-select:none;touch-action:none;}
+  .sidebar-nav-list .side-btn:hover .sidebar-nav-drag-handle,.sidebar-nav-drag-handle:focus{opacity:.85;}
+  .sidebar-nav-drag-handle:active{cursor:grabbing;}
+  .sidebar-nav-dragging{opacity:.45;}
+  .sidebar-nav-drag-over-before{box-shadow:inset 0 2px 0 0 var(--focus);}
+  .sidebar-nav-drag-over-after{box-shadow:inset 0 -2px 0 0 var(--focus);}
+
   .nexus-tabs-menu-popover{
     position:absolute;right:10px;top:44px;display:flex;flex-direction:column;min-width:180px;padding:5px;
     border:1px solid var(--border);border-radius:10px;background:var(--paper-raised);box-shadow:0 10px 30px rgba(0,0,0,.14);
@@ -250,6 +266,8 @@
     .nexus-tab{min-height:38px;padding:6px 7px 6px 9px;max-width:230px;}
     .nexus-tab-label{max-width:150px;}
     .nexus-tab-close{width:28px;height:28px;flex-basis:28px;}
+    .nexus-tab-pin{width:28px;height:28px;flex-basis:28px;}
+    .sidebar-nav-drag-handle{width:24px;height:24px;margin-right:5px;opacity:.7;}
     .nexus-tab-tool{width:38px;height:38px;border-radius:9px;}
     .nexus-tabs-menu-popover{right:7px;top:48px;}
   }

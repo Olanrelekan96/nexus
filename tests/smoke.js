@@ -38,7 +38,7 @@ assert.ok(index.includes('data-health-overlay'), 'Data health UI must be present
 assert.ok(/nexus-build" content="2026-09-19-quality-hardened-v1-/.test(index), 'quality build marker missing');
 assert.ok(index.includes('tasks-layout'), 'task layout control missing');
 const core = fs.readFileSync(path.join(root,'js','00-state-and-helpers.js'),'utf8');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*20/.test(core), 'current Help guide version missing');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*21/.test(core), 'current Help guide version missing');
 assert.ok(core.includes('ensureCompleteHelpGuide(docsId)'), 'existing Help pages must receive the complete guide update');
 const dbSidebar = fs.readFileSync(path.join(root,'js','21-database-sidebar.js'),'utf8');
 const querySidebar = fs.readFileSync(path.join(root,'js','22-query-sidebar.js'),'utf8');
@@ -64,16 +64,29 @@ assert.ok(core.includes('Mobile Zettelkasten collapse & expand'), 'mobile Zettel
 assert.ok(core.includes('help-71'), 'Command Center Help catalog id missing');
 assert.ok(core.includes('Central Command Center'), 'Command Center Help topic missing');
 assert.ok(core.includes('Workspace tabs'), 'Workspace tabs Help topic missing');
+assert.ok(core.includes('Pinned tabs & sidebar drag-and-drop ordering'), 'Pinned tabs/sidebar reorder Help topic missing');
 assert.ok(core.includes('Additional crafted themes'), 'crafted themes Help topic missing');
 assert.ok(core.includes('help-73'), 'crafted themes Help catalog id missing');
 assert.ok(core.includes('help-72'), 'Workspace tabs Help catalog id missing');
 const tabs = fs.readFileSync(path.join(root,'js','32-tabs.js'),'utf8');
+assert.ok(tabs.includes('function toggleNexusTabPinned'), 'tab pin action missing');
+assert.ok(tabs.includes('isNexusTabPinned'), 'pinned close guard missing');
+assert.ok(cssTheme.includes('.nexus-tab.pinned'), 'pinned tab CSS missing');
 assert.ok(tabs.includes('NEXUS_TABS_STORAGE_KEY'), 'tab persistence key missing');
 assert.ok(tabs.includes('function closeNexusTab'), 'tab close behavior missing');
 assert.ok(tabs.includes('function activateNexusTab'), 'tab activation missing');
 assert.ok(tabs.includes('function nexusTabsActivateWorkspace'), 'workspace tab support missing');
 assert.ok(index.includes('id="nexus-tabs-shell"'), 'tab shell missing');
 assert.ok(index.includes('id="nexus-tabs-menu-popover"'), 'tab menu popover missing');
+assert.ok(index.includes('id="sidebar-nav-list"'), 'sidebar navigation reorder container missing');
+assert.ok(index.includes('id="sidebar-order-reset-btn"'), 'sidebar order reset control missing');
+assert.ok(index.includes('js/34-sidebar-ui-ordering.js'), 'sidebar ordering module load missing');
+const sidebarUi = fs.readFileSync(path.join(root,'js','34-sidebar-ui-ordering.js'),'utf8');
+assert.ok(sidebarUi.includes('NEXUS_SIDEBAR_ORDER_KEY'), 'sidebar order persistence key missing');
+assert.ok(sidebarUi.includes('function nexusSidebarMoveBefore'), 'sidebar reorder movement function missing');
+assert.ok(sidebarUi.includes("handle.addEventListener('dragstart'"), 'sidebar drag-and-drop handle missing');
+assert.ok(sidebarUi.includes('function nexusSidebarResetOrder'), 'sidebar reorder reset missing');
+assert.ok(sidebarUi.includes('nexusSidebarInitialOrder'), 'sidebar reorder must retain the original reset order');
 assert.ok(cssTheme.includes('.nexus-tabs-menu-popover[hidden]{display:none !important;}'), 'tab menu must respect hidden state');
 assert.ok(index.includes('js/32-tabs.js'), 'tabs module load missing');
 
@@ -162,7 +175,7 @@ assert.ok(dashboard.includes('renderDashboardStats'), 'dashboard stats renderer 
 assert.ok(dashboard.includes('renderDashboardWorkspaces'), 'dashboard workspace renderer missing');
 assert.ok(dashboard.includes('renderDashboardHealth'), 'dashboard health renderer missing');
 assert.ok(core.includes('Dashboard home hub'), 'Dashboard Help topic missing');
-assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 20"), 'current Help version missing');
+assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 21"), 'current Help version missing');
 assert.ok(css.includes('#dashboard-view.visible'), 'Dashboard CSS missing');
 assert.ok(core.includes('Page transclusion'), 'Page transclusion Help topic missing');
 assert.ok(core.includes('Block transclusion'), 'Block transclusion Help topic missing');
@@ -292,12 +305,13 @@ const securityLogic = securitySource.slice(
 );
 let scheduledDelay = 0;
 const secCtx = {
-  window:{crypto:{}}, console, Promise, JSON, Math, Date, Uint8Array, Array, Object, String, Number, RegExp, Error,
+  window:{crypto:{}, addEventListener:()=>{}}, console, Promise, JSON, Math, Date, Uint8Array, Array, Object, String, Number, RegExp, Error,
   setTimeout:(fn, delay)=>{ scheduledDelay = delay; return 1; },
   clearTimeout:()=>{},
   localStorage:{getItem:()=>null,setItem:()=>{},removeItem:()=>{}},
-  document:{getElementById:()=>null},
+  document:{getElementById:()=>null, addEventListener:()=>{}, visibilityState:'visible'},
   currentSettings:{passcodeReentryHours:'24'},
+  LOCK_KEY:'nexus_lock',
   appLocked:false,
   toast:()=>{},
   saveSettings:()=>{},
@@ -322,6 +336,7 @@ const lockSource = fs.readFileSync(path.join(root,'js','09-security-lock.js'),'u
 assert.ok(/\.then\(function\(\)\{[\s\S]*?refreshLockSessionTimer\(\);[\s\S]*?return rc\.display;/.test(lockSource), 'setting a new passcode should start the re-entry timer immediately');
 const settingsSource = fs.readFileSync(path.join(root,'js','07-find-replace-settings.js'),'utf8');
 assert.ok(/tryUnlockWithRecovery\(code\)\.then\(function\(ok\)\{[\s\S]*?refreshLockSessionTimer\(\);/.test(settingsSource), 'recovery unlock should start the re-entry timer');
+assert.ok(lockSource.includes('persistPasscodeReentryStartedAt(0);'), 're-entry start time should be cleared on lock');
 
 console.log(`Nexus smoke tests passed: ${jsFiles.length} JavaScript files syntax-checked; security/markup/UI guards passed.`);
 
@@ -357,7 +372,18 @@ seededTitles.forEach((title, i) => {
 });
 ctx.ensureCompleteHelpGuide('doc');
 const helpCountAfterFirst = Object.keys(ctx.state.blocks).length;
-assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 20, 'Help guide should be current after updater runs');
+assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 21, 'Help guide should be current after updater runs');
+
+/* Passcode re-entry hardening: the session start is persisted as non-secret
+   metadata so timer throttling/background suspension cannot silently defeat
+   the configured interval. */
+const lockCode = fs.readFileSync(path.join(jsDir, '09-security-lock.js'), 'utf8');
+assert.ok(lockCode.includes("PASSCODE_REENTRY_STATE_KEY = LOCK_KEY + '_reentry'"), 'passcode re-entry persistence key missing');
+assert.ok(lockCode.includes('loadPasscodeReentryStartedAt'), 'passcode re-entry persisted start loader missing');
+assert.ok(lockCode.includes('persistPasscodeReentryStartedAt(passcodeUnlockedAt)'), 'unlock timestamp is not persisted');
+assert.ok(lockCode.includes("document.addEventListener('visibilitychange', checkPasscodeReentryOnResume)"), 'visibility resume guard missing');
+assert.ok(lockCode.includes("window.addEventListener('pageshow', checkPasscodeReentryOnResume)"), 'pageshow resume guard missing');
+assert.ok(lockCode.includes('persistPasscodeReentryStartedAt(0);'), 're-entry state cleanup missing');
 const helpCoverage = ctx.getHelpGuideCoverage('doc');
 assert.ok(helpCoverage.complete, 'fresh Help guide should have complete maintained-topic coverage');
 ctx.ensureCompleteHelpGuide('doc');
@@ -387,6 +413,31 @@ tabCtx.nexusTabsState = {tabs:[],active:null};
 tabCtx.nexusTabsRead();
 assert.strictEqual(tabCtx.nexusTabsState.tabs.length, 2, 'Workspace tabs should persist open-tab state');
 assert.strictEqual(tabCtx.nexusTabsState.active, 'workspace:dashboard', 'Workspace tabs should persist active tab');
+
+// Pinned-tab behavior: pinning persists, pinned tabs sort first, and Close all/others never removes them.
+tabCtx.toast = () => {};
+tabCtx.nexusTabsState = {tabs:[
+  {id:'page:a',type:'page',target:'a',pinned:false,_nexusOrder:0},
+  {id:'page:b',type:'page',target:'b',pinned:true,_nexusOrder:1},
+  {id:'page:c',type:'page',target:'c',pinned:false,_nexusOrder:2}
+],active:'page:a'};
+tabCtx.state = {pages:{a:{id:'a',title:'A',type:'page'},b:{id:'b',title:'B',type:'page'},c:{id:'c',title:'C',type:'page'}}};
+tabCtx.toggleNexusTabPinned('page:a');
+assert.strictEqual(tabCtx.nexusTabsState.tabs[0].id,'page:b','existing pinned tab should remain first');
+assert.strictEqual(tabCtx.nexusTabsState.tabs[1].id,'page:a','newly pinned tab should join pinned group');
+assert.strictEqual(tabCtx.isNexusTabPinned('page:a'),true,'tab pin state should be enabled');
+tabCtx.closeNexusTab('page:a');
+assert.ok(tabCtx.nexusTabsState.tabs.some(t=>t.id==='page:a'),'pinned tab should not close until unpinned');
+tabCtx.nexusTabsState.active='page:c';
+tabCtx.closeOtherNexusTabs();
+assert.ok(tabCtx.nexusTabsState.tabs.some(t=>t.id==='page:a') && tabCtx.nexusTabsState.tabs.some(t=>t.id==='page:b'),'Close other tabs should preserve pinned tabs');
+tabCtx.closeAllNexusTabs();
+assert.ok(tabCtx.nexusTabsState.tabs.every(t=>t.pinned),'Close all tabs should retain pinned tabs');
+tabCtx.nexusTabsPersist();
+tabCtx.nexusTabsState={tabs:[],active:null};
+tabCtx.nexusTabsRead();
+assert.ok(tabCtx.nexusTabsState.tabs.some(t=>t.id==='page:a'&&t.pinned),'tab pin state should survive persistence');
+
 
 const makeState = (device, order) => ({
   pages: {p: {id:'p',title:'P',type:'page',createdAt:1,updatedAt:device==='B'?3:1,updatedBy:device,properties:[],rootBlocks:order.slice()}},
