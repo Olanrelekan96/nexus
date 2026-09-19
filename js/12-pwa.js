@@ -23,7 +23,7 @@
    localhost) and it registers automatically; without it, everything
    above still works fine, just without install/offline.
    ============================================================ */
-var NEXUS_SW_SOURCE = "var CACHE='nexus-shell-v2';" +
+var NEXUS_SW_SOURCE = "var CACHE='nexus-shell-v7';" +
   "self.addEventListener('install',function(e){self.skipWaiting();e.waitUntil(caches.open(CACHE).then(function(c){return c.add(self.registration.scope).catch(function(){});}));});" +
   "self.addEventListener('activate',function(e){e.waitUntil(caches.keys().then(function(keys){return Promise.all(keys.filter(function(k){return k!==CACHE;}).map(function(k){return caches.delete(k);}));}).then(function(){return self.clients.claim();}));});" +
   "self.addEventListener('fetch',function(e){" +

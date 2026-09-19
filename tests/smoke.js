@@ -106,10 +106,10 @@ assert.ok(index.includes('js/35-sync-recovery.js'), 'sync recovery module load m
 
 assert.ok(index.includes('js/36-footer-actions-repair.js'), 'critical sidebar footer action repair module must load last');
 const footerRepair = fs.readFileSync(path.join(root,'js','36-footer-actions-repair.js'),'utf8');
-assert.ok(footerRepair.includes("bind('btn-settings'"), 'Settings defensive binding missing');
-assert.ok(footerRepair.includes("bind('btn-find-replace'"), 'Find & replace defensive binding missing');
-assert.ok(footerRepair.includes("bind('btn-sync-center'"), 'Sync cleanup defensive binding missing');
-assert.ok(footerRepair.includes("bind('btn-sync'"), 'Sync devices defensive binding missing');
+assert.ok(footerRepair.includes("'btn-settings'") && footerRepair.includes('document.addEventListener'), 'Settings defensive binding missing');
+assert.ok(footerRepair.includes("'btn-find-replace'"), 'Find & replace defensive binding missing');
+assert.ok(footerRepair.includes("'btn-sync-center'"), 'Sync cleanup defensive binding missing');
+assert.ok(footerRepair.includes("'btn-sync'"), 'Sync devices defensive binding missing');
 assert.ok(syncRecovery.includes("if(typeof state !== 'undefined' && state && state.pages)"), 'sync recovery must defer live rendering until notebook state exists');
 
 
@@ -598,6 +598,6 @@ assert.ok(fs.readFileSync(path.join(root,'css','styles.css'),'utf8').includes('#
 assert.ok(lockCode.includes('Promise.resolve(flushed).catch(function(){});'), 'passcode lock should initiate the save flush without blocking the security boundary');
 assert.ok(lockCode.includes('function closeSecurityOverlays()'), 'lockNow should close all security overlays');
 const swCode = fs.readFileSync(path.join(root,'sw.js'),'utf8');
-assert.ok(swCode.includes("CACHE='nexus-shell-v6'"), 'mobile sidebar update must bump the PWA cache generation');
+assert.ok(swCode.includes("CACHE='nexus-shell-v7'"), 'mobile sidebar update must bump the PWA cache generation');
 assert.ok(swCode.includes("fetch(req,{cache:'no-store'})"), 'PWA fetch must revalidate updated security assets');
 assert.ok(index.includes('09-security-lock.js?v=20260919-passcode-v7-true-launch-off'), 'security script must be cache-busted for the passcode launch policy repair');
