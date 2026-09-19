@@ -336,7 +336,13 @@ function setPasscode(passcode){
         }));
       });
     })
-    .then(function(){ return rc.display; });
+    .then(function(){
+      /* Setting the passcode is also a successful unlock. Start the re-entry
+         clock here so the first passcode session cannot remain unlocked
+         indefinitely while the recovery key dialog is displayed. */
+      refreshLockSessionTimer();
+      return rc.display;
+    });
   });
 }
 /* Re-wraps the already-unlocked DEK under a new passcode, without

@@ -355,6 +355,10 @@ document.getElementById('recovery-unlock-submit').onclick = function(){
   tryUnlockWithRecovery(code).then(function(ok){
     btn.disabled = false;
     if(!ok){ errEl.textContent = 'That recovery key is incorrect.'; return; }
+    /* Recovery unlock is an unlocked session too. Start the same elapsed
+       re-entry clock immediately; resetting/changing the passcode below
+       restarts the interval after confirmation. */
+    if(typeof refreshLockSessionTimer === 'function') refreshLockSessionTimer();
     closeRecoveryUnlockModal();
     openPasscodeModal('reset');
   });

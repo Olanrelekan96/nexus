@@ -318,6 +318,10 @@ assert.ok(scheduledDelay >= 24*60*60*1000 - 1000 && scheduledDelay <= 24*60*60*1
 secCtx.currentSettings.passcodeReentryHours = '1';
 secCtx.refreshLockSessionTimer();
 assert.ok(scheduledDelay >= 60*60*1000 - 1000 && scheduledDelay <= 60*60*1000 + 1000, '1-hour interval should schedule approximately 1 hour');
+const lockSource = fs.readFileSync(path.join(root,'js','09-security-lock.js'),'utf8');
+assert.ok(/\.then\(function\(\)\{[\s\S]*?refreshLockSessionTimer\(\);[\s\S]*?return rc\.display;/.test(lockSource), 'setting a new passcode should start the re-entry timer immediately');
+const settingsSource = fs.readFileSync(path.join(root,'js','07-find-replace-settings.js'),'utf8');
+assert.ok(/tryUnlockWithRecovery\(code\)\.then\(function\(ok\)\{[\s\S]*?refreshLockSessionTimer\(\);/.test(settingsSource), 'recovery unlock should start the re-entry timer');
 
 console.log(`Nexus smoke tests passed: ${jsFiles.length} JavaScript files syntax-checked; security/markup/UI guards passed.`);
 
