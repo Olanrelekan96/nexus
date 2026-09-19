@@ -39,11 +39,9 @@ function broadcastStateToPeers(){
 }
 
 function openSyncModal(){
-  var name = document.getElementById('sync-device-name');
-  var overlay = document.getElementById('sync-overlay');
-  if(name) name.value = myDeviceName();
-  if(overlay) overlay.style.display = 'flex';
-  try{ renderLanPeerList(); }catch(ignore){ }
+  document.getElementById('sync-device-name').value = myDeviceName();
+  document.getElementById('sync-overlay').style.display = 'flex';
+  renderLanPeerList();
 }
 function closeSyncModal(){
   document.getElementById('sync-overlay').style.display = 'none';

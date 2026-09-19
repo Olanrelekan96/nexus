@@ -213,14 +213,10 @@ var currentSettings = loadSettings();
 applySettings(currentSettings);
 
 function openSettings(){
-  /* Keep the Settings button usable even when a non-critical settings widget
-     (backup/storage/security status) is unavailable. The dialog itself is
-     the primary action and must always open. */
-  try{ applySettings(currentSettings); }catch(ignore){ applySpellcheckToDom(currentSettings); }
-  try{ refreshLockSettingsUI(); }catch(ignore){ }
-  try{ if(typeof updateAutoBackupStatusUI === 'function') updateAutoBackupStatusUI(); }catch(ignore){ }
-  var overlay = document.getElementById('settings-overlay');
-  if(overlay) overlay.style.display = 'flex';
+  applySettings(currentSettings);
+  refreshLockSettingsUI();
+  updateAutoBackupStatusUI();
+  document.getElementById('settings-overlay').style.display = 'flex';
 }
 function closeSettings(){
   document.getElementById('settings-overlay').style.display = 'none';

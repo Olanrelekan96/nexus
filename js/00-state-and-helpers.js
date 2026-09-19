@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 29;
+var NEXUS_HELP_GUIDE_VERSION = 28;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -358,9 +358,7 @@ var NEXUS_HELP_FEATURE_CATALOG = [
   {id:'help-73', title:'Additional crafted themes'},
   {id:'help-75', title:'Pinned tabs & sidebar drag-and-drop ordering'},
   {id:'help-76', title:'Mobile sidebar always-visible toggle'},
-  {id:'help-77', title:'Launch passcode policy & device auto-unlock'},
-  {id:'help-78', title:'Sync cleanup, duplicate recovery & conflict management'},
-  {id:'help-79', title:'Version history, checkpoints & pins'}
+  {id:'help-77', title:'Launch passcode policy & device auto-unlock'}
 ]
 function getHelpGuideCoverage(pid){
   var page = state.pages[pid];
@@ -762,23 +760,6 @@ function ensureCompleteHelpGuide(pid){
     "The floating toggle is intentionally separate from the sidebar contents, so it remains reachable even after you scroll through a long navigation list. On touch devices it uses a large 44px target and respects safe-area insets.",
     "The mobile toggle controls only the main navigation sidebar. It does not change the state of Zettelkasten's independent mobile drawer, Command Center, tabs or the current page. The chosen sidebar state is still persisted locally and restored on navigation/reload.",
     "Developer release rule: whenever mobile sidebar controls, placement, collapse/expand behavior, touch interaction or persistence changes, update this Help section, the feature catalog and guide version in the same release and run the full regression suite."
-  ]);
-
-
-  addMaintainedSection("Sync cleanup, duplicate recovery & conflict management", [
-    "Open ⇄ Sync cleanup & recovery in the sidebar to review sync conflicts, same-title duplicate pages and recovery history from one place. The center separates safe automated cleanup from decisions that may discard meaningful differences.",
-    "Conflict records are deduplicated by affected item and conflicting content so repeated sync cycles do not create an endless list of identical warnings. Clean stale & duplicate records removes entries whose affected block no longer carries an active conflict marker; Keep latest per item leaves only the newest unresolved record for each affected entity.",
-    "Duplicate-page scanning groups live pages by normalized title. Nexus treats only exact-content same-title copies as safe automatic cleanup: Archive exact duplicates moves the redundant copies to Trash, records which page they duplicate, and creates a pinned recovery snapshot first. Pages with different content are reported for review instead of being silently deleted.",
-    "Sync merges create a pre-merge recovery snapshot whenever the incoming state changes the notebook. This means a bad remote merge can be reversed from Version history without relying on Undo, which is intentionally in-memory only.",
-    "Developer release rule: whenever sync conflict recording, duplicate detection/cleanup, merge behavior, recovery snapshots or related UI changes, update this Help section, the feature catalog, guide version and regression tests in the same release."
-  ]);
-
-  addMaintainedSection("Version history, checkpoints & pins", [
-    "Version history now keeps a deeper recovery window of up to 20 snapshots instead of the earlier five. Snapshots are content-deduplicated so repeated identical sync ticks do not consume history slots.",
-    "Use + Create checkpoint to save a named recovery point before a risky operation. Pin important versions to protect them from automatic retention cleanup. Unpin a version before deleting it manually.",
-    "Each recovery point can be compared with the current notebook, restored, pinned/unpinned or deleted when it is not pinned. Restores create a safety snapshot before replacing the live notebook, so a mistaken restore remains reversible.",
-    "The Sync cleanup & recovery hub can open Version history directly and can create a safety checkpoint before cleanup. Version history remains separate from Undo/Redo and survives page reloads.",
-    "Developer release rule: whenever snapshot retention, checkpoint naming, pinning, comparison, restore or version storage changes, update this Help section, the feature catalog, guide version and regression tests in the same release."
   ]);
 
   addMaintainedSection("Safety, recovery & good operating practice", [

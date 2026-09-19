@@ -161,7 +161,7 @@ function renderDataHealth(){
       ['Orphaned bytes', bytesLabel(orphanBytes), orphanBytes ? 'warning' : 'ok']
     ]);
     appendHealthSection(grid, 'Recovery', [
-      ['Version snapshots', versions.length + ' / ' + String(typeof MAX_VERSIONS !== 'undefined' ? MAX_VERSIONS : 20)],
+      ['Version snapshots', versions.length + ' / 5'],
       ['Version storage', bytesLabel(vBytes)],
       ['Last backup', lastBackup],
       ['Storage estimate', quotaText],
@@ -171,8 +171,6 @@ function renderDataHealth(){
       ['Device', device],
       ['Google Drive', driveText],
       ['Conflicts', (typeof loadConflicts === 'function' ? loadConflicts().length : 0)],
-      ['Duplicate groups', (typeof getSyncCenterStats === 'function' ? getSyncCenterStats().duplicateGroups : 0), (typeof getSyncCenterStats === 'function' && getSyncCenterStats().duplicateGroups ? 'warning' : 'ok')],
-      ['Exact duplicates', (typeof getSyncCenterStats === 'function' ? getSyncCenterStats().exactDuplicates : 0), (typeof getSyncCenterStats === 'function' && getSyncCenterStats().exactDuplicates ? 'warning' : 'ok')],
       ['Google credentials', GOOGLE_DRIVE_API_KEY ? 'Configured locally' : 'Not configured', GOOGLE_DRIVE_API_KEY ? 'ok' : 'warning']
     ]);
     var docsId = state.titleIndex && state.titleIndex[String(DOCS_TITLE).toLowerCase()];

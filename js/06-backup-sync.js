@@ -64,7 +64,7 @@ function putVersion(entry){
     }
     if(lockCryptoKey){
       return encryptWithKey(lockCryptoKey, entry.data).then(function(enc){
-        return write({ts: entry.ts, reason: entry.reason, enc: true, iv: enc.iv, ct: enc.ct, hash: entry.hash || null, pinned: !!entry.pinned, source: entry.source || 'local'});
+        return write({ts: entry.ts, reason: entry.reason, enc: true, iv: enc.iv, ct: enc.ct});
       });
     }
     return write(entry);
