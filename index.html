@@ -10,18 +10,20 @@
 <link id="pwa-icon" rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link id="pwa-apple-icon" rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="css/styles.css">
-<meta name="nexus-build" content="2026-09-14-audit-final-v3">
+<meta name="nexus-build" content="2026-09-19-quality-hardening-v1">
+<meta name="description" content="Nexus — an offline-first personal knowledge OS for notes, tasks, databases and linked thinking.">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js" async defer></script>
 <script>
-  /* Fill these in with your own Google Cloud credentials to enable
-     "Import from Google Drive". See the setup notes in this project's
-     README or the chat message where this feature was added. */
-  var GOOGLE_DRIVE_CLIENT_ID = '394909213657-v7h3ri05fvpq1bll7qa74shbh7h7vir1.apps.googleusercontent.com';
-  var GOOGLE_DRIVE_API_KEY   = 'AIzaSyB8zLazPLMStyOH1xiupR5cm16ynV7umF8';
+  /* OAuth client IDs are public browser identifiers; API keys are deliberately
+     NOT shipped in the package. Nexus reads both from local device storage so
+     the distributable file cannot leak a live API key. Restrict the key to
+     your Nexus origin + only the Google APIs you use. */
+  var GOOGLE_DRIVE_CLIENT_ID = localStorage.getItem('nexus_gdrive_client_id') || '394909213657-v7h3ri05fvpq1bll7qa74shbh7h7vir1.apps.googleusercontent.com';
+  var GOOGLE_DRIVE_API_KEY   = localStorage.getItem('nexus_gdrive_api_key') || '';
 </script>
 </head>
-<body>
 <body>
 
 <div id="app">
@@ -381,6 +383,19 @@
         <div class="hint" id="gdrive-autosync-status"></div>
       </div>
       <div>
+        <div class="settings-label">Google Drive connection</div>
+        <div class="credential-grid">
+          <label>OAuth Client ID<input id="gdrive-client-id-input" type="text" autocomplete="off" spellcheck="false" placeholder="...apps.googleusercontent.com"></label>
+          <label>Browser API key<input id="gdrive-api-key-input" type="text" autocomplete="off" spellcheck="false" placeholder="Starts with AIza…"></label>
+        </div>
+        <div class="settings-row">
+          <button type="button" class="settings-opt" id="btn-save-gdrive-credentials">Save connection details</button>
+          <button type="button" class="settings-opt" id="btn-clear-gdrive-credentials">Clear API key</button>
+        </div>
+        <div class="hint">The API key is not a password. Restrict it in Google Cloud Console by HTTP referrer/origin and limit it to the APIs Nexus uses. The key is stored only on this device in browser storage.</div>
+        <div class="hint" id="gdrive-credential-status"></div>
+      </div>
+      <div>
         <div class="settings-label">Reconnect to Google Drive every</div>
         <div class="settings-row" id="settings-gdriveauthttl-row">
           <button type="button" class="settings-opt" data-gdriveauthttl="1">1 hour</button>
@@ -390,6 +405,14 @@
         </div>
         <div class="hint" id="gdrive-authttl-hint">How long Nexus may keep your Google Drive connection alive in the background before asking you to sign in again by hand. Google's own tokens expire about hourly whatever you pick here — a shorter setting means Nexus stops quietly renewing them sooner, which is the safer choice on a shared or borrowed computer.</div>
         <div class="hint" id="gdrive-authttl-status"></div>
+      </div>
+      <div>
+        <div class="settings-label">Data health</div>
+        <div class="settings-row">
+          <button type="button" class="settings-opt" id="btn-data-health">Open data health</button>
+          <button type="button" class="settings-opt" id="btn-request-persistent-storage">Protect local storage</button>
+        </div>
+        <div class="hint" id="data-health-settings-hint">See notebook size, browser storage, backups, versions, attachments and sync health in one place.</div>
       </div>
       <div>
         <div class="settings-label">Deleting a page</div>
@@ -410,10 +433,25 @@
           <button type="button" class="settings-opt" id="btn-remove-passcode" style="display:none;">Remove passcode</button>
         </div>
         <div id="recovery-status-text" class="hint" style="margin-top:6px; display:none;"></div>
-        <div class="hint" style="margin-top:6px;">Backups you export aren't protected by the passcode — treat backup files as sensitive.</div>
+        <div class="hint" style="margin-top:6px;">Backups you export aren't protected by the passcode — treat backup files as sensitive. Local browser storage is encrypted when the Nexus lock is enabled.</div>
       </div>
     </div>
     <div class="settings-foot"><button type="button" id="settings-close">Done</button></div>
+  </div>
+</div>
+
+<div id="data-health-overlay" class="quality-overlay" aria-hidden="true">
+  <div id="data-health-modal" class="quality-modal" role="dialog" aria-modal="true" aria-labelledby="data-health-title" tabindex="-1">
+    <div class="quality-modal-head">
+      <div><h2 id="data-health-title">Nexus data health</h2><div class="hint" id="data-health-subtitle">Your local notebook, recovery and sync status.</div></div>
+      <button type="button" id="data-health-close" class="icon-close" aria-label="Close data health">✕</button>
+    </div>
+    <div id="data-health-body" class="quality-modal-body"></div>
+    <div class="quality-modal-foot">
+      <button type="button" id="data-health-diagnostics">Run diagnostics</button>
+      <button type="button" id="data-health-clean-orphans">Clean orphaned attachments</button>
+      <button type="button" id="data-health-close-bottom">Done</button>
+    </div>
   </div>
 </div>
 
@@ -629,5 +667,6 @@
 <script src="js/18-global-search.js"></script>
 <script src="js/19-mobile-editor.js"></script>
 <script src="js/14-wiring-and-init.js"></script>
+<script src="js/20-quality-hardening.js"></script>
 </body>
 </html>

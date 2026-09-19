@@ -506,7 +506,7 @@ function appendAggregateFooterRow(table, propKeys, pages, dirs, blockId, pagePro
    don't know about them just ignore them.
    ============================================================ */
 var DB_VIEW_TYPE_LABEL = {table:'Table', board:'Board', gallery:'Gallery', calendar:'Calendar'};
-function viewUid(){ return 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function viewUid(){ return 'v' + uid().slice(1); }
 
 function activeDbViewDirs(blockId, qstr){
   var block = state.blocks[blockId];

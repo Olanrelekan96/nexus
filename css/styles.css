@@ -2024,3 +2024,81 @@ button, .topbtn, .dock-fmt-btn, .dock-pill-btn, .collapse-tri, .bullet-wrap, .ad
   .topbtn{ min-height:40px; }
   .slash-item, .ctx-menu-item{ min-height:44px; }
 }
+
+/* =========================================================
+   NEXUS QUALITY HARDENING UI
+   ========================================================= */
+#nexus-health-chip{
+  margin-left:auto;
+  min-height:32px;
+  border:1px solid var(--border);
+  background:var(--paper-raised);
+  color:var(--ink-soft);
+  border-radius:999px;
+  padding:5px 10px;
+  font-size:.72rem;
+  cursor:pointer;
+  white-space:nowrap;
+  box-shadow:var(--shadow-xs);
+}
+#nexus-health-chip.saved{color:var(--link);}
+#nexus-health-chip.warning{color:var(--tag);}
+#nexus-health-chip.error{color:var(--danger);}
+#nexus-health-chip:hover{background:var(--paper);}
+
+#search-discovery{
+  position:absolute;
+  z-index:40;
+  left:14px;
+  right:14px;
+  margin-top:4px;
+  padding:8px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--paper-raised);
+  box-shadow:var(--shadow-md);
+}
+.search-discovery-title{font-size:.7rem;color:var(--ink-soft);padding:2px 4px 7px;text-transform:uppercase;letter-spacing:.45px;}
+.search-discovery-chip{display:flex;gap:8px;align-items:center;width:100%;border:0;background:transparent;color:var(--ink);border-radius:7px;padding:7px 8px;cursor:pointer;text-align:left;font-size:.75rem;}
+.search-discovery-chip:hover,.search-discovery-chip:focus-visible{background:var(--link-bg);}
+.search-discovery-chip code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;min-width:105px;color:var(--link);}
+.search-discovery-chip span{color:var(--ink-soft);}
+
+.quality-overlay{
+  position:fixed;inset:0;z-index:80;display:none;align-items:flex-start;justify-content:center;
+  padding:8vh 16px 24px;background:rgba(20,24,20,.38);
+}
+.quality-overlay.visible{display:flex;}
+.quality-modal{width:720px;max-width:100%;max-height:82vh;overflow:hidden;background:var(--paper-raised);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-md);display:flex;flex-direction:column;}
+.quality-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 20px;border-bottom:1px solid var(--border);}
+.quality-modal-head h2{margin:0 0 4px;font-size:1.05rem;}
+.icon-close{border:0;background:transparent;color:var(--ink-soft);font-size:1rem;cursor:pointer;border-radius:7px;width:36px;height:36px;}
+.icon-close:hover,.icon-close:focus-visible{background:var(--paper);color:var(--ink);}
+.quality-modal-body{padding:16px 20px;overflow:auto;min-height:180px;}
+.quality-modal-foot{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;padding:12px 20px;border-top:1px solid var(--border);}
+.quality-modal-foot button,.credential-grid + .settings-row button{border:1px solid var(--border);background:var(--paper);color:var(--ink);border-radius:8px;padding:7px 10px;cursor:pointer;font-size:.76rem;}
+.quality-health-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.quality-health-section{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--paper);}
+.quality-health-section h3{margin:0;padding:9px 11px;border-bottom:1px solid var(--border);font-size:.72rem;text-transform:uppercase;letter-spacing:.45px;color:var(--ink-soft);}
+.quality-health-row{display:flex;justify-content:space-between;gap:10px;padding:8px 11px;border-bottom:1px solid var(--border);font-size:.76rem;}
+.quality-health-row:last-child{border-bottom:0;}
+.quality-health-label{color:var(--ink-soft);}
+.quality-health-value{text-align:right;color:var(--ink);max-width:64%;overflow-wrap:anywhere;}
+.quality-health-value.ok{color:var(--link);}.quality-health-value.warning{color:var(--tag);}.quality-health-value.danger{color:var(--danger);}
+.quality-health-note{margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--link-bg);color:var(--ink-soft);font-size:.74rem;line-height:1.45;}
+.quality-health-loading{grid-column:1/-1;color:var(--ink-soft);padding:20px;text-align:center;}
+
+.credential-grid{display:grid;grid-template-columns:1fr;gap:8px;}
+.credential-grid label{display:flex;flex-direction:column;gap:5px;font-size:.72rem;color:var(--ink-soft);}
+.credential-grid input{border:1px solid var(--border);background:var(--paper);color:var(--ink);border-radius:7px;padding:8px 10px;min-width:0;}
+
+button, input, textarea, select{touch-action:manipulation;}
+@media (max-width:860px){
+  #nexus-health-chip{order:99;margin-left:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;}
+  .quality-overlay{padding:4vh 10px 12px;}
+  .quality-modal{max-height:90vh;border-radius:14px;}
+  .quality-health-grid{grid-template-columns:1fr;}
+  .quality-modal-foot{justify-content:stretch;}
+  .quality-modal-foot button{flex:1;min-height:40px;}
+  .search-discovery-chip{min-height:38px;}
+}

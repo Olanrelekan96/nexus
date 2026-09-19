@@ -106,6 +106,26 @@ function renderPaletteResults(q){
   var items = pageMatches.map(function(p){
     return {label:p.title, sub:p.type, action:function(){ openPage(p.id); }};
   });
+
+  /* A single command registry makes Cmd/Ctrl+K useful for actions as well
+     as navigation. Slash commands continue to handle editor-local actions;
+     this palette is for app-wide actions. */
+  var globalCommands = [
+    {label:'New page', sub:'Command', keywords:'new create page', action:function(){ document.getElementById('btn-new-page').click(); }},
+    {label:'Search everything', sub:'Command', keywords:'search find all notes', action:function(){ openGlobalSearch(); }},
+    {label:'Tasks', sub:'Command', keywords:'tasks todo checklist', action:function(){ document.getElementById('btn-tasks').click(); }},
+    {label:'Graph view', sub:'Command', keywords:'graph links network', action:function(){ document.getElementById('btn-graph').click(); }},
+    {label:'Settings', sub:'Command', keywords:'preferences options', action:function(){ openSettings(); }},
+    {label:'Backup now', sub:'Command', keywords:'backup export save', action:function(){ backup(); }},
+    {label:'Version history', sub:'Command', keywords:'history restore snapshot', action:function(){ openVersions(); }},
+    {label:'Data health', sub:'Command', keywords:'storage diagnostics attachments health', action:function(){ if(typeof openDataHealth==='function') openDataHealth(); }},
+    {label:'Sync devices', sub:'Command', keywords:'sync lan webrtc devices', action:function(){ openSyncModal(); }}
+  ];
+  if(qTrim){
+    var ql=qTrim.toLowerCase();
+    var commandMatches=globalCommands.filter(function(c){ return c.label.toLowerCase().indexOf(ql)!==-1 || c.keywords.indexOf(ql)!==-1; });
+    commandMatches.slice(0,6).forEach(function(c){ items.push(c); });
+  }
   if(qTrim && !findPageByTitle(qTrim)){
     items.unshift({label: 'Create page "'+qTrim+'"', sub:'new', action:function(){ openPageByTitle(qTrim, 'page'); }});
   }
