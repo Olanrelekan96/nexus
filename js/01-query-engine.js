@@ -160,6 +160,8 @@ function renderQueryWidget(container, kind, qstr, blockId){
   container.innerHTML = "";
   var box = document.createElement('div');
   box.className = 'query-embed';
+  if(kind === 'table' && blockId) box.dataset.dbBlockId = blockId;
+  if(kind === 'query' && blockId) box.dataset.queryBlockId = blockId;
   var head = document.createElement('div');
   head.className = 'query-embed-head';
   var headLabel = kind === 'table' ? '▤ Database' : '⌕ Query';

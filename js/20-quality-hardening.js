@@ -173,6 +173,18 @@ function renderDataHealth(){
       ['Conflicts', (typeof loadConflicts === 'function' ? loadConflicts().length : 0)],
       ['Google credentials', GOOGLE_DRIVE_API_KEY ? 'Configured locally' : 'Not configured', GOOGLE_DRIVE_API_KEY ? 'ok' : 'warning']
     ]);
+    var docsId = state.titleIndex && state.titleIndex[String(DOCS_TITLE).toLowerCase()];
+    var helpCoverage = (typeof getHelpGuideCoverage === 'function') ? getHelpGuideCoverage(docsId) : null;
+    if(helpCoverage){
+      var helpTone = helpCoverage.complete ? 'ok' : (helpCoverage.locked ? 'warning' : 'danger');
+      var helpMissing = helpCoverage.missing.length ? helpCoverage.missing.join(', ') : 'None';
+      appendHealthSection(grid, 'Help & Tutorial', [
+        ['Guide version', String(helpCoverage.version) + ' / ' + String(helpCoverage.currentVersion), helpCoverage.complete ? 'ok' : 'warning'],
+        ['Coverage', helpCoverage.complete ? 'Complete' : (helpCoverage.locked ? 'Update pending — Help is locked' : 'Update pending'), helpTone],
+        ['Missing topics', helpMissing, helpCoverage.missing.length ? 'warning' : 'ok'],
+        ['Maintenance rule', 'Update Help in the same release as every user-visible feature change', 'ok']
+      ]);
+    }
     body.innerHTML = '';
     body.appendChild(grid);
     var note = document.createElement('div'); note.className = 'quality-health-note';
@@ -202,6 +214,13 @@ function runNexusDiagnostics(){
   add('Notebook loaded', !!(state && state.pages && state.blocks), state ? 'Loaded' : 'Not loaded');
   add('Google API key not embedded', document.documentElement.outerHTML.indexOf('AIza') === -1, 'Distributable HTML contains no live API key');
   add('Required core functions', ['save','renderAll','uid','snapshotVersion','buildBackupJson','openDataHealth'].every(function(name){ return typeof window[name] === 'function'; }), 'Core runtime surface');
+  var docsId = state && state.titleIndex && state.titleIndex[String(DOCS_TITLE).toLowerCase()];
+  var helpCoverage = (typeof getHelpGuideCoverage === 'function') ? getHelpGuideCoverage(docsId) : null;
+  if(helpCoverage){
+    add('Help & Tutorial coverage', helpCoverage.complete, helpCoverage.complete
+      ? 'Current guide version with all maintained topics present'
+      : (helpCoverage.locked ? 'Update pending, but the Help page is locked' : 'Missing: ' + (helpCoverage.missing.join(', ') || 'current guide version')));
+  }
   return getOrphanAttachments().then(function(orphaned){
     add('Attachment references', true, orphaned.length + ' orphaned file(s)');
     var failed = checks.filter(function(x){ return !x.ok; });

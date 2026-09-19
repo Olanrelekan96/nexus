@@ -41,10 +41,13 @@ function seedState(){
     dailyShowAll: false,
     tombstones: {pages:{}, blocks:{}},
     deviceId: uid(),
-    templates: {}
+    templates: {},
+    flashcards: {decks:{}, cards:{}},
+    stickyNotes: {cards:{}},
+    folders: {}
   };
   state.pages[welcomeId] = {
-    id: welcomeId, title:"Welcome to Nexus", type:"page", createdAt:Date.now(),
+    id: welcomeId, title:"Welcome to Nexus", type:"page", createdAt:Date.now(), icon:'👋', banner:'paper',
     properties:[{key:"status", value:"start here"}], rootBlocks:[b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11]
   };
   state.blocks[b1] = mkBlock(b1, welcomeId, null, "Nexus is your own offline knowledge base — pages, an outliner, and #backlinks in one file.");
@@ -67,6 +70,17 @@ function mkBlock(id, pageId, parent, text){
   return {id:id, pageId:pageId, parent:parent||null, text:text||"", children:[], collapsed:false};
 }
 
+var NEXUS_DEFAULT_PAGE_ICONS = {page:'📄', daily:'📅', tag:'🏷️'};
+var NEXUS_PAGE_BANNER_PRESETS = ['none','paper','ocean','forest','violet','sunset','rose','slate','aurora'];
+function defaultPageIcon(type){ return NEXUS_DEFAULT_PAGE_ICONS[type] || NEXUS_DEFAULT_PAGE_ICONS.page; }
+function normalizePageAppearance(page){
+  if(!page || typeof page !== 'object') return page;
+  var fallbackIcon = defaultPageIcon(page.type);
+  if(typeof page.icon !== 'string' || !page.icon.trim() || page.icon.length > 8) page.icon = fallbackIcon;
+  if(NEXUS_PAGE_BANNER_PRESETS.indexOf(page.banner) === -1) page.banner = 'none';
+  return page;
+}
+
 var DOCS_TITLE = "Help & Tutorial";
 
 /* Creates the built-in documentation page the first time it's needed —
@@ -78,7 +92,7 @@ function ensureDocsPage(){
 
   var pid = uid();
   state.pages[pid] = {
-    id: pid, title: DOCS_TITLE, type: 'page', createdAt: Date.now(),
+    id: pid, title: DOCS_TITLE, type: 'page', createdAt: Date.now(), icon:'📖', banner:'violet',
     properties: [{key:"status", value:"reference"}], rootBlocks: []
   };
   state.titleIndex[DOCS_TITLE.toLowerCase()] = pid;
@@ -115,9 +129,10 @@ function ensureDocsPage(){
   ]);
 
   section("Formatting text", [
-    "Select any text while editing to reveal a small popup toolbar for Bold, Italic, Strikethrough and Code.",
-    "Or use keyboard shortcuts: ⌘B bold, ⌘I italic, ⌘⇧X strikethrough, ⌘E code.",
-    "You can also just type **bold**, *italic*, ~~strike~~ or `code` — the markers turn into real formatting live, the instant you finish typing the closing symbol."
+    "Select any text while editing to reveal the edit dock for Bold, Italic, Strikethrough, Code, Link, Highlight and Text color.",
+    "Use keyboard shortcuts where available: ⌘B bold, ⌘I italic, ⌘⇧X strikethrough, ⌘E code. Highlight and text color use the 12-color swatch pickers.",
+    "You can also type **bold**, *italic*, ~~strike~~ or `code` — the markers turn into real formatting live, the instant you finish typing the closing symbol.",
+    "The Link button in Nexus creates a page link ([[Page Name]]) from the selected text. Right-click selected text exposes the same formatting controls plus link/tag conversion and copy/search actions."
   ]);
 
   section("Headings", [
@@ -256,12 +271,114 @@ function ensureDocsPage(){
 
 /* Adds the feature areas introduced after the original Help page was seeded.
    Existing Help content is preserved; the guide is appended once and stamped
-   with a version so future releases can extend it again without duplicating
-   the same sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 2;
+   with a version and feature catalog so future releases can extend it again
+   without duplicating existing sections on every load. */
+var NEXUS_HELP_GUIDE_VERSION = 15;
+/* Maintenance contract:
+   Whenever a user-visible feature is added or materially changed, update
+   NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
+   feature catalog below. The boot-time coverage check re-adds missing
+   sections without overwriting the user's own Help content.
+   This is intentionally in the app source so Help cannot silently drift
+   behind the product. */
+var NEXUS_HELP_FEATURE_CATALOG = [
+  {id:'help-01', title:'Getting started'},
+  {id:'help-02', title:'Pages & daily notes'},
+  {id:'help-03', title:'The outliner'},
+  {id:'help-04', title:'Formatting text'},
+  {id:'help-05', title:'Headings'},
+  {id:'help-06', title:'To-do checkboxes'},
+  {id:'help-07', title:'Links between pages'},
+  {id:'help-08', title:'Tags'},
+  {id:'help-09', title:'Supertags'},
+  {id:'help-10', title:'Linked references (backlinks)'},
+  {id:'help-11', title:'Properties'},
+  {id:'help-12', title:'Command palette'},
+  {id:'help-13', title:'Graph view'},
+  {id:'help-14', title:'Tasks view'},
+  {id:'help-15', title:'Live queries'},
+  {id:'help-16', title:'Database views'},
+  {id:'help-17', title:'Block sync (block references)'},
+  {id:'help-18', title:'Search & navigation'},
+  {id:'help-19', title:'Images & files'},
+  {id:'help-20', title:'Backup, restore & version history'},
+  {id:'help-21', title:'Privacy & storage'},
+  {id:'help-22', title:'Sync (local network, live pairing)'},
+  {id:'help-23', title:'Undo & redo'},
+  {id:'help-24', title:'Shortcuts, quick reference'},
+  {id:'help-25', title:'Find & replace'},
+  {id:'help-26', title:'Trash & recovery'},
+  {id:'help-27', title:'Daily notes: recent, all & calendar'},
+  {id:'help-28', title:'Highlight, text color & links'},
+  {id:'help-29', title:'Graph navigation & accessibility'},
+  {id:'help-30', title:'Database calendar view'},
+  {id:'help-31', title:'Visual query builder'},
+  {id:'help-32', title:'Navigation, zoom & undo/redo'},
+  {id:'help-33', title:'Help & Tutorial maintenance'},
+  {id:'help-34', title:'Complete feature guide — updated'},
+  {id:'help-35', title:'Doc mode & outline mode'},
+  {id:'help-36', title:'Templates'},
+  {id:'help-37', title:'Slash commands'},
+  {id:'help-38', title:'Context menus & selection tools'},
+  {id:'help-39', title:'Advanced search language'},
+  {id:'help-40', title:'Search all notes'},
+  {id:'help-41', title:'Task manager — advanced'},
+  {id:'help-42', title:'Queries & database views — advanced'},
+  {id:'help-43', title:'Block references & live embeds'},
+  {id:'help-44', title:'Page organization & sidebar controls'},
+  {id:'help-45', title:'Locks & read-only protection'},
+  {id:'help-46', title:'Attachments & storage'},
+  {id:'help-47', title:'Data health & diagnostics'},
+  {id:'help-48', title:'Backup, automatic backup & version history'},
+  {id:'help-49', title:'Google Drive sync & credentials'},
+  {id:'help-50', title:'LAN device sync'},
+  {id:'help-51', title:'Import & export options'},
+  {id:'help-52', title:'PWA / install / offline'},
+  {id:'help-53', title:'Settings & personalization'},
+  {id:'help-54', title:'Mobile editing'},
+  {id:'help-55', title:'Safety, recovery & good operating practice'},
+  {id:'help-56', title:'Database workspace & sidebar index'},
+  {id:'help-57', title:'Query workspace & sidebar index'},
+  {id:'help-58', title:'Task gallery view'},
+  {id:'help-59', title:'Logseq-inspired Daily Notes'},
+  {id:'help-60', title:'Page icons & banners'},
+  {id:'help-61', title:'Dashboard home hub'},
+  {id:'help-62', title:'Page transclusion'},
+  {id:'help-63', title:'Block transclusion'},
+  {id:'help-64', title:'Section transclusion'},
+  {id:'help-65', title:'Flashcards & spaced repetition'},
+  {id:'help-66', title:'Sticky Note Cards'},
+  {id:'help-67', title:'Zettelkasten method'},
+  {id:'help-68', title:'Folder organization & nested folders'},
+  {id:'help-69', title:'Passcode re-entry interval'}
+]
+function getHelpGuideCoverage(pid){
+  var page = state.pages[pid];
+  var texts = [];
+  if(page){
+    Object.keys(state.blocks || {}).forEach(function(id){
+      var b = state.blocks[id];
+      if(b && b.pageId === pid) texts.push((b.text || '').toLowerCase());
+    });
+  }
+  var hay = texts.join('\n');
+  var missing = NEXUS_HELP_FEATURE_CATALOG.filter(function(item){
+    return hay.indexOf(item.title.toLowerCase()) === -1;
+  }).map(function(item){ return item.title; });
+  return {
+    version: page && page.helpGuideVersion || 0,
+    currentVersion: NEXUS_HELP_GUIDE_VERSION,
+    missing: missing,
+    pending: !!(page && page.helpGuideVersion < NEXUS_HELP_GUIDE_VERSION),
+    locked: !!(page && page.locked),
+    complete: missing.length === 0 && !!page && page.helpGuideVersion >= NEXUS_HELP_GUIDE_VERSION
+  };
+}
 function ensureCompleteHelpGuide(pid){
   var page = state.pages[pid];
-  if(!page || page.helpGuideVersion >= NEXUS_HELP_GUIDE_VERSION) return;
+  if(!page) return;
+  var coverage = getHelpGuideCoverage(pid);
+  if(!coverage.pending && coverage.missing.length === 0) return;
   if(page.locked) return; /* Respect an explicitly locked Help page. */
 
   function section(headerText, childTexts){
@@ -275,142 +392,308 @@ function ensureCompleteHelpGuide(pid){
     });
   }
 
-  section("Complete feature guide — updated", [
-    "This appendix covers the newer Nexus capabilities that may not be obvious from the main tutorial. It is safe to keep this page as a reference, edit it, or add your own notes.",
-    "The Help button always opens this page. The built-in guide is updated only when a new guide version is introduced; your own changes are otherwise left alone."
+  /* These are the feature areas most likely to be missed when a new
+     capability lands. They are appended only when their exact section
+     heading is absent, so user-edited Help content remains untouched. */
+  var existingHelpText = Object.keys(state.blocks || {}).filter(function(id){
+    return state.blocks[id] && state.blocks[id].pageId === pid;
+  }).map(function(id){ return state.blocks[id].text || ''; }).join('\n').toLowerCase();
+
+  function addMaintainedSection(title, lines){
+    if(existingHelpText.indexOf(title.toLowerCase()) !== -1) return;
+    section(title, lines);
+    existingHelpText += '\n' + title.toLowerCase();
+  }
+
+  addMaintainedSection("Find & replace", [
+    "⇄ Find & replace searches every block in the notebook. Enter the text to find, optionally enter replacement text, and use the case-sensitive option when needed.",
+    "The preview reports the number of occurrences before you apply a replacement. Nexus saves a version snapshot first, skips locked blocks, then updates the notebook as one replace-all operation.",
+    "Use it for controlled bulk corrections; for high-value notebooks, check Version history immediately afterward so you can compare or restore the pre-change snapshot if necessary."
   ]);
 
-  section("Doc mode & outline mode", [
+  addMaintainedSection("Trash & recovery", [
+    "Deleting a page normally moves it to Trash rather than destroying it immediately. Open the Trash section in the sidebar to review deleted pages.",
+    "A trashed page can be restored with its blocks. Delete forever permanently removes it; Empty trash permanently removes everything currently in Trash, so keep a backup before using either destructive action.",
+    "The page-delete confirmation setting controls whether Nexus asks before moving a page to Trash. Locked pages cannot be moved to Trash through the protected page actions."
+  ]);
+
+  addMaintainedSection("Daily notes: recent, all & calendar", [
+    "📅 Today's note opens or creates the daily page for the current date. Daily pages use the same editor, links, tags, properties, tasks, attachments and backups as normal pages.",
+    "The Daily section can show recent daily notes or all daily notes. Use the calendar/list toggle to browse daily notes by date; selecting a calendar day opens that day's page when it exists.",
+    "Daily notes remain ordinary pages with type=daily, so advanced search can target them with is:daily and page links/backlinks work normally."
+  ]);
+
+  addMaintainedSection("Highlight, text color & links", [
+    "Select text and use the edit dock or right-click menu to highlight it or change its text color. Nexus provides twelve named swatches for each, and the Remove option clears the selected formatting.",
+    "Formatting is stored in lightweight inline markup so it survives saving, backup, restore and sync. Highlight and text color can be combined with bold, italic, code and strikethrough.",
+    "The Link action on selected text creates or toggles a Nexus page link ([[Page Name]]) using the built-in link formatter. Page-link conversion is also available from the selection context menu; Nexus does not turn selected text into arbitrary external URLs."
+  ]);
+
+  addMaintainedSection("Graph navigation & accessibility", [
+    "◎ Graph view visualizes live page relationships created by [[page links]]. Tags are represented as nodes as well, and connected nodes highlight together as you move over them.",
+    "Drag the empty background to pan, use the mouse wheel or the ＋/－ controls to zoom, and Reset view to return to the default camera. Drag a node to reposition it temporarily; click a node to open its page.",
+    "Graph nodes are keyboard-focusable: Tab can reach them and Enter or Space opens the focused page."
+  ]);
+
+  addMaintainedSection("Database calendar view", [
+    "A database can be displayed as a Calendar view in addition to Table, Board and Gallery. Choose Calendar in the database view controls or add view:calendar to a table directive.",
+    "The calendar uses a date property when one is available; when the selected date property is empty, a page's creation date can be used as its fallback date. Use the previous/next month buttons to browse.",
+    "Calendar navigation is remembered for each database block so editing or re-rendering the page does not unexpectedly jump you back to the current month."
+  ]);
+
+  addMaintainedSection("Visual query builder", [
+    "Use ⌕ Insert query or ▤ Insert database and Nexus opens the visual Query Builder. Choose pages, tags, properties and filters without memorizing search syntax, then insert the resulting live query/database block.",
+    "Advanced users can still edit a query block's raw filter text. Database directives such as view:, sort:, group:, cols: and agg: change the presentation without changing the underlying page filter.",
+    "The same underlying query can be shown through saved database views, so Table/Board/Gallery/Calendar are alternate presentations of the same filtered page set."
+  ]);
+
+  addMaintainedSection("Navigation, zoom & undo/redo", [
+    "← Back and Forward → move through recently opened pages. They are navigation history, separate from Undo/Redo editing history.",
+    "Undo and Redo operate on in-tab notebook edits. Nexus keeps up to 100 undo states and saves through the normal persistence queue. Reload-safe recovery is provided by Version history instead.",
+    "Use the page zoom controls or a block's ⤢ Zoom in action to focus on a subtree. Zoom out returns to the whole page; while zoomed, adding a line places it under the focused block when the current page allows editing."
+  ]);
+
+  addMaintainedSection("Help & Tutorial maintenance", [
+    "This guide is intended to stay synchronized with Nexus. Release rule: whenever a user-visible feature, setting, command, search operator, page metadata field (including icons/banners), data format or workflow is added or materially changed, update the Help/Tutorial content in the same release.",
+    "The built-in guide carries a version number and a feature coverage catalog. On startup Nexus checks the Help page and appends any missing maintained sections without replacing the user's own notes. This lets future releases extend the guide safely.",
+    "Run Settings → Data health → Run diagnostics to check Help coverage. If the guide is locked while an update is pending, unlock it and restart/open Nexus so the missing documentation can be added. A complete guide should report the current guide version with no missing feature topics.",
+    "Developer checklist: update NEXUS_HELP_GUIDE_VERSION, add or revise the feature title in NEXUS_HELP_FEATURE_CATALOG, add the user instructions to ensureCompleteHelpGuide, run npm test, and verify the Help page after a fresh boot and an upgrade from an existing notebook."
+  ]);
+
+  addMaintainedSection("Complete feature guide — updated", [
+    "This appendix covers the newer Nexus capabilities that may not be obvious from the main tutorial. It is safe to keep this page as a reference, edit it, or add your own notes.",
+    "The Help button always opens this page. Nexus maintains a built-in guide version and feature catalog; on startup it adds missing maintained sections without replacing your own notes."
+  ]);
+
+  addMaintainedSection("Doc mode & outline mode", [
     "Use the top-bar ▤ Doc mode button to switch between the structured outliner and a document-style reading layout. New pages can be configured to open in either mode from Settings.",
     "Outline mode exposes the block hierarchy, drag handles, collapse controls and block actions. Doc mode is useful when you want to read the same page with less editor chrome.",
     "The toolbar can also zoom the page or a specific line when you want to focus on one part of a long outline."
   ]);
 
-  section("Templates", [
+  addMaintainedSection("Templates", [
     "The Templates section of the sidebar contains starter templates such as Meeting notes and Daily journal. Click a template to insert it into the current page or create a new page from it.",
     "Save any open page as a template from the page menu or the + save page control above Templates. Templates preserve the block hierarchy and text structure, but create fresh block IDs when inserted.",
     "Right-click a template to insert it, create a new page from it, rename it, or delete it. Slash commands can also insert templates by name."
   ]);
 
-  section("Slash commands", [
+  addMaintainedSection("Slash commands", [
     "Type / at a word boundary inside an editable line to open the command menu. Keep typing to filter; use ↑/↓, Enter or Tab, and Esc to navigate or dismiss it.",
     "Turn into: Heading 1, Heading 2, Heading 3, To-do, Plain text, and Code block. Insert: Page link, Tag, Today's date, Image or file, Query, and Database view.",
     "Line actions include Indent, Outdent, Duplicate line, Copy block reference, Zoom in on this line, and Delete. Templates appear as searchable slash commands too.",
     "Slash commands ignore normal URLs and fenced code blocks, so typing a web address or code does not unexpectedly open the menu."
   ]);
 
-  section("Context menus & selection tools", [
+  addMaintainedSection("Context menus & selection tools", [
     "Right-click a block to get the same actions exposed by its ⋯ menu, including Edit, Indent, Outdent, Duplicate, Copy block reference, Zoom, lock controls and deletion where permitted.",
     "Right-click selected text for Bold, Italic, Strikethrough, Code, Link, page-link conversion, tag conversion, Copy, or a search for the selected text.",
     "Right-click a page or tag in the sidebar for Open, Pin/Unpin, Remove from sidebar, Lock/Unlock, Copy page link, Rename, Duplicate, Save as template, Markdown/PDF export, and Trash actions.",
     "Right-click a trashed page to restore it or delete it forever. Right-click a template to insert it, create a page from it, rename it, or delete it. Shift+right-click keeps the browser's normal context menu."
   ]);
 
-  section("Advanced search language", [
+  addMaintainedSection("Advanced search language", [
     "The sidebar search, Search all notes, command palette, task filters and other search surfaces share the same advanced query language.",
     "Examples: #project finds a tag; [[Meeting Notes]] finds a page link; status:in-progress matches a property; priority:high or priority:1 filters task priority; due:today, before:friday and after:2026-01-01 filter dates; is:done, is:overdue, is:locked and similar flags match state; has:due and has:attachment find lines with those features.",
     "Use >, <, >=, <= or != with property values when appropriate, wrap phrases in quotes, prefix a term with - to exclude it, separate alternatives with |, use OR for separate search groups, and use /regular-expression/flags for regex matching.",
     "Search understands page titles, tags, line text, task metadata and page properties. A pasted URL is treated as normal text rather than mistaken for a property expression."
   ]);
 
-  section("Search all notes", [
+  addMaintainedSection("Search all notes", [
     "⌘⇧F opens the full-screen Search all notes view. It searches up to a large result set across every page and line, groups hits by page, shows snippets, and lets you collapse page groups.",
     "The sidebar search is the quick filter. Search all notes is the larger workspace for investigating many matches. Clicking a result opens the page and reveals the matching line."
   ]);
 
-  section("Task manager — advanced", [
+  addMaintainedSection("Task manager — advanced", [
     "Every task remains an ordinary [ ] or [x] block, so task metadata survives normal editing, backups, version history and sync.",
     "Priority markers are !p1, !p2 and !p3 (High, Medium, Low). Recurrence markers use !every(Nd), !every(Nw), !every(Nm) or !every(Ny), for example !every(1w). Due dates use !due(YYYY-MM-DD).",
-    "The Tasks view can filter by status, priority, page and tag; search with the same advanced operators; sort by due date, page and other fields; group tasks; switch layouts; add tasks quickly; and apply bulk changes to selected tasks.",
+    "The Tasks view can filter by status, priority, page and tag; search with the same advanced operators; sort by due date, page and other fields; group tasks; switch between Board, List and Gallery layouts; add tasks quickly; and apply bulk changes to selected tasks.",
     "Tasks are bucketed into Overdue, Today, Next 7 days, Later, No date and Done. Locked tasks remain visible but cannot be edited from the task manager."
   ]);
 
-  section("Queries & database views — advanced", [
+  addMaintainedSection("Task gallery view", [
+    "The Tasks workspace has three presentation modes: Board, List and Gallery. Click the layout button to cycle through them; all three use the same filters, search syntax, grouping, sorting, bulk actions and task editing.",
+    "Gallery presents tasks as responsive cards in a grid. Each card keeps its completion checkbox, selection control, due date, priority/repeat chips, page link and ⋯ task menu, so nothing is lost by changing layout.",
+    "Use Gallery when you want a visual scan of many tasks at once. Grouping still applies: date, priority, page or tag groups are shown as labeled sections above their cards.",
+    "Your layout choice is a view preference only; switching between Board, List and Gallery never changes task data."
+  ]);
+
+  addMaintainedSection("Logseq-inspired Daily Notes", [
+    "Daily notes keep Nexus's normal page/block storage, but use a journal-first presentation inspired by Logseq: the date is prominent, blocks stay in an outliner, and nested notes remain first-class.",
+    "Use ‹ and › to move one day at a time, Today to return to the current journal, or the date picker to jump directly to another date. Opening a missing date creates that daily note with a first blank block ready for writing.",
+    "The daily journal header is presentation only. Your existing tasks, links, tags, properties, attachments, queries, databases, backlinks, locks, backups, sync and search continue to work exactly as on any other Nexus page."
+  ]);
+
+  addMaintainedSection("Queries & database views — advanced", [
     "A {{query: ...}} block is a live, auto-updating block search. A {{table: ...}} block is a live page database driven by the same advanced filters.",
     "Database views support Table, Board and Gallery layouts. Board views can group by a property; tables can choose columns, sort direction, and per-column totals; cells can be edited inline where the property type allows it.",
     "A database block can contain multiple saved views. Use + view to add one, switch tabs to change views, double-click a tab to rename it, and ✕ to remove a view when more than one exists.",
     "Supported structured property types include Text, Number, Date, Checkbox, Select, Multi-select, Rating, Relation, Rollup and Formula. Relations are clickable and show reciprocal Related pages."
   ]);
 
-  section("Block references & live embeds", [
+  addMaintainedSection("Block references & live embeds", [
     "Hover a block and click ⚭ to copy its ((block-id)) reference. Paste that reference anywhere to embed the block's live content.",
     "Every embed reads the same underlying block, so edits made at the source or through a permitted edit path appear everywhere that block is referenced. A small count badge indicates other references.",
     "References have a depth limit to prevent circular or deeply nested embeds from causing an infinite render. Missing references are displayed safely instead of breaking the page."
   ]);
 
-  section("Page organization & sidebar controls", [
+  addMaintainedSection("Database workspace & sidebar index", [
+    "The permanent ▤ Database button opens Nexus's default Database workspace. It is a normal page containing an all-pages database and cannot be moved to Trash or permanently deleted.",
+    "Created databases are database blocks written as {{table: ...}}. Nexus automatically indexes every live database in the sidebar under Created databases, including databases on other pages.",
+    "Use Filter databases… to search that index by database label, page title, filter text or view type. Click a result to open its page and jump directly to the database block.",
+    "The default Database workspace is intended as the central database home. You can still create additional databases anywhere with ▤ Insert database or the visual Query Builder; they will appear in the Created databases index automatically.",
+    "Database entries are discovered from the live notebook state, so renaming a page, changing a database filter, adding a saved view, or restoring a page automatically changes what appears in the index."
+  ]);
+
+  addMaintainedSection("Page transclusion", [
+    "Use ![[Page Title]] to embed an entire page inline as a live, read-only transclusion. The rendered page reads directly from the current notebook state, so edits to the source are reflected the next time Nexus renders.",
+    "Click the transcluded content to open its source page. A missing or trashed source is reported safely instead of breaking the host page, and recursive embeddings stop at a protected depth/cycle boundary.",
+    "The explicit form {{transclude:page|Page Title}} is also accepted when generating or importing text programmatically."
+  ]);
+
+  addMaintainedSection("Block transclusion", [
+    "Use !((block-id)) to embed a specific block and its nested children as live content. This is different from ((block-id)): the latter is the compact block-reference/sync form, while the !((…)) form renders a full transclusion card.",
+    "Copy a block ID from the line's reference action, then write !((that-id)) anywhere. Click the transclusion to open the source page containing the block.",
+    "The explicit form {{transclude:block|block-id}} is supported as a generated/import-friendly equivalent. Missing IDs are shown as recoverable missing transclusions."
+  ]);
+
+  addMaintainedSection("Section transclusion", [
+    "Use ![[Page Title#Heading]] to embed a whole heading section: the matching heading plus everything that follows it until the next heading of the same or higher level. Nested blocks remain visible in their outline order.",
+    "Section names are matched case-insensitively against heading text. Use a fully qualified Page#Heading reference when the section lives on another page. The explicit form {{transclude:section|Page Title#Heading}} is also supported.",
+    "Section transclusions are live and read-only in the host page. Open the source page to edit the original section; recursive or missing sections are handled safely with an explanatory state."
+  ]);
+
+  addMaintainedSection("Flashcards & spaced repetition", [
+    "Click ▤ Flashcards in the sidebar to open the permanent learning workspace. Create decks and cards with a front, back, optional tags and optional source page/block so cards can remain connected to your notes without changing note content.",
+    "Start review to see cards that are due now. Click Reveal, then choose Again, Hard, Good or Easy. Nexus schedules the next review from your answer, moving cards from New to Learning and then Review while keeping the schedule in the notebook data for backup and device sync.",
+    "Use the deck, status and text filters to focus a study session. Again brings a difficult card back sooner, while Good and Easy lengthen the interval; suspended cards stay in the deck but are excluded from review until resumed.",
+    "The Created flashcards sidebar section indexes every active card and lets you filter by front/back text, deck, tags and source page. Click a result to open the Flashcards workspace with that card selected.",
+    "Developer release rule: whenever card creation, deck management, review scheduling, shortcuts, storage, sync behavior or the flashcard interface changes, update this Help section, the feature catalog and the guide version in the same release."
+  ]);
+
+  addMaintainedSection("Page organization & sidebar controls", [
     "Pages can be pinned or unpinned to control the top of the sidebar. Remove from sidebar hides a live page without trashing it; hidden pages remain searchable, linkable and accessible from the Hidden section.",
     "Pages can be duplicated with their properties and outline structure. Page actions also include Copy link, Rename, Save as template, Markdown/PDF export, and Trash.",
     "The sidebar can be collapsed from its controls or with ⌘/Ctrl+B. On narrow screens it behaves as a drawer and automatically closes after navigation."
   ]);
 
-  section("Locks & read-only protection", [
+  addMaintainedSection("Locks & read-only protection", [
     "Settings → Privacy provides the app-wide passcode lock, which encrypts local notebook storage when enabled. The lock screen can be triggered immediately, and a recovery key is available for account recovery on this device.",
     "A page can be locked from its page menu. A locked page is read-only: its title, properties and blocks cannot be edited, and destructive page actions are disabled.",
     "A block can be locked from its ⋯ / context menu. A locked block and everything nested beneath it become read-only. Unlocking is available at the point where the lock was originally set; descendants explain when a lock comes from an ancestor.",
     "Find & replace and the task manager honor locks, so bulk editing cannot silently bypass read-only protection."
   ]);
 
-  section("Attachments & storage", [
+  addMaintainedSection("Attachments & storage", [
     "Images and other files live in a separate IndexedDB attachment store. The text of a note contains only a lightweight attachment reference, which keeps undo/version history and notebook text independent from file bytes.",
     "The Attachments sidebar lists stored files, including unused ones. Download an attachment at any time; deleting a {{img:...}} or {{file:...}} reference does not automatically destroy the underlying file.",
     "Settings → Data health reports stored attachment count and size, identifies orphaned attachments that are no longer referenced by notes, and can clean them up permanently after you review your backups.",
     "Backups are the supported way to move attachment bytes to another device. LAN/Google sync carries notebook state and references, while a device still needs the actual attachment bytes."
   ]);
 
-  section("Data health & diagnostics", [
+  addMaintainedSection("Data health & diagnostics", [
     "Settings → Data health opens the Nexus data-health dashboard. It reports page/block counts, notebook size, attachment usage, orphaned files, version-snapshot usage, last backup, browser storage usage, storage policy, device identity, Google Drive status and conflict count.",
     "Protect local storage asks the browser for persistent storage. A browser may approve or decline; persistent storage reduces eviction risk but is not a replacement for independent backups.",
     "Run diagnostics checks IndexedDB, Web Crypto, service-worker support, notebook loading, the absence of an embedded live Google API key in the distributable HTML, required core functions, and attachment-reference health.",
     "The small save-status indicator also reports Saved locally, Offline — saved locally, warning or error states so you can see whether the latest work has reached local persistence."
   ]);
 
-  section("Backup, automatic backup & version history", [
+  addMaintainedSection("Backup, automatic backup & version history", [
     "⭳ Backup (export) creates a portable JSON notebook backup containing notebook state and attachment bytes. In supported Chromium-based browsers, Nexus can open a native Save As picker; otherwise the browser downloads the file normally.",
     "Settings lets you choose backup reminders (3, 7, 14 days or never) and automatic backup schedules (daily, every 3 days, every 7 days or off). When supported, you can choose and forget a backup folder for automatic backups.",
     "↺ Version history stores automatic snapshots, including a safety snapshot before restores and before operations such as Find & replace. You can inspect snapshots, compare them with the current notebook, and restore a selected snapshot.",
     "Version history is separate from in-tab Undo. Undo/Redo is immediate editing history in memory; Version history is the recovery path that survives reloads."
   ]);
 
-  section("Google Drive sync & credentials", [
+  addMaintainedSection("Google Drive sync & credentials", [
     "Settings → Google Drive connection stores the OAuth Client ID and browser API key locally on this device. The API key is not a password; restrict it in Google Cloud Console by allowed web origins/referrers and the APIs Nexus actually uses.",
     "Export to Google Drive and Import from Google Drive let you move a backup through your Drive account. Auto-sync with Google Drive can merge a small notebook-state file roughly once a minute while this tab is open; Sync now triggers it immediately.",
     "The Google Drive connection lifetime setting controls how long Nexus may quietly maintain the connection before requiring another sign-in. Google's access-token lifetime is separate and can still require reauthentication.",
     "Credentials can be cleared from this device at any time. Treat exported backup files as sensitive because the app passcode does not encrypt exported JSON files."
   ]);
 
-  section("LAN device sync", [
+  addMaintainedSection("LAN device sync", [
     "⇄ Sync devices uses direct WebRTC peer connections on the local network. Pair two devices at the same time through the Sync dialog using the short codes shown there.",
     "LAN sync carries notebook state, not attachment bytes. Changes are merged using each record's edit metadata; conflicting edits are surfaced in the Sync conflicts view so you can keep the retained version, use the dropped version instead, or recover the dropped text as a new line.",
     "Reordering is merged using the notebook's block/container structure rather than relying only on a single last-writer order value, reducing accidental loss of sibling ordering during sync."
   ]);
 
-  section("Import & export options", [
+  addMaintainedSection("Import & export options", [
     "Import Markdown files turns Markdown documents into Nexus pages and block structures. The import flow is intended for bringing existing notes into the notebook rather than replacing the current notebook silently.",
     "Export page as Markdown produces a portable text representation of the open page. Export page as PDF produces a print-friendly PDF representation of the current page.",
     "Full Backup/Restore is different from page export: it preserves the whole notebook model, including pages, blocks, properties, templates, sync metadata and attachment bytes."
   ]);
 
-  section("PWA / install / offline", [
+  addMaintainedSection("PWA / install / offline", [
     "Nexus ships a manifest and app icons and can be installed as a Progressive Web App when the browser supports installation. The Install app button appears when the browser exposes the install prompt.",
     "The companion sw.js service worker caches the app shell for offline startup. Install and reliable service-worker behavior require https:// or localhost; opening the HTML through a blob preview does not provide the same guarantees.",
     "The Download sw.js button is a deployment fallback: place the downloaded sw.js beside index.html on the same origin, then reload Nexus."
   ]);
 
-  section("Settings & personalization", [
+  addMaintainedSection("Settings & personalization", [
     "Appearance: choose Small, Medium or Large text and one of Paper, Dark, Slate, Sepia, Ocean, Rose, High Contrast or Midnight themes.",
     "Editing: choose whether new pages open in Outline mode or Doc mode, and turn browser spellcheck on or off.",
     "Safety: configure backup reminders, automatic backups and automatic Google Drive sync, inspect Data health, request persistent storage, and choose whether deleting a page asks for confirmation first.",
     "Privacy: set, change, regenerate recovery information for, or remove the passcode lock. Removing the passcode returns local storage to an unencrypted-at-rest state."
   ]);
 
-  section("Mobile editing", [
+  addMaintainedSection("Mobile editing", [
     "On phones and tablets, Nexus tracks the visual viewport so the on-screen keyboard does not cover the editor or docked formatting controls.",
     "The mobile edit dock provides quick editing controls and a Done button to hide the keyboard. Caret scrolling keeps the active line visible as the keyboard appears.",
     "The sidebar becomes a drawer on narrow screens, navigation closes it automatically, and touch-friendly controls are used for block actions, menus and editing."
   ]);
 
-  section("Safety, recovery & good operating practice", [
+  addMaintainedSection("Query workspace & sidebar index", [
+    "The permanent ⌕ Queries button opens the built-in Queries workspace. Nexus keeps this workspace available in the sidebar even if its contents are edited; its all-lines query is repaired if the query block is removed.",
+    "The Created queries section indexes every live {{query: ...}} block in the notebook. Use Filter queries… to search by query name, owning page or filter text. Queries without a custom name are displayed using their filter text, or as All lines query when the filter is empty.",
+    "Click a query entry to open its owning page and jump to that exact query block. The list refreshes with normal sidebar renders, so new queries, edited filters and restored pages stay discoverable without a manual rebuild.",
+    "Developer release rule: whenever the query language, query builder, query rendering, query navigation or query sidebar behavior changes, update this section, the Help feature catalog and the guide version in the same release."
+  ]);
+
+  addMaintainedSection("Page icons & banners", [
+    "Every Nexus page can have its own emoji icon and optional visual banner. The icon appears beside the page title and in the sidebar so pages are easier to scan at a glance.",
+    "Click the page icon beside the title to choose from the built-in icon set, or restore the type-specific default. Click Add banner / Change banner on the banner to choose a preset: Paper, Ocean, Forest, Violet, Sunset, Rose, Slate or Aurora.",
+    "Page appearance is stored with the page itself, so it survives reloads, Backup/Restore and device sync. It is metadata only: changing an icon or banner never changes the page's blocks or content.",
+    "Locked or trashed pages show the appearance controls as read-only. When a new page is created, Nexus assigns a sensible default icon; daily notes use the calendar icon and an Ocean banner by default."
+  ]);
+
+  addMaintainedSection("Dashboard home hub", [
+    "⌂ Dashboard is Nexus's permanent Home workspace. It is a live hub rather than a second editable notebook page, so it reads the same underlying pages, tasks, databases, queries and sync state you already use.",
+    "The Dashboard shows live notebook counts, today's daily note, open/due tasks, recent pages, quick links to Tasks/Database/Queries/Graph/Search, your last opened page and local/sync health. Click a card to jump directly into that workspace or item.",
+    "The Nexus brand in the upper-left also opens Dashboard. Leaving Dashboard never changes your current page or notebook data; use Continue where you left off to return to the page you were working on.",
+    "Developer release rule: Dashboard is part of the Home experience. Whenever its cards, quick actions, navigation, data-health summary or other user-visible behavior changes, update this Help section, its feature-catalog entry and the guide version in the same release."
+  ]);
+
+  addMaintainedSection("Sticky Note Cards", [
+    "Click 🗒 Sticky Notes in the sidebar to open the permanent quick-capture workspace. Create colorful cards with an optional title, note body, tags and a source-page link. Cards can be pinned to the top or archived when no longer active.",
+    "Use All, Pinned or Archived to change the workspace filter, and Search sticky notes to find cards by title, body, tags, color or source page. The Created sticky notes sidebar section provides a second quick index and keeps archived cards out of the active list.",
+    "Click a card to edit it. Sticky Note Cards are notebook data, so they travel through save, backup, version history and device sync just like flashcards and other structured data.",
+    "Developer release rule: whenever sticky-note fields, colors, filtering, source linking, archive behavior, sidebar indexing or workspace behavior changes, update this Help section, the feature catalog and the guide version in the same release."
+  ]);
+
+  addMaintainedSection("Zettelkasten method", [
+    "The permanent 🧠 Zettelkasten hub turns ordinary Nexus pages into a connected atomic-note system. Use Fleeting / Inbox for raw ideas, Literature for source-derived notes, Permanent notes for your own durable claims, and MOCs / Indexes to organize a topic without turning every note into a folder.",
+    "Each Zettel receives a stable ID such as 20260919094830-a1b2c3. The ID identifies the note even if you later change its title. Write one idea per permanent note, in your own words, then connect it with [[Page links]] so backlinks and Graph view expose the surrounding knowledge web.",
+    "Use Process next to work through the oldest inbox/fleeting note. Promote useful fleeting or literature notes to Permanent. Use Topics to maintain a small set of meaningful tags, and use Unconnected to find notes that have no incoming or outgoing page links yet.",
+    "Use MOC / Index for a normal page that acts as a curated entry point to a subject. Use Adopt current page when an existing Nexus page should become part of your Zettelkasten. All Zettels remain ordinary Nexus pages, so search, backlinks, graph, transclusion, tasks, database views, backup/restore, version history, locks and sync continue to work.",
+    "Zettelkasten maintenance rule: whenever note types, IDs, inbox processing, links, MOCs, filters, connection logic, creation workflow or other user-visible Zettelkasten behavior changes, update this Help section and feature catalog in the same release, bump NEXUS_HELP_GUIDE_VERSION, and run npm test."
+  ]);
+
+  addMaintainedSection("Passcode re-entry interval", [
+    "When the passcode lock is enabled, Nexus can require the passcode again after an elapsed session interval. Choose 1 hour, 6 hours, 12 hours or 24 hours in Settings → Privacy → Re-enter passcode every.",
+    "The interval begins after each successful passcode unlock and is based on elapsed time rather than typing activity, so leaving Nexus open does not silently keep the notebook unlocked forever. When the app is backgrounded, Nexus checks the interval again as soon as it returns to the foreground.",
+    "Before an automatic re-lock, Nexus makes a best-effort save while the encryption key is still available, then clears the in-memory key and shows the normal lock screen. Changing the interval while unlocked restarts the timer from that moment. A fresh page load still requires the passcode immediately, regardless of the selected interval.",
+    "Developer release rule: whenever passcode session timing, automatic re-lock behavior, interval choices or related privacy UI changes, update this Help section, the feature catalog and the guide version in the same release and run the full regression suite."
+  ]);
+
+  addMaintainedSection("Folder organization & nested folders", [
+    "Folders are a sidebar organization layer for pages. Click + folder to create a top-level folder, or use a folder’s + / New subfolder action to create nested folders to any practical depth.",
+    "Pages can be moved into folders from a page’s right-click menu with Move to folder…, or by dragging a page onto a folder. The folder tree shows the hierarchy, page counts and expandable/collapsible children; the folder filter searches folder names, paths and pages inside them.",
+    "Right-click a folder for New subfolder, Rename, Move, Collapse/Expand and Delete. Deleting a folder is safe: its pages and subfolders are moved to the folder’s parent rather than silently destroyed. Folder paths are used for navigation and remain separate from page titles, tags and Zettelkasten links.",
+    "Folder assignments are metadata on the existing page objects, so they survive reloads, Backup/Restore, Version History and device sync. Locked pages cannot be moved through the sidebar menu because a lock keeps the page organization metadata protected from casual changes.",
+    "Developer release rule: whenever folder fields, nested hierarchy, moving, drag/drop, sidebar rendering or organization behavior changes, update this Help section, the feature catalog and the guide version in the same release."
+  ]);
+
+  addMaintainedSection("Safety, recovery & good operating practice", [
     "Nexus is local-first, but browser storage is still controlled by the browser and operating system. Keep at least one independent manual backup for important notebooks, especially before clearing site data, changing browsers or migrating devices.",
     "Persistent browser storage lowers eviction risk but cannot protect against device loss, browser-profile deletion or a damaged backup. Test a restore occasionally on a second copy so your recovery process is proven, not assumed.",
     "When Google Drive or another sync method reports a conflict or warning, use the visible status and conflict tools before making more edits."
@@ -477,6 +760,11 @@ function initNotebook(){
     state = loaded;
     var beforeBootNormalization = JSON.stringify(state);
     ensureDocsPage();
+    if(typeof ensureDatabaseWorkspace === 'function') ensureDatabaseWorkspace();
+    if(typeof ensureQueryWorkspace === 'function') ensureQueryWorkspace();
+    if(typeof ensureStickyNotesWorkspace === 'function') ensureStickyNotesWorkspace();
+    if(typeof ensureZettelkastenMetadata === 'function') ensureZettelkastenMetadata();
+    if(typeof ensureFolderState === 'function') ensureFolderState();
     var docsId = state.titleIndex[DOCS_TITLE.toLowerCase()];
     ensureCompleteHelpGuide(docsId);
     ensureDefaultTemplates();
@@ -524,6 +812,35 @@ function normalizeState(parsed){
   if(!parsed.tombstones.pages || typeof parsed.tombstones.pages !== 'object') parsed.tombstones.pages = {};
   if(!parsed.tombstones.blocks || typeof parsed.tombstones.blocks !== 'object') parsed.tombstones.blocks = {};
   if(!parsed.templates || typeof parsed.templates !== 'object') parsed.templates = {};
+  if(!parsed.flashcards || typeof parsed.flashcards !== 'object') parsed.flashcards = {decks:{}, cards:{}};
+  if(!parsed.flashcards.decks || typeof parsed.flashcards.decks !== 'object') parsed.flashcards.decks = {};
+  if(!parsed.flashcards.cards || typeof parsed.flashcards.cards !== 'object') parsed.flashcards.cards = {};
+  if(!parsed.stickyNotes || typeof parsed.stickyNotes !== 'object') parsed.stickyNotes = {cards:{}};
+  if(!parsed.stickyNotes.cards || typeof parsed.stickyNotes.cards !== 'object') parsed.stickyNotes.cards = {};
+  if(!parsed.folders || typeof parsed.folders !== 'object' || Array.isArray(parsed.folders)) parsed.folders = {};
+  Object.keys(parsed.folders).forEach(function(id){
+    var folder = parsed.folders[id];
+    if(!folder || typeof folder !== 'object'){ delete parsed.folders[id]; return; }
+    folder.id = folder.id || id;
+    folder.name = String(folder.name == null ? 'Untitled folder' : folder.name).trim() || 'Untitled folder';
+    folder.parentId = folder.parentId || null;
+    folder.collapsed = !!folder.collapsed;
+    if(folder.deletedAt && !folder.updatedAt) folder.updatedAt = folder.deletedAt;
+  });
+  Object.keys(parsed.folders).forEach(function(id){
+    var seen = {}; var cur = id;
+    while(cur && parsed.folders[cur]){
+      if(seen[cur]){ parsed.folders[id].parentId = null; break; }
+      seen[cur] = true;
+      var next = parsed.folders[cur].parentId;
+      if(next && (!parsed.folders[next] || parsed.folders[next].deletedAt)){ parsed.folders[cur].parentId = null; break; }
+      cur = next;
+    }
+  });
+  Object.keys(parsed.pages).forEach(function(id){
+    var page = parsed.pages[id];
+    if(page && page.folderId && (!parsed.folders[page.folderId] || parsed.folders[page.folderId].deletedAt)) delete page.folderId;
+  });
   if(!parsed.syncPeers || typeof parsed.syncPeers !== 'object' || Array.isArray(parsed.syncPeers)) parsed.syncPeers = {};
   if(!parsed.deviceId) parsed.deviceId = uid();
 
@@ -536,6 +853,7 @@ function normalizeState(parsed){
     page.id = page.id || id;
     page.title = String(page.title == null ? 'Untitled' : page.title);
     page.type = page.type || 'page';
+    normalizePageAppearance(page);
     page.properties = Array.isArray(page.properties) ? page.properties : [];
     page.rootBlocks = Array.isArray(page.rootBlocks) ? page.rootBlocks : [];
     if(page.type === 'tag'){
@@ -750,11 +1068,47 @@ function touchChangedEntities(){
 
   Object.keys(state.pages).forEach(function(id){
     var cur = state.pages[id];
-    if(shallowFieldsChanged(prevPages[id], cur, ['title','type','properties','trashedAt','rootBlocks'])){
+    if(shallowFieldsChanged(prevPages[id], cur, ['title','type','properties','trashedAt','rootBlocks','folderId'])){
       cur.updatedAt = now; cur.updatedBy = state.deviceId;
     }
     if(!cur.createdAt) cur.createdAt = now;
   });
+  /* Flashcards use the same lightweight LWW metadata as pages/blocks so
+     reviews and edits participate in undo, backup and device sync. Deletion
+     is represented by deletedAt rather than removing the record outright. */
+  var prevFc = prev && prev.flashcards || {decks:{}, cards:{}};
+  var curFc = state.flashcards || {decks:{}, cards:{}};
+  var prevSn = prev && prev.stickyNotes || {cards:{}};
+  var curSn = state.stickyNotes || {cards:{}};
+  var prevFolders = (prev && prev.folders) || {};
+  var curFolders = state.folders || {};
+  Object.keys(curFc.decks || {}).forEach(function(id){
+    var cur = curFc.decks[id];
+    if(shallowFieldsChanged(prevFc.decks && prevFc.decks[id], cur, ['name','deletedAt'])){ cur.updatedAt = now; cur.updatedBy = state.deviceId; }
+    if(!cur.createdAt) cur.createdAt = now;
+  });
+  Object.keys(curFc.cards || {}).forEach(function(id){
+    var cur = curFc.cards[id];
+    if(shallowFieldsChanged(prevFc.cards && prevFc.cards[id], cur, ['deckId','front','back','tags','sourcePageId','sourceBlockId','dueAt','interval','ease','reps','lapses','state','suspended','deletedAt'])){ cur.updatedAt = now; cur.updatedBy = state.deviceId; }
+    if(!cur.createdAt) cur.createdAt = now;
+  });
+  Object.keys(curSn.cards || {}).forEach(function(id){
+    var cur = curSn.cards[id];
+    if(shallowFieldsChanged(prevSn.cards && prevSn.cards[id], cur, ['title','text','color','pinned','archived','tags','sourcePageId','sourceBlockId','deletedAt'])){ cur.updatedAt = now; cur.updatedBy = state.deviceId; }
+    if(!cur.createdAt) cur.createdAt = now;
+  });
+  Object.keys(curFolders || {}).forEach(function(id){
+    var cur = curFolders[id];
+    if(shallowFieldsChanged(prevFolders[id], cur, ['name','parentId','collapsed','deletedAt'])){ cur.updatedAt = now; cur.updatedBy = state.deviceId; }
+    if(!cur.createdAt) cur.createdAt = now;
+  });
+  Object.keys(prevFolders).forEach(function(id){
+    if(!state.folders || !state.folders[id]){
+      if(!state.folders) state.folders = {};
+      state.folders[id] = {id:id,name:'Deleted folder',parentId:null,deletedAt:now,updatedAt:now,updatedBy:state.deviceId};
+    }
+  });
+
   Object.keys(prevPages).forEach(function(id){
     if(!state.pages[id]) state.tombstones.pages[id] = now;
   });
@@ -939,6 +1293,9 @@ function mergeStates(local, remote, sinceTs){
     },
     templates: JSON.parse(JSON.stringify(mergeTemplateMaps(local.templates, remote.templates))),
     templatesSeeded: !!(local.templatesSeeded || remote.templatesSeeded),
+    flashcards: {decks:{}, cards:{}},
+    stickyNotes: {cards:{}},
+    folders: {},
     currentPageId: local.currentPageId,
     dailyShowAll: local.dailyShowAll,
     deviceId: local.deviceId,
@@ -947,6 +1304,20 @@ function mergeStates(local, remote, sinceTs){
     syncPeers: JSON.parse(JSON.stringify(local.syncPeers || {}))
   };
   var conflicts = [];
+
+  function mergeFlashcardMap(localMap, remoteMap){
+    var out = {};
+    var ids = Object.keys(localMap || {}).concat(Object.keys(remoteMap || {})).filter(function(id,i,arr){ return arr.indexOf(id)===i; });
+    ids.forEach(function(id){
+      var winner = pickWinner(localMap && localMap[id], remoteMap && remoteMap[id]);
+      if(winner) out[id] = JSON.parse(JSON.stringify(winner));
+    });
+    return out;
+  }
+  merged.flashcards.decks = mergeFlashcardMap(local.flashcards && local.flashcards.decks, remote.flashcards && remote.flashcards.decks);
+  merged.flashcards.cards = mergeFlashcardMap(local.flashcards && local.flashcards.cards, remote.flashcards && remote.flashcards.cards);
+  merged.stickyNotes.cards = mergeFlashcardMap(local.stickyNotes && local.stickyNotes.cards, remote.stickyNotes && remote.stickyNotes.cards);
+  merged.folders = mergeFlashcardMap(local.folders, remote.folders);
 
   var pageIds = Object.keys(local.pages).concat(Object.keys(remote.pages)).filter(function(id,i,arr){ return arr.indexOf(id)===i; });
   pageIds.forEach(function(id){
@@ -1034,6 +1405,7 @@ function mergeStates(local, remote, sinceTs){
   if(!merged.currentPageId || !merged.pages[merged.currentPageId]){
     merged.currentPageId = Object.keys(merged.pages)[0];
   }
+  merged = normalizeState(merged);
   return {state: merged, conflicts: conflicts};
 }
 
@@ -1209,27 +1581,36 @@ function decorateText(text, depth){
   while((m = re.exec(text))){
     out += escapeHtml(text.slice(last, m.index));
     if(m[1] !== undefined){
-      out += '<span class="link" data-target="'+escapeHtml(m[1])+'">'+escapeHtml(m[1])+'</span>';
+      var rawTxPage = '![[' + m[1] + ']]';
+      out += renderExplicitTransclusion(rawTxPage, depth, state.currentPageId);
     } else if(m[2] !== undefined){
-      out += '<span class="tag" data-tag="'+escapeHtml(m[2])+'">#'+escapeHtml(m[2])+'</span>';
+      var rawTxBlock = '!((' + m[2] + '))';
+      out += renderExplicitTransclusion(rawTxBlock, depth, state.currentPageId);
     } else if(m[3] !== undefined){
-      out += renderBlockRefHtml(m[3], depth);
-    } else if(m[4] !== undefined){
-      out += '<strong>'+decorateText(m[4], depth)+'</strong>';
+      var rawTxExplicit = '{{transclude:' + m[3] + '|' + m[4] + '}}';
+      out += renderExplicitTransclusion(rawTxExplicit, depth, state.currentPageId);
     } else if(m[5] !== undefined){
-      out += '<del>'+decorateText(m[5], depth)+'</del>';
+      out += '<span class="link" data-target="'+escapeHtml(m[5])+'">'+escapeHtml(m[5])+'</span>';
     } else if(m[6] !== undefined){
-      out += '<code>'+escapeHtml(m[6])+'</code>';
+      out += '<span class="tag" data-tag="'+escapeHtml(m[6])+'">#'+escapeHtml(m[6])+'</span>';
     } else if(m[7] !== undefined){
-      out += '<em>'+decorateText(m[7], depth)+'</em>';
+      out += renderBlockRefHtml(m[7], depth);
     } else if(m[8] !== undefined){
-      out += renderImageHtml(m[8]);
+      out += '<strong>'+decorateText(m[8], depth)+'</strong>';
     } else if(m[9] !== undefined){
-      out += renderFileHtml(m[9]);
+      out += '<del>'+decorateText(m[9], depth)+'</del>';
     } else if(m[10] !== undefined){
-      out += '<mark class="hl-swatch" data-color="'+escapeHtml(m[10])+'">'+decorateText(m[11], depth)+'</mark>';
+      out += '<code>'+escapeHtml(m[10])+'</code>';
+    } else if(m[11] !== undefined){
+      out += '<em>'+decorateText(m[11], depth)+'</em>';
     } else if(m[12] !== undefined){
-      out += '<span class="clr-swatch" data-color="'+escapeHtml(m[12])+'">'+decorateText(m[13], depth)+'</span>';
+      out += renderImageHtml(m[12]);
+    } else if(m[13] !== undefined){
+      out += renderFileHtml(m[13]);
+    } else if(m[14] !== undefined){
+      out += '<mark class="hl-swatch" data-color="'+escapeHtml(m[14])+'">'+decorateText(m[15], depth)+'</mark>';
+    } else if(m[16] !== undefined){
+      out += '<span class="clr-swatch" data-color="'+escapeHtml(m[16])+'">'+decorateText(m[17], depth)+'</span>';
     }
     last = re.lastIndex;
   }
@@ -1248,52 +1629,58 @@ function buildInlineNodes(text){
   while((m = re.exec(text))){
     pushText(text.slice(last, m.index));
     if(m[1] !== undefined){
-      var linkEl = document.createElement('span');
-      linkEl.className = 'link'; linkEl.dataset.target = m[1]; linkEl.textContent = m[1];
-      frag.appendChild(linkEl);
+      frag.appendChild(buildTransclusionNode('![[' + m[1] + ']]', 0, state.currentPageId));
     } else if(m[2] !== undefined){
-      var tagEl = document.createElement('span');
-      tagEl.className = 'tag'; tagEl.dataset.tag = m[2]; tagEl.textContent = '#'+m[2];
-      frag.appendChild(tagEl);
+      frag.appendChild(buildTransclusionNode('!((' + m[2] + '))', 0, state.currentPageId));
     } else if(m[3] !== undefined){
+      frag.appendChild(buildTransclusionNode('{{transclude:' + m[3] + '|' + m[4] + '}}', 0, state.currentPageId));
+    } else if(m[5] !== undefined){
+      var linkEl = document.createElement('span');
+      linkEl.className = 'link'; linkEl.dataset.target = m[5]; linkEl.textContent = m[5];
+      frag.appendChild(linkEl);
+    } else if(m[6] !== undefined){
+      var tagEl = document.createElement('span');
+      tagEl.className = 'tag'; tagEl.dataset.tag = m[6]; tagEl.textContent = '#'+m[6];
+      frag.appendChild(tagEl);
+    } else if(m[7] !== undefined){
       var refEl = document.createElement('span');
-      refEl.className = 'blockref'; refEl.dataset.refid = m[3];
-      var refBlk = state.blocks[m[3]];
+      refEl.className = 'blockref'; refEl.dataset.refid = m[7];
+      var refBlk = state.blocks[m[7]];
       if(!refBlk){ refEl.classList.add('blockref-missing'); refEl.textContent = '(missing block)'; }
       else {
         var preview = refBlk.text || '(empty block)';
         refEl.textContent = preview.length > 60 ? preview.slice(0,60)+'…' : preview;
       }
       frag.appendChild(refEl);
-    } else if(m[4] !== undefined){
-      var strongEl = document.createElement('strong');
-      strongEl.appendChild(buildInlineNodes(m[4]));
-      frag.appendChild(strongEl);
-    } else if(m[5] !== undefined){
-      var delEl = document.createElement('del');
-      delEl.appendChild(buildInlineNodes(m[5]));
-      frag.appendChild(delEl);
-    } else if(m[6] !== undefined){
-      var codeEl = document.createElement('code');
-      codeEl.textContent = m[6];
-      frag.appendChild(codeEl);
-    } else if(m[7] !== undefined){
-      var emEl = document.createElement('em');
-      emEl.appendChild(buildInlineNodes(m[7]));
-      frag.appendChild(emEl);
     } else if(m[8] !== undefined){
-      frag.appendChild(buildImageNode(m[8]));
+      var strongEl = document.createElement('strong');
+      strongEl.appendChild(buildInlineNodes(m[8]));
+      frag.appendChild(strongEl);
     } else if(m[9] !== undefined){
-      frag.appendChild(buildFileNode(m[9]));
+      var delEl = document.createElement('del');
+      delEl.appendChild(buildInlineNodes(m[9]));
+      frag.appendChild(delEl);
     } else if(m[10] !== undefined){
-      var markEl = document.createElement('mark');
-      markEl.className = 'hl-swatch'; markEl.dataset.color = m[10];
-      markEl.appendChild(buildInlineNodes(m[11]));
-      frag.appendChild(markEl);
+      var codeEl = document.createElement('code');
+      codeEl.textContent = m[10];
+      frag.appendChild(codeEl);
+    } else if(m[11] !== undefined){
+      var emEl = document.createElement('em');
+      emEl.appendChild(buildInlineNodes(m[11]));
+      frag.appendChild(emEl);
     } else if(m[12] !== undefined){
+      frag.appendChild(buildImageNode(m[12]));
+    } else if(m[13] !== undefined){
+      frag.appendChild(buildFileNode(m[13]));
+    } else if(m[14] !== undefined){
+      var markEl = document.createElement('mark');
+      markEl.className = 'hl-swatch'; markEl.dataset.color = m[14];
+      markEl.appendChild(buildInlineNodes(m[15]));
+      frag.appendChild(markEl);
+    } else if(m[16] !== undefined){
       var clrEl = document.createElement('span');
-      clrEl.className = 'clr-swatch'; clrEl.dataset.color = m[12];
-      clrEl.appendChild(buildInlineNodes(m[13]));
+      clrEl.className = 'clr-swatch'; clrEl.dataset.color = m[16];
+      clrEl.appendChild(buildInlineNodes(m[17]));
       frag.appendChild(clrEl);
     }
     last = re.lastIndex;
@@ -1315,6 +1702,8 @@ function serializeInline(node){
         out += '[[' + (n.dataset.target || n.textContent) + ']]';
       } else if(n.classList && n.classList.contains('tag')){
         out += '#' + (n.dataset.tag || n.textContent.replace(/^#/,''));
+      } else if(n.classList && n.classList.contains('transclusion')){
+        out += (n.dataset.transclusionRaw || '');
       } else if(n.classList && n.classList.contains('blockref')){
         out += '((' + (n.dataset.refid || '') + '))';
       } else if(n.classList && n.classList.contains('att-img')){
@@ -1502,10 +1891,15 @@ function autoFormatAtCaret(el){
 
 function extractRefs(text){
   var refs = [];
-  var re = /\[\[([^\]]+)\]\]|#([a-zA-Z0-9_][\w-]*)/g, m;
+  var re = /!?\[\[([^\]]+)\]\]|#([a-zA-Z0-9_][\w-]*)/g, m;
   while((m = re.exec(text))){
-    if(m[1] !== undefined) refs.push({type:'page', title:m[1]});
-    else refs.push({type:'tag', title:m[2]});
+    if(m[1] !== undefined){
+      var target = m[1];
+      var hash = target.indexOf('#');
+      if(hash >= 0) target = target.slice(0, hash);
+      target = target.trim();
+      if(target) refs.push({type:'page', title:target});
+    } else refs.push({type:'tag', title:m[2]});
   }
   return refs;
 }
@@ -1520,8 +1914,12 @@ function findBlockRefsTo(id){
     if(bid === id) return;
     var blk = state.blocks[bid];
     if(!blk.text) return;
-    var re = new RegExp(BLOCKREF_RE.source, 'g'), m, found = false;
-    while((m = re.exec(blk.text))){ if(m[1] === id){ found = true; break; } }
+    var re = /!?\(\(([a-zA-Z0-9_-]+)\)\)/g, m, found = false;
+    while((m = re.exec(blk.text))){
+      var matchStart = m.index;
+      if(blk.text.charAt(matchStart) === '!') continue; /* !((…)) is a read-only transclusion, not a sync reference */
+      if(m[1] === id){ found = true; break; }
+    }
     if(found) refs.push(blk);
   });
   return refs;

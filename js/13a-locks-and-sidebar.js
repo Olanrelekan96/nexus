@@ -120,6 +120,7 @@ function toggleBlockLock(blockId){
 function togglePageHidden(pageId){
   var page = state.pages[pageId];
   if(!page) return;
+  if((typeof isPermanentDatabasePage === 'function' && isPermanentDatabasePage(page)) || (typeof isPermanentQueryPage === 'function' && isPermanentQueryPage(page)) || (typeof isPermanentStickyNotesPage === 'function' && isPermanentStickyNotesPage(page))){ toast(isPermanentQueryPage && isPermanentQueryPage(page) ? 'The default Queries workspace always stays available in the sidebar.' : 'The default Database workspace always stays available in the sidebar.'); return; }
   if(page.hidden){
     delete page.hidden;
   } else {

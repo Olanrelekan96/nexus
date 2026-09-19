@@ -68,6 +68,99 @@ var LOCK_VERIFIER_TEXT = 'nexus-unlock-ok';
 var RECOVERY_CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; /* 32 chars; excludes 0/O/1/I/L to avoid transcription mistakes */
 var lockCryptoKey = null; /* CryptoKey (the DEK) while unlocked this session, else null */
 
+/* Re-entry interval: this is separate from the permanent encryption lock.
+   The notebook still starts locked on a fresh page load; once unlocked, the
+   in-memory DEK is automatically dropped after the chosen elapsed interval. */
+var PASSCODE_REENTRY_DEFAULT = '24';
+var PASSCODE_REENTRY_CHOICES = ['1','6','12','24'];
+var passcodeUnlockedAt = 0;
+var passcodeReentryTimer = null;
+var passcodeReentryLockPending = false;
+
+function passcodeReentryHours(){
+  var v = (typeof currentSettings !== 'undefined' && currentSettings.passcodeReentryHours) || PASSCODE_REENTRY_DEFAULT;
+  return PASSCODE_REENTRY_CHOICES.indexOf(String(v)) === -1 ? PASSCODE_REENTRY_DEFAULT : String(v);
+}
+function passcodeReentryMs(){ return parseInt(passcodeReentryHours(), 10) * 60 * 60 * 1000; }
+function updatePasscodeReentryStatus(){
+  var el = document.getElementById('passcode-reentry-status');
+  if(!el) return;
+  if(!isLockEnabled()){
+    el.textContent = 'Set a passcode first. Once unlocked, Nexus can require it again every ' + passcodeReentryHours() + ' hour' + (passcodeReentryHours()==='1'?'':'s') + '.';
+    return;
+  }
+  if(!lockCryptoKey || !passcodeUnlockedAt){
+    el.textContent = 'Next re-entry interval: every ' + passcodeReentryHours() + ' hour' + (passcodeReentryHours()==='1'?'':'s') + '. The timer starts after a successful unlock.';
+    return;
+  }
+  var remaining = (passcodeUnlockedAt + passcodeReentryMs()) - Date.now();
+  if(remaining <= 0){
+    el.textContent = 'Passcode re-entry is due now.';
+    return;
+  }
+  var mins = Math.ceil(remaining / 60000);
+  var left = mins >= 60 ? (Math.floor(mins/60) + 'h ' + (mins%60) + 'm') : (mins + 'm');
+  el.textContent = 'Passcode re-entry is due in about ' + left + '. The timer is based on elapsed time, not typing activity.';
+}
+function clearPasscodeReentryTimer(){
+  if(passcodeReentryTimer !== null){ clearTimeout(passcodeReentryTimer); passcodeReentryTimer = null; }
+}
+function schedulePasscodeReentry(){
+  clearPasscodeReentryTimer();
+  if(!isLockEnabled() || !lockCryptoKey || !passcodeUnlockedAt || appLocked) return;
+  var delay = Math.max(250, (passcodeUnlockedAt + passcodeReentryMs()) - Date.now());
+  passcodeReentryTimer = setTimeout(enforcePasscodeReentry, delay);
+  updatePasscodeReentryStatus();
+}
+function refreshLockSessionTimer(){
+  if(!isLockEnabled() || !lockCryptoKey){
+    passcodeUnlockedAt = 0;
+    clearPasscodeReentryTimer();
+    updatePasscodeReentryStatus();
+    return;
+  }
+  passcodeUnlockedAt = Date.now();
+  passcodeReentryLockPending = false;
+  schedulePasscodeReentry();
+  updatePasscodeReentryStatus();
+}
+function enforcePasscodeReentry(){
+  passcodeReentryTimer = null;
+  if(appLocked || !isLockEnabled() || !lockCryptoKey || !passcodeUnlockedAt) return;
+  if((Date.now() - passcodeUnlockedAt) < passcodeReentryMs()){ schedulePasscodeReentry(); return; }
+  if(passcodeReentryLockPending) return;
+  passcodeReentryLockPending = true;
+  var finalize = function(){
+    if(!passcodeReentryLockPending) return;
+    passcodeReentryLockPending = false;
+    if(!appLocked && isLockEnabled() && lockCryptoKey){
+      passcodeUnlockedAt = 0;
+      lockNow();
+      toast('Passcode interval expired. Enter your passcode to continue.');
+    }
+    updatePasscodeReentryStatus();
+  };
+  try{
+    var flushed = typeof flushSaveNow === 'function' ? flushSaveNow() : null;
+    Promise.resolve(flushed).catch(function(){}).then(finalize);
+  }catch(ignore){ finalize(); }
+}
+function setPasscodeReentry(hours){
+  hours = String(hours);
+  if(PASSCODE_REENTRY_CHOICES.indexOf(hours) === -1) return;
+  currentSettings.passcodeReentryHours = hours;
+  saveSettings(currentSettings);
+  if(isLockEnabled() && lockCryptoKey){
+    /* Choosing a new interval starts that interval from now rather than
+       unexpectedly locking immediately because the previous interval was shorter. */
+    refreshLockSessionTimer();
+  }else{
+    updatePasscodeReentryStatus();
+  }
+  if(typeof setDataHealthStatus === 'function') setDataHealthStatus('saved', 'Passcode interval saved');
+  if(typeof toast === 'function') toast('Nexus will require your passcode again every ' + hours + ' hour' + (hours==='1'?'':'s') + '.');
+}
+
 function loadLockMeta(){
   try{ return JSON.parse(localStorage.getItem(LOCK_KEY)); }catch(e){ return null; }
 }
@@ -353,6 +446,8 @@ function removePasscode(){
       var encRecords = records.filter(function(r){ return r.enc; });
       return Promise.all(encRecords.map(function(r){ return getAttachment(r.id); }));
     }).then(function(decrypted){
+      clearPasscodeReentryTimer();
+      passcodeUnlockedAt = 0;
       lockCryptoKey = null;
       clearLockMeta();
       var writes = [];
@@ -370,6 +465,9 @@ function removePasscodeConfirmed(passcode){
 }
 function lockNow(){
   closeSettings();
+  clearPasscodeReentryTimer();
+  passcodeUnlockedAt = 0;
+  passcodeReentryLockPending = false;
   lockCryptoKey = null;
   showLockScreen();
 }
@@ -396,6 +494,7 @@ function attemptUnlockFromScreen(){
     btn.disabled = false;
     if(!res.ok){ errEl.textContent = 'Incorrect passcode.'; input.value=''; input.focus(); return; }
     hideLockScreen();
+    refreshLockSessionTimer();
     if(!state) bootNotebook(); /* first unlock of this page load */
     if(res.legacy){
       /* One-time background upgrade: adds a recovery key to a

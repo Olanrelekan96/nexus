@@ -59,7 +59,10 @@ function buildPageMarkdown(page){
       });
     }
     function replaceBlockRefs(text){
-      return text.replace(/\(\(([a-zA-Z0-9_-]{4,})\)\)/g, function(_, id){ return blockRefPreview(id); });
+      return text.replace(/\(\(([a-zA-Z0-9_-]{4,})\)\)/g, function(match, id, offset, full){
+        if(offset > 0 && full.charAt(offset - 1) === '!') return match; /* preserve !((id)) block transclusions */
+        return blockRefPreview(id);
+      });
     }
 
     var lines = [];

@@ -119,7 +119,8 @@ var SETTINGS_DEFAULTS = {
   backupReminderDays: '7',
   confirmTrash: 'off',
   autoBackupInterval: 'off',
-  gdriveAutoSync: 'off'
+  gdriveAutoSync: 'off',
+  passcodeReentryHours: '24'
 };
 /* [rowId, data-attribute name, settings key] */
 var SETTINGS_ROWS = [
@@ -130,7 +131,8 @@ var SETTINGS_ROWS = [
   ['settings-backupdays-row', 'backupdays', 'backupReminderDays'],
   ['settings-autobackup-row', 'autobackup', 'autoBackupInterval'],
   ['settings-confirmtrash-row', 'confirmtrash', 'confirmTrash'],
-  ['settings-gdriveautosync-row', 'gdriveautosync', 'gdriveAutoSync']
+  ['settings-gdriveautosync-row', 'gdriveautosync', 'gdriveAutoSync'],
+  ['settings-passcodereentry-row', 'passcodereentry', 'passcodeReentryHours']
 ];
 SETTINGS_ROWS.filter(function(r){ return r[0] === 'settings-autobackup-row'; }).forEach(function(row){
   Array.prototype.slice.call(document.querySelectorAll('#'+row[0]+' .settings-opt')).forEach(function(btn){
@@ -203,6 +205,12 @@ function refreshLockSettingsUI(){
   document.getElementById('btn-change-passcode').style.display = on ? '' : 'none';
   document.getElementById('btn-lock-now').style.display = on ? '' : 'none';
   document.getElementById('btn-remove-passcode').style.display = on ? '' : 'none';
+  var reentryRow = document.getElementById('settings-passcodereentry-row');
+  if(reentryRow){
+    reentryRow.style.opacity = on ? '1' : '.55';
+    Array.prototype.slice.call(reentryRow.querySelectorAll('.settings-opt')).forEach(function(btn){ btn.disabled = !on; });
+  }
+  if(typeof updatePasscodeReentryStatus === 'function') updatePasscodeReentryStatus();
   var hasRecovery = on && !!meta.wrappedDEKRecovery;
   document.getElementById('btn-regen-recovery').style.display = hasRecovery ? '' : 'none';
   var recEl = document.getElementById('recovery-status-text');
@@ -296,6 +304,7 @@ document.getElementById('pc-submit').onclick = function(){
     if(result.recoveryCode){
       openRecoveryShowModal(result.recoveryCode);
     } else {
+      if(pcMode === 'set' || pcMode === 'change' || pcMode === 'reset' || pcMode === 'remove') refreshLockSessionTimer();
       toast(pcMode === 'set' ? 'Passcode set. Your notes are now encrypted on this device.'
         : pcMode === 'change' ? 'Passcode changed.'
         : pcMode === 'reset' ? "Passcode set. You're back in."
@@ -374,6 +383,16 @@ SETTINGS_ROWS.forEach(function(row){
       saveSettings(currentSettings);
       applySettings(currentSettings);
     };
+  });
+});
+
+/* The generic SETTINGS_ROWS handler saves the passcode interval; this
+   listener also resets the current in-memory lock timer so changing the
+   interval takes effect immediately. */
+Array.prototype.slice.call(document.querySelectorAll('#settings-passcodereentry-row .settings-opt')).forEach(function(btn){
+  btn.addEventListener('click', function(){
+    setPasscodeReentry(btn.dataset.passcodereentry);
+    refreshLockSettingsUI();
   });
 });
 

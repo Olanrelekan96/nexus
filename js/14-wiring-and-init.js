@@ -14,9 +14,13 @@
    WIRING
    ============================================================ */
 document.getElementById('btn-today').onclick = goToday;
+// Zettelkasten is a standalone workspace hub; its module owns its controls.
 document.getElementById('btn-help').onclick = function(){ openPageByTitle(DOCS_TITLE, 'page'); };
 document.getElementById('btn-new-page').onclick = openPalette;
 document.getElementById('btn-graph').onclick = function(){
+  if(typeof hideDashboardView === 'function') hideDashboardView();
+  if(typeof hideFlashcardsView === 'function') hideFlashcardsView();
+  if(typeof hideStickyNotesView === 'function') hideStickyNotesView();
   document.getElementById('page-view').classList.remove('visible');
   document.getElementById('graph-view').classList.add('visible');
   renderGraph();
@@ -26,7 +30,26 @@ document.getElementById('btn-close-graph').onclick = function(){
   document.getElementById('graph-view').classList.remove('visible');
   document.getElementById('page-view').classList.add('visible');
 };
+document.getElementById('btn-database').onclick = function(){
+  openDefaultDatabase();
+  if(typeof closeSidebarIfNarrow === 'function') closeSidebarIfNarrow();
+};
+document.getElementById('database-filter').addEventListener('input', function(e){
+  databaseSidebarFilter = e.target.value || '';
+  renderDatabaseSidebarSection();
+});
+document.getElementById('btn-queries').onclick = function(){
+  openDefaultQuery();
+  if(typeof closeSidebarIfNarrow === 'function') closeSidebarIfNarrow();
+};
+document.getElementById('query-filter').addEventListener('input', function(e){
+  querySidebarFilter = e.target.value || '';
+  renderQuerySidebarSection();
+});
 document.getElementById('btn-tasks').onclick = function(){
+  if(typeof hideDashboardView === 'function') hideDashboardView();
+  if(typeof hideFlashcardsView === 'function') hideFlashcardsView();
+  if(typeof hideStickyNotesView === 'function') hideStickyNotesView();
   document.getElementById('page-view').classList.remove('visible');
   document.getElementById('graph-view').classList.remove('visible');
   document.getElementById('tasks-view').classList.add('visible');
@@ -35,6 +58,7 @@ document.getElementById('btn-tasks').onclick = function(){
 };
 document.getElementById('btn-close-tasks').onclick = function(){
   document.getElementById('tasks-view').classList.remove('visible');
+  if(typeof flashcardsVisible !== 'undefined') { var fv=document.getElementById('flashcards-view'); if(fv) fv.classList.remove('visible'); }
   document.getElementById('page-view').classList.add('visible');
 };
 /* The Tasks view's own controls are wired in 15-task-manager.js. */
@@ -105,6 +129,7 @@ document.getElementById('toggle-daily').onclick = function(){
 document.getElementById('search-box').addEventListener('input', function(e){
   renderSidebar(e.target.value);
 });
+if(typeof wireFolderSidebar === 'function') wireFolderSidebar();
 document.getElementById('btn-find-replace').onclick = openFindReplace;
 document.getElementById('fr-cancel').onclick = closeFindReplace;
 document.getElementById('findreplace-overlay').addEventListener('click', function(e){
@@ -147,6 +172,11 @@ var titleEl = document.getElementById('page-title');
 titleEl.addEventListener('blur', function(){
   if(!state || !state.pages || !state.pages[state.currentPageId]) return;
   var page = state.pages[state.currentPageId];
+  if((typeof isPermanentDatabasePage === 'function' && isPermanentDatabasePage(page)) ||
+     (typeof isPermanentQueryPage === 'function' && isPermanentQueryPage(page))){
+    titleEl.textContent = page.title;
+    return;
+  }
   var newTitle = titleEl.textContent.trim() || 'Untitled';
   if(newTitle !== page.title){
     delete state.titleIndex[page.title.toLowerCase()];
@@ -182,6 +212,9 @@ document.addEventListener('keydown', function(e){
     closeFindReplace();
     closeSyncModal();
     closeQueryBuilder();
+    if(typeof flashcardsVisible !== 'undefined' && flashcardsVisible){ hideFlashcardsView(); }
+    if(typeof stickyNotesVisible !== 'undefined' && stickyNotesVisible){ hideStickyNotesView(); }
+    if(typeof zettelkastenVisible !== 'undefined' && zettelkastenVisible){ hideZettelkastenView(); }
     closeBlockMenu();
     if(zoomedBlockId) zoomOut();
   } else if(isMod && (e.key === 'z' || e.key === 'Z')){
@@ -201,6 +234,10 @@ document.addEventListener('keydown', function(e){
 window.addEventListener('beforeunload', flushSaveNow);
 document.addEventListener('visibilitychange', function(){
   if(document.hidden){ flushSaveNow(); gdriveFlushPendingSync(); }
+  else if(typeof enforcePasscodeReentry === 'function') enforcePasscodeReentry();
+});
+window.addEventListener('focus', function(){
+  if(typeof enforcePasscodeReentry === 'function') enforcePasscodeReentry();
 });
 
 /* ============================================================

@@ -22,6 +22,7 @@ var blockClipboard = null; /* set by a block row's Cut/Copy action — a detache
 function renderAll(){
   renderSidebar(document.getElementById('search-box').value);
   renderPage();
+  if(typeof dashboardRefreshIfVisible === 'function') dashboardRefreshIfVisible();
 }
 
 function renderPage(){
@@ -565,6 +566,9 @@ function blockPreviewText(blk){
     return (qMatch[1].toLowerCase() === 'table' ? 'Database' : 'Query') + (qstr ? ': ' + qstr : '');
   }
   var plain = t
+    .replace(/!\[\[[^\]]+\]\]/g, '(transcluded section/page)')
+    .replace(/!\(\([a-zA-Z0-9_-]+\)\)/g, '(transcluded block)')
+    .replace(/\{\{transclude:(?:page|block|section)\|[^}]+\}\}/g, '(transclusion)')
     .replace(/\(\([a-zA-Z0-9_-]+\)\)/g, '(embedded block)')
     .replace(/\{\{img:[^}]*\}\}/g, '(image)')
     .replace(/\{\{file:[^}]*\}\}/g, '(file)')
@@ -638,6 +642,9 @@ function textForWordCount(text){
   if(codeMatch) return codeMatch[2] || '';
   if(QUERY_BLOCK_RE.test(text.trim())) return ''; /* queries/databases aren't authored prose */
   return text
+    .replace(/!\[\[[^\]]+\]\]/g, '')                  /* page/section transclusions */
+    .replace(/!\(\([a-zA-Z0-9_-]+\)\)/g, '')             /* block transclusions */
+    .replace(/\{\{transclude:(?:page|block|section)\|[^}]+\}\}/g, '') /* explicit transclusions */
     .replace(/\(\([a-zA-Z0-9_-]+\)\)/g, '')             /* block refs — counted at their source */
     .replace(/\{\{img:[^}]*\}\}/g, '')                  /* image embeds */
     .replace(/\{\{file:[^}]*\}\}/g, '')                 /* file embeds */
@@ -940,6 +947,24 @@ function renderBlockRow(block){
     }
     if(t.classList && t.classList.contains('tag')){
       openPageByTitle(t.dataset.tag, 'tag');
+      return;
+    }
+    var txEl = t.classList && t.classList.contains('transclusion') ? t : (t.closest ? t.closest('.transclusion') : null);
+    if(txEl){
+      var txRaw = txEl.dataset.transclusionRaw || '';
+      if(txRaw.indexOf('!((') === 0){
+        var txm = txRaw.match(/^!\(\(([a-zA-Z0-9_-]+)\)\)$/);
+        var txb = txm ? state.blocks[txm[1]] : null;
+        if(txb && state.pages[txb.pageId]) openPage(txb.pageId);
+      } else {
+        var txTarget = '';
+        var txPage = txRaw.match(/^!\[\[([^\]]+)\]\]$/);
+        var txExplicit = txRaw.match(/^\{\{transclude:(?:page|section)\|([^}]+)\}\}$/);
+        txTarget = txPage ? txPage[1] : (txExplicit ? txExplicit[1] : '');
+        var parsedTx = parseTransclusionTarget(txTarget, state.currentPageId);
+        var txp = parsedTx.page ? findPageByTitle(parsedTx.page) : null;
+        if(txp) openPage(txp.id);
+      }
       return;
     }
     var refEl = t.classList && t.classList.contains('blockref') ? t : (t.closest ? t.closest('.blockref') : null);
@@ -1283,6 +1308,10 @@ function openBlockMenu(anchorEl, blockId, coords){
   addItem('⚭', 'Copy block reference', false, function(){
     copyToClipboard('((' + b.id + '))');
     toast('Block reference copied — paste it anywhere to sync this line.');
+  });
+  addItem('↳', 'Copy block transclusion', false, function(){
+    copyToClipboard('!((' + b.id + '))');
+    toast('Copied block transclusion — paste it anywhere to embed this block live.');
   });
   addItem('🗑', 'Delete', locked, function(){
     var cb = state.blocks[blockId];

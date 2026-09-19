@@ -378,8 +378,9 @@ function resolvePage(title, type){
   var existing = findPageByTitle(title);
   if(existing) return existing;
   var id = uid();
-  state.pages[id] = {id:id, title:title, type:type||'page', createdAt:Date.now(), properties:[], rootBlocks:[]};
-  if((type||'page') === 'page' && typeof currentSettings !== 'undefined' && currentSettings.defaultPageView === 'doc'){
+  var resolvedType = type||'page';
+  state.pages[id] = {id:id, title:title, type:resolvedType, createdAt:Date.now(), properties:[], rootBlocks:[], icon:defaultPageIcon(resolvedType), banner:resolvedType === 'daily' ? 'ocean' : 'none'};
+  if(resolvedType === 'page' && typeof currentSettings !== 'undefined' && currentSettings.defaultPageView === 'doc'){
     state.pages[id].viewMode = 'doc';
   }
   state.titleIndex[title.toLowerCase()] = id;
@@ -511,6 +512,10 @@ function goForward(){
 
 function openPage(pageId, skipHistory){
   if(!state.pages[pageId]) return;
+  if(typeof hideDashboardView === 'function') hideDashboardView();
+  if(typeof hideFlashcardsView === 'function') hideFlashcardsView();
+  if(typeof hideStickyNotesView === 'function') hideStickyNotesView();
+  if(typeof hideZettelkastenView === 'function') hideZettelkastenView();
   state.currentPageId = pageId;
   document.getElementById('graph-view').classList.remove('visible');
   var tasksViewEl = document.getElementById('tasks-view');
@@ -573,6 +578,7 @@ function deleteCurrentPage(){
   var id = state.currentPageId;
   var page = state.pages[id];
   if(!page) return;
+  if((typeof isPermanentDatabasePage === 'function' && isPermanentDatabasePage(page)) || (typeof isPermanentQueryPage === 'function' && isPermanentQueryPage(page)) || (typeof isPermanentStickyNotesPage === 'function' && isPermanentStickyNotesPage(page))){ toast(isPermanentQueryPage && isPermanentQueryPage(page) ? 'The default Queries workspace cannot be moved to Trash.' : 'The default Database workspace cannot be moved to Trash.'); return; }
   if(typeof currentSettings !== 'undefined' && currentSettings.confirmTrash === 'on'){
     if(!confirm('Move "'+page.title+'" to Trash?')) return;
   }
@@ -617,6 +623,7 @@ function hardDeletePageBlocks(page){
 function permanentlyDeletePage(pageId){
   var page = state.pages[pageId];
   if(!page) return;
+  if((typeof isPermanentDatabasePage === 'function' && isPermanentDatabasePage(page)) || (typeof isPermanentQueryPage === 'function' && isPermanentQueryPage(page)) || (typeof isPermanentStickyNotesPage === 'function' && isPermanentStickyNotesPage(page))){ toast(isPermanentQueryPage && isPermanentQueryPage(page) ? 'The default Queries workspace is permanent.' : 'The default Database workspace is permanent.'); return; }
   if(!confirm('Permanently delete "'+page.title+'" and all its lines? This cannot be undone.')) return;
   hardDeletePageBlocks(page);
   if(state.currentPageId === pageId) goToNextLivePageAfterRemoval();
@@ -932,6 +939,9 @@ function getCaretOffset(el){
     if(node.classList && node.classList.contains('blockref')){
       return 4 + (node.dataset.refid || '').length;
     }
+    if(node.classList && node.classList.contains('transclusion')){
+      return (node.dataset.transclusionRaw || '').length;
+    }
     if(node.classList && node.classList.contains('att-img')){
       return 9 + (node.dataset.attId || '').length + (node.dataset.attName || '').length;
     }
@@ -962,6 +972,9 @@ function getCaretOffset(el){
       return 2 + Math.min(off, len);
     }
     if(node.classList && node.classList.contains('blockref')){
+      return off <= 0 ? 0 : rawLength(node);
+    }
+    if(node.classList && node.classList.contains('transclusion')){
       return off <= 0 ? 0 : rawLength(node);
     }
     if(node.classList && node.classList.contains('att-img')) return off <= 0 ? 0 : rawLength(node);
@@ -1012,6 +1025,7 @@ function findTextNodeAtOffset(el, offset){
     var tag = node.tagName;
     if(node.classList && node.classList.contains('link')) return 4 + (node.dataset.target || node.textContent || '').length;
     if(node.classList && node.classList.contains('blockref')) return 4 + (node.dataset.refid || '').length;
+    if(node.classList && node.classList.contains('transclusion')) return (node.dataset.transclusionRaw || '').length;
     if(node.classList && node.classList.contains('att-img')) return 9 + (node.dataset.attId || '').length + (node.dataset.attName || '').length;
     if(node.classList && node.classList.contains('att-file')) return 10 + (node.dataset.attId || '').length + (node.dataset.attName || '').length;
     if(node.classList && node.classList.contains('hl-swatch')) return ('{{mark:' + (node.dataset.color || '') + '|').length + 2 + Array.prototype.reduce.call(node.childNodes, function(n,c){ return n + rawLength(c); }, 0);
@@ -1039,6 +1053,12 @@ function findTextNodeAtOffset(el, offset){
       var visible = visibleLength(node), raw = rawLength(node);
       if(remaining <= visible){ result = {node:node.firstChild || node, offset:Math.min(remaining, visible)}; return; }
       remaining -= raw;
+      return;
+    }
+    if(node.classList && node.classList.contains('transclusion')){
+      var txRawLen = rawLength(node);
+      if(remaining <= txRawLen){ result = {node:node, offset:0}; return; }
+      remaining -= txRawLen;
       return;
     }
     if(node.classList && (node.classList.contains('blockref') || node.classList.contains('att-img') || node.classList.contains('att-file'))){

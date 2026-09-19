@@ -10,7 +10,7 @@
 <link id="pwa-icon" rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link id="pwa-apple-icon" rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="css/styles.css">
-<meta name="nexus-build" content="2026-09-19-quality-hardening-v1">
+<meta name="nexus-build" content="2026-09-19-quality-hardened-v1-database-query-daily-appearance-transclusion-flashcards-sticky-notes-zettelkasten-folders">
 <meta name="description" content="Nexus — an offline-first personal knowledge OS for notes, tasks, databases and linked thinking.">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -35,12 +35,18 @@
     </div>
     <input id="search-box" type="text" placeholder="Search or jump to… (⌘K)" aria-label="Search or jump to a page" title="Also takes #tag, [[Page]], key:value, is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;">
 
+    <button class="side-btn dashboard-home-btn" id="btn-dashboard">⌂ Dashboard <span class="side-btn-hint">Home</span></button>
     <button class="side-btn" id="btn-today">📅 Today's note</button>
     <button class="side-btn" id="btn-new-page">＋ New page</button>
     <button class="side-btn" id="btn-help">📖 Help &amp; tutorial</button>
     <button class="side-btn" id="btn-global-search">🔎 Search all notes <span class="side-btn-hint">⌘⇧F</span></button>
     <button class="side-btn" id="btn-graph">◎ Graph view</button>
     <button class="side-btn" id="btn-tasks">☑ Tasks</button>
+    <button class="side-btn" id="btn-database">▤ Database</button>
+    <button class="side-btn" id="btn-queries">⌕ Queries</button>
+    <button class="side-btn" id="btn-flashcards">▤ Flashcards</button>
+    <button class="side-btn" id="btn-sticky-notes">🗒 Sticky Notes</button>
+    <button class="side-btn" id="btn-zettelkasten">🧠 Zettelkasten <span class="side-btn-hint">Hub</span></button>
     <button class="side-btn" id="btn-insert-query">⌕ Insert query</button>
     <button class="side-btn" id="btn-insert-table">▤ Insert database</button>
     <button class="side-btn" id="btn-insert-code">❯_ Insert code block</button>
@@ -54,8 +60,38 @@
       <div id="daily-calendar" style="display:none;"></div>
       <ul class="page-list" id="list-daily"></ul>
     </div>
+    <div class="side-section" id="database-section">
+      <div class="side-label"><span>Created databases <span id="database-count" class="database-count"></span></span></div>
+      <input id="database-filter" class="sidebar-section-filter" type="search" placeholder="Filter databases…" aria-label="Filter created databases" autocomplete="off">
+      <ul class="page-list" id="list-databases"></ul>
+    </div>
+    <div class="side-section" id="flashcard-section">
+      <div class="side-label"><span>Created flashcards <span id="flashcard-count" class="flashcard-count"></span></span></div>
+      <input id="flashcard-filter" class="sidebar-section-filter" type="search" placeholder="Filter flashcards…" aria-label="Filter created flashcards" autocomplete="off">
+      <ul class="page-list" id="list-flashcards"></ul>
+    </div>
+    <div class="side-section" id="sticky-note-section">
+      <div class="side-label"><span>Created sticky notes <span id="sticky-note-count" class="sticky-note-count"></span></span></div>
+      <input id="sticky-note-filter" class="sidebar-section-filter" type="search" placeholder="Filter sticky notes…" aria-label="Filter created sticky notes" autocomplete="off">
+      <ul class="page-list" id="list-sticky-notes"></ul>
+    </div>
+    <div class="side-section" id="zettelkasten-section">
+      <div class="side-label"><span>Zettelkasten <span id="zettelkasten-count" class="zettelkasten-count"></span></span></div>
+      <input id="zettelkasten-filter" class="sidebar-section-filter" type="search" placeholder="Filter Zettels…" aria-label="Filter Zettelkasten notes" autocomplete="off">
+      <ul class="page-list" id="list-zettelkasten"></ul>
+    </div>
+    <div class="side-section" id="query-section">
+      <div class="side-label"><span>Created queries <span id="query-count" class="query-count"></span></span></div>
+      <input id="query-filter" class="sidebar-section-filter" type="search" placeholder="Filter queries…" aria-label="Filter created queries" autocomplete="off">
+      <ul class="page-list" id="list-queries"></ul>
+    </div>
+    <div class="side-section folders-section" id="folders-section">
+      <div class="side-label"><span>Folders</span><span><button id="new-folder-btn" title="Create a folder">+ folder</button><button id="new-root-folder-btn" title="Create a top-level folder">+</button></span></div>
+      <input id="folder-filter" class="sidebar-section-filter" type="search" placeholder="Filter folders…" aria-label="Filter folders" autocomplete="off">
+      <div id="folder-tree" class="folder-tree"></div>
+    </div>
     <div class="side-section">
-      <div class="side-label"><span>Pages</span></div>
+      <div class="side-label"><span>Unfiled pages</span></div>
       <ul class="page-list" id="list-pages"></ul>
     </div>
     <div class="side-section">
@@ -132,14 +168,22 @@
         <button class="topbtn" id="btn-doc-mode" title="Switch between outline and doc view">▤ Doc mode</button>
         <button class="topbtn" id="btn-delete-page">Delete page</button>
       </div>
-      <div class="page-meta-row">
-        <span class="type-pill" id="page-type-pill">Page</span>
-        <div id="supertag-badges"></div>
+      <div id="page-banner" class="page-banner page-banner-none" aria-hidden="true">
+        <button type="button" id="page-banner-btn" class="page-banner-btn" title="Choose page banner" aria-label="Choose page banner">🎨 Banner</button>
       </div>
-      <div id="page-title" contenteditable="true" spellcheck="false"></div>
-      <div class="page-sub-row">
-        <span id="page-sub"></span>
-        <span class="word-count" id="word-count"></span>
+      <div class="page-heading-wrap">
+        <button type="button" id="page-icon-btn" class="page-icon-btn" title="Choose page icon" aria-label="Choose page icon">📄</button>
+        <div class="page-heading-main">
+          <div class="page-meta-row">
+            <span class="type-pill" id="page-type-pill">Page</span>
+            <div id="supertag-badges"></div>
+          </div>
+          <div id="page-title" contenteditable="true" spellcheck="false"></div>
+          <div class="page-sub-row">
+            <span id="page-sub"></span>
+            <span class="word-count" id="word-count"></span>
+          </div>
+        </div>
       </div>
 
       <div class="supertag-panel" id="supertag-panel">
@@ -191,6 +235,80 @@
       </div>
     </section>
 
+    <section id="dashboard-view" aria-labelledby="dashboard-title">
+      <div class="dashboard-topbar">
+        <div>
+          <div class="dashboard-eyebrow">NEXUS HOME</div>
+          <h1 id="dashboard-title">Dashboard</h1>
+          <p class="dashboard-subtitle">Your notebook at a glance — jump into today, recent work, tasks, databases, queries and system health.</p>
+        </div>
+        <div class="dashboard-head-actions">
+          <button class="topbtn" id="dashboard-today-btn" type="button">📅 Today</button>
+          <button class="topbtn" id="dashboard-new-page-btn" type="button">＋ New page</button>
+        </div>
+      </div>
+
+      <div class="dashboard-stats" id="dashboard-stats"></div>
+
+      <section class="dashboard-panel dashboard-focus-panel">
+        <div class="dashboard-panel-head">
+          <div>
+            <div class="dashboard-section-kicker">TODAY</div>
+            <h2>Daily focus</h2>
+          </div>
+          <button class="dashboard-text-btn" id="dashboard-open-daily" type="button">Open today’s note →</button>
+        </div>
+        <div class="dashboard-focus-grid" id="dashboard-focus-grid"></div>
+      </section>
+
+      <div class="dashboard-two-col">
+        <section class="dashboard-panel">
+          <div class="dashboard-panel-head">
+            <div>
+              <div class="dashboard-section-kicker">CONTINUE</div>
+              <h2>Recent pages</h2>
+            </div>
+          </div>
+          <div id="dashboard-recent-pages" class="dashboard-list"></div>
+        </section>
+
+        <section class="dashboard-panel">
+          <div class="dashboard-panel-head">
+            <div>
+              <div class="dashboard-section-kicker">WORKSPACES</div>
+              <h2>Explore Nexus</h2>
+            </div>
+          </div>
+          <div id="dashboard-workspaces" class="dashboard-workspaces"></div>
+        </section>
+      </div>
+
+      <div class="dashboard-two-col">
+        <section class="dashboard-panel">
+          <div class="dashboard-panel-head">
+            <div>
+              <div class="dashboard-section-kicker">LAST SESSION</div>
+              <h2>Pick up where you left off</h2>
+            </div>
+          </div>
+          <div id="dashboard-continue" class="dashboard-continue"></div>
+        </section>
+
+        <section class="dashboard-panel">
+          <div class="dashboard-panel-head">
+            <div>
+              <div class="dashboard-section-kicker">SYSTEM</div>
+              <h2>Data & sync health</h2>
+            </div>
+            <button class="dashboard-text-btn" id="dashboard-open-health" type="button">Open health →</button>
+          </div>
+          <div id="dashboard-health" class="dashboard-health"></div>
+        </section>
+      </div>
+
+      <div class="dashboard-footer-note">Dashboard is a live home hub. It does not replace pages: your current page, blocks and data remain exactly where you left them.</div>
+    </section>
+
     <section id="graph-view">
       <div class="topbar">
         <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
@@ -206,6 +324,114 @@
       <svg id="graph-svg" viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg"></svg>
     </section>
 
+    <section id="flashcards-view" aria-labelledby="flashcards-title">
+      <div class="topbar">
+        <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
+        <button class="topbtn" id="btn-close-flashcards">← Back to page</button>
+      </div>
+      <div class="flashcards-head">
+        <div>
+          <div class="flashcards-eyebrow">Learning</div>
+          <h2 id="flashcards-title">Flashcards</h2>
+          <p class="flashcards-subtitle">Review what matters, on a schedule that adapts to your answers.</p>
+        </div>
+        <div class="flashcards-head-actions">
+          <button type="button" id="flashcards-add-btn" class="primary">＋ New card</button>
+          <button type="button" id="flashcards-new-deck-btn">＋ Deck</button>
+        </div>
+      </div>
+      <div class="flashcards-stats" id="flashcards-stats"></div>
+      <div class="flashcards-toolbar">
+        <select id="flashcards-deck" aria-label="Deck"></select>
+        <select id="flashcards-status" aria-label="Card status">
+          <option value="all">All cards</option>
+          <option value="due">Due now</option>
+          <option value="new">New</option>
+          <option value="learning">Learning</option>
+          <option value="review">Review</option>
+        </select>
+        <input id="flashcards-search" type="search" placeholder="Search cards…" aria-label="Search flashcards">
+        <button type="button" id="flashcards-start-review" class="primary">▶ Start review</button>
+      </div>
+      <div id="flashcards-review" class="flashcards-review" style="display:none;"></div>
+      <div id="flashcards-editor" class="flashcards-editor" style="display:none;"></div>
+      <div id="flashcards-list" class="flashcards-list"></div>
+    </section>
+
+    <section id="sticky-notes-view" aria-labelledby="sticky-notes-title">
+      <div class="sticky-notes-topbar">
+        <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
+        <button class="topbtn" id="btn-close-sticky-notes" type="button">← Back to page</button>
+      </div>
+      <div class="sticky-notes-header">
+        <div>
+          <div class="sticky-notes-eyebrow">QUICK CAPTURE</div>
+          <h2 id="sticky-notes-title">Sticky Note Cards</h2>
+          <p class="sticky-notes-subtitle">Capture small ideas, reminders and snippets as colorful cards without interrupting your notebook.</p>
+        </div>
+        <div class="sticky-notes-head-actions">
+          <button type="button" id="sticky-notes-add-btn" class="primary">＋ New note</button>
+          <button type="button" id="sticky-notes-clear-archive-btn">Show archive</button>
+        </div>
+      </div>
+      <div class="sticky-notes-toolbar">
+        <button type="button" class="sticky-filter active" data-filter="all">All</button>
+        <button type="button" class="sticky-filter" data-filter="pinned">Pinned</button>
+        <button type="button" class="sticky-filter" data-filter="archived">Archived</button>
+        <input id="sticky-notes-search" type="search" placeholder="Search sticky notes…" aria-label="Search sticky notes">
+      </div>
+      <div id="sticky-note-editor" class="sticky-note-editor" style="display:none;"></div>
+      <div id="sticky-notes-grid" class="sticky-notes-grid"></div>
+      <div class="sticky-notes-footer-hint">Sticky notes are saved, backed up and synced like other Nexus data. Use them for quick capture; promote important information into a page when it deserves a permanent home.</div>
+    </section>
+
+    <section id="zettelkasten-view" aria-labelledby="zettelkasten-title">
+      <div class="zettelkasten-topbar">
+        <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
+        <button class="topbtn" id="btn-close-zettelkasten" type="button">← Back to page</button>
+      </div>
+      <div class="zettelkasten-header">
+        <div>
+          <div class="zettelkasten-eyebrow">ATOMIC KNOWLEDGE SYSTEM</div>
+          <h2 id="zettelkasten-title">Zettelkasten</h2>
+          <p class="zettelkasten-subtitle">Capture fleeting ideas, develop them into atomic permanent notes, and grow a connected web of knowledge.</p>
+        </div>
+        <div class="zettelkasten-head-actions">
+          <button type="button" id="zettel-process-next" class="primary">Process next</button>
+          <button type="button" id="zettel-new-moc">＋ MOC / Index</button>
+          <button type="button" id="zettel-adopt-page">Adopt current page</button>
+        </div>
+      </div>
+      <div class="zettelkasten-stats" id="zettelkasten-stats"></div>
+      <section class="zettelkasten-capture-panel">
+        <div class="zettelkasten-panel-head"><div><div class="zettelkasten-section-kicker">INBOX → DEVELOP → CONNECT</div><h3>Capture an atomic idea</h3></div></div>
+        <div class="zettelkasten-capture-grid">
+          <input id="zettel-new-title" type="text" placeholder="Optional note title…" aria-label="Zettelkasten note title">
+          <input id="zettel-new-tags" type="text" placeholder="Topics, comma separated…" aria-label="Zettelkasten note topics">
+          <textarea id="zettel-new-body" rows="3" placeholder="Write one idea in your own words. Keep it atomic: one claim, concept, observation or insight…" aria-label="Zettelkasten note content"></textarea>
+          <div class="zettelkasten-capture-actions">
+            <button type="button" id="zettel-new-fleeting">💭 Fleeting / Inbox</button>
+            <button type="button" id="zettel-new-literature">📚 Literature</button>
+            <button type="button" id="zettel-new-permanent" class="primary">🧠 Permanent note</button>
+          </div>
+        </div>
+      </section>
+      <div class="zettelkasten-toolbar">
+        <button type="button" class="zettel-filter active" data-filter="all">All</button>
+        <button type="button" class="zettel-filter" data-filter="inbox">Inbox</button>
+        <button type="button" class="zettel-filter" data-filter="fleeting">Fleeting</button>
+        <button type="button" class="zettel-filter" data-filter="literature">Literature</button>
+        <button type="button" class="zettel-filter" data-filter="permanent">Permanent</button>
+        <button type="button" class="zettel-filter" data-filter="moc">MOCs / Indexes</button>
+        <button type="button" class="zettel-filter" data-filter="orphan">Unconnected</button>
+        <input id="zettelkasten-search" type="search" placeholder="Search Zettels, IDs, topics, text…" aria-label="Search Zettelkasten notes">
+      </div>
+      <div class="zettelkasten-body">
+        <div id="zettelkasten-list" class="zettelkasten-list"></div>
+        <aside id="zettel-details" class="zettel-details"></aside>
+      </div>
+      <div class="zettelkasten-footer-hint">Zettelkasten notes are ordinary Nexus pages. Use [[links]] to connect ideas, backlinks to discover context, MOCs to create indexes, and the Unconnected view to find notes that need a connection.</div>
+    </section>
     <section id="tasks-view">
       <div class="topbar">
         <button class="topbtn topbar-menu-btn" type="button" title="Show sidebar" aria-label="Show sidebar">☰</button>
@@ -247,7 +473,7 @@
           <option value="page">Sort by page</option>
           <option value="added">Newest first</option>
         </select>
-        <button id="tasks-layout" type="button">▤ Board</button>
+        <button id="tasks-layout" type="button" title="Switch task layout (Board, List, Gallery)" aria-label="Task layout: Board. Click to switch.">▤ Board</button>
         <button id="tasks-clear-filters" type="button">Reset</button>
       </div>
       <div class="tasks-summary" id="tasks-summary"></div>
@@ -434,6 +660,16 @@
         </div>
         <div id="recovery-status-text" class="hint" style="margin-top:6px; display:none;"></div>
         <div class="hint" style="margin-top:6px;">Backups you export aren't protected by the passcode — treat backup files as sensitive. Local browser storage is encrypted when the Nexus lock is enabled.</div>
+      </div>
+      <div>
+        <div class="settings-label">Re-enter passcode every</div>
+        <div class="settings-row" id="settings-passcodereentry-row">
+          <button type="button" class="settings-opt" data-passcodereentry="1">1 hour</button>
+          <button type="button" class="settings-opt" data-passcodereentry="6">6 hours</button>
+          <button type="button" class="settings-opt" data-passcodereentry="12">12 hours</button>
+          <button type="button" class="settings-opt" data-passcodereentry="24">24 hours</button>
+        </div>
+        <div class="hint" id="passcode-reentry-status">After you unlock Nexus, it will automatically require the passcode again when this interval expires. The timer uses elapsed time, does not reset just because you are active, and is checked again when the app returns from the background.</div>
       </div>
     </div>
     <div class="settings-foot"><button type="button" id="settings-close">Done</button></div>
@@ -661,12 +897,22 @@
 <script src="js/12-pwa.js"></script>
 <script src="js/13-slash-and-context-menus.js"></script>
 <script src="js/13a-locks-and-sidebar.js"></script>
+<script src="js/13b-dashboard.js"></script>
 <script src="js/15-task-manager.js"></script>
 <script src="js/16-advanced-database.js"></script>
 <script src="js/17-advanced-search.js"></script>
 <script src="js/18-global-search.js"></script>
 <script src="js/19-mobile-editor.js"></script>
-<script src="js/14-wiring-and-init.js"></script>
 <script src="js/20-quality-hardening.js"></script>
+<script src="js/21-database-sidebar.js"></script>
+<script src="js/22-query-sidebar.js"></script>
+<script src="js/23-daily-notes.js"></script>
+<script src="js/24-page-appearance.js"></script>
+<script src="js/25-transclusion.js"></script>
+<script src="js/26-flashcards.js"></script>
+<script src="js/27-sticky-notes.js"></script>
+<script src="js/28-zettelkasten.js"></script>
+<script src="js/29-folders.js"></script>
+<script src="js/14-wiring-and-init.js"></script>
 </body>
 </html>

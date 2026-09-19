@@ -700,6 +700,7 @@ function replaceSelectionWithRawText(el, newText){
 function renamePagePrompt(pageId){
   var page = state.pages[pageId];
   if(!page) return;
+  if((typeof isPermanentDatabasePage === 'function' && isPermanentDatabasePage(page)) || (typeof isPermanentQueryPage === 'function' && isPermanentQueryPage(page))){ toast(isPermanentQueryPage && isPermanentQueryPage(page) ? 'The default Queries workspace cannot be renamed.' : 'The default Database workspace cannot be renamed.'); return; }
   var next = prompt('Rename page:', page.title);
   if(next === null) return;
   next = next.trim();
@@ -726,6 +727,7 @@ function duplicatePage(pageId){
   while(state.titleIndex[title.toLowerCase()]){ title = base + ' ' + n; n++; }
   var copy = resolvePage(title, page.type === 'tag' ? 'page' : page.type);
   copy.properties = JSON.parse(JSON.stringify(page.properties || []));
+  if(page.folderId && typeof folderById === 'function' && folderById(page.folderId)) copy.folderId = page.folderId;
   copy.rootBlocks = instantiateTemplateNodes(pageToTemplateNodes(page), copy.id, null);
   save();
   openPage(copy.id);
@@ -753,6 +755,9 @@ function pageMenuItems(pageId){
   var items = [];
   var isCurrent = pageId === state.currentPageId;
   var isTrashed = !!page.trashedAt;
+  var isPermanentDatabase = typeof isPermanentDatabasePage === 'function' && isPermanentDatabasePage(page);
+  var isPermanentQuery = typeof isPermanentQueryPage === 'function' && isPermanentQueryPage(page);
+  var isPermanentWorkspace = isPermanentDatabase || isPermanentQuery;
 
   items.push({header: page.type === 'tag' ? '#' + page.title : page.title});
   items.push({icon:'↗', label:'Open', disabled:isCurrent, onClick:function(){ openPage(pageId); }});
@@ -766,10 +771,11 @@ function pageMenuItems(pageId){
 
   items.push({icon: page.pinned ? '★' : '☆',
     label: page.pinned ? 'Unpin from sidebar' : 'Pin to sidebar',
-    disabled: !!page.hidden,
+    disabled: !!page.hidden || isPermanentWorkspace,
     onClick:function(){ togglePinPage(pageId); }});
   items.push({icon: page.hidden ? '👁' : '⊘',
     label: page.hidden ? 'Show in sidebar' : 'Remove from sidebar',
+    disabled: isPermanentWorkspace,
     onClick:function(){ togglePageHidden(pageId); }});
   items.push({icon: page.locked ? '🔓' : '🔒',
     label: page.locked ? 'Unlock page' : 'Lock page',
@@ -778,9 +784,14 @@ function pageMenuItems(pageId){
     copyToClipboard('[[' + page.title + ']]');
     toast('Copied [[' + page.title + ']] — paste it in any line.');
   }});
+  items.push({icon:'▣', label:'Copy page transclusion', onClick:function(){
+    copyToClipboard('![[' + page.title + ']]');
+    toast('Copied page transclusion — paste it anywhere to embed this page live.');
+  }});
   items.push({divider:true});
-  items.push({icon:'✎', label:'Rename…', disabled:!!page.locked,
+  items.push({icon:'✎', label:'Rename…', disabled:!!page.locked || isPermanentWorkspace,
     onClick:function(){ renamePagePrompt(pageId); }});
+  if(typeof movePageToFolderPrompt === 'function') items.push({icon:'▣', label:'Move to folder…', disabled:!!page.locked, onClick:function(){ movePageToFolderPrompt(pageId); }});
   items.push({icon:'⧉', label:'Duplicate', onClick:function(){ duplicatePage(pageId); }});
   items.push({icon:'❏', label:'Save as template…', onClick:function(){ savePageAsTemplate(pageId); }});
   items.push({divider:true});
@@ -793,7 +804,7 @@ function pageMenuItems(pageId){
     exportPageAsPdf();
   }});
   items.push({divider:true});
-  items.push({icon:'🗑', label:'Move to Trash', danger:true, disabled:!!page.locked, onClick:function(){
+  items.push({icon:'🗑', label:'Move to Trash', danger:true, disabled:!!page.locked || isPermanentWorkspace, onClick:function(){
     if(typeof currentSettings !== 'undefined' && currentSettings.confirmTrash === 'on'){
       if(!confirm('Move "' + page.title + '" to Trash?')) return;
     }
@@ -942,7 +953,16 @@ document.addEventListener('contextmenu', function(e){
     return;
   }
 
-  /* 4. A sidebar page/tag/trash row. */
+  /* 4. A sidebar folder row. */
+  var folderRow = e.target.closest ? e.target.closest('[data-folder-id]') : null;
+  if(folderRow && state.folders && state.folders[folderRow.dataset.folderId]){
+    e.preventDefault();
+    commitEditingBlock();
+    if(typeof folderMenuItems === 'function') openCtxMenu(folderMenuItems(folderRow.dataset.folderId), e.clientX, e.clientY);
+    return;
+  }
+
+  /* 5. A sidebar page/tag/trash row. */
   var pageRow = e.target.closest ? e.target.closest('[data-page-id]') : null;
   if(pageRow && state.pages[pageRow.dataset.pageId]){
     e.preventDefault();
@@ -951,7 +971,7 @@ document.addEventListener('contextmenu', function(e){
     return;
   }
 
-  /* 5. The page title / header area → this page's actions. The title
+  /* 6. The page title / header area → this page's actions. The title
      and each property key/value are contenteditable all the time
      (not just while focused), so contentEditable alone can't tell us
      "the user is mid-edit here" the way editingBlockId does for a
@@ -967,7 +987,7 @@ document.addEventListener('contextmenu', function(e){
     return;
   }
 
-  /* 6. Empty outline space. */
+  /* 7. Empty outline space. */
   var outline = e.target.closest ? e.target.closest('#outline') : null;
   if(outline && state.pages[state.currentPageId]){
     e.preventDefault();

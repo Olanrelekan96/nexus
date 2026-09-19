@@ -147,13 +147,20 @@ function renderSidebar(filter){
   fillList('list-pinned', pinnedToShow, false, filter ? null : 'pinnedOrder');
 
   fillList('list-daily', filterAndRank(dailyToShow, filter, titleOf));
-  fillList('list-pages', filterAndRank(normal, filter, titleOf), false, filter ? null : 'sortOrder');
+  if(typeof renderFolderSidebarSection === 'function') renderFolderSidebarSection(filter, typeof folderSidebarFilter !== 'undefined' ? folderSidebarFilter : '');
+  var unfiled = normal.filter(function(p){ return !p.folderId; });
+  fillList('list-pages', filterAndRank(unfiled, filter, titleOf), false, filter ? null : 'sortOrder');
   fillList('list-tags', filterAndRank(tags, filter, titleOf), true);
 
   renderHiddenSection();
   renderTrashSection();
   renderBlockMatches(filter);
   renderTemplatesSection();
+  if(typeof renderDatabaseSidebarSection === 'function') renderDatabaseSidebarSection();
+  if(typeof renderQuerySidebarSection === 'function') renderQuerySidebarSection();
+  if(typeof renderFlashcardSidebar === 'function') renderFlashcardSidebar();
+  if(typeof renderStickyNoteSidebar === 'function') renderStickyNoteSidebar();
+  if(typeof renderZettelkastenSidebar === 'function') renderZettelkastenSidebar();
 }
 
 function renderTrashSection(){
@@ -774,7 +781,15 @@ function fillList(elId, list, forceTag, dragField){
     row.dataset.pageId = p.id; /* lets the right-click handler identify which page this row is */
     var a = document.createElement('a');
     a.href = "javascript:void(0)";
-    a.textContent = (isTag ? "#"+p.title : p.title) + (isTag && p.isSupertag ? ' ⚡' : '') + (p.locked ? ' 🔒' : '');
+    a.innerHTML = '';
+    var icon = document.createElement('span');
+    icon.className = 'page-list-icon';
+    icon.textContent = typeof pageIconFor === 'function' ? pageIconFor(p) : (p.type === 'daily' ? '📅' : p.type === 'tag' ? '🏷️' : '📄');
+    icon.setAttribute('aria-hidden','true');
+    a.appendChild(icon);
+    var label = document.createElement('span');
+    label.textContent = (isTag ? "#"+p.title : p.title) + (isTag && p.isSupertag ? ' ⚡' : '') + (p.locked ? ' 🔒' : '');
+    a.appendChild(label);
     if(isTag && p.isSupertag) a.title = (a.title ? a.title + ' — ' : '') + 'Supertag';
     if(p.locked) a.title = 'Locked — read-only';
     if(p.id === state.currentPageId) a.className = "active";

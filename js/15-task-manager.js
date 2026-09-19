@@ -202,7 +202,7 @@ function setTaskRepeat(taskId, rep){
 var tasksViewState = (typeof tasksViewState !== 'undefined' && tasksViewState) || {};
 tasksViewState.query = tasksViewState.query || '';
 tasksViewState.sort = (tasksViewState.sort && tasksViewState.sort !== 'due') ? tasksViewState.sort : 'smart';
-tasksViewState.layout = tasksViewState.layout || 'board';
+tasksViewState.layout = ['board','list','gallery'].indexOf(tasksViewState.layout) !== -1 ? tasksViewState.layout : 'board';
 tasksViewState.group = tasksViewState.group || 'due';
 tasksViewState.status = tasksViewState.status || 'open';   /* open | done | all */
 tasksViewState.pri = tasksViewState.pri || 'all';          /* all | 1 | 2 | 3 | none */
@@ -469,6 +469,9 @@ function openTaskMenu(t, x, y){
   openCtxMenu(items, x, y);
 }
 
+/* Gallery is intentionally a presentation mode over the same task data
+   and grouping/filtering pipeline as Board and List. This keeps every task
+   action, bulk operation and advanced filter identical across layouts. */
 function renderTasksView(){
   var listEl = document.getElementById('tasks-list');
   if(!listEl) return;
@@ -480,9 +483,10 @@ function renderTasksView(){
   renderTaskBulkBar(visible);
 
   listEl.innerHTML = '';
-  listEl.className = tasksViewState.layout === 'board' ? 'tasks-board' : 'tasks-list';
+  listEl.className = tasksViewState.layout === 'board' ? 'tasks-board' :
+                      (tasksViewState.layout === 'gallery' ? 'tasks-gallery' : 'tasks-list');
 
-  if(!visible.length && tasksViewState.layout === 'list'){
+  if(!visible.length && (tasksViewState.layout === 'list' || tasksViewState.layout === 'gallery')){
     var empty = document.createElement('div');
     empty.className = 'tasks-empty';
     empty.textContent = all.length
@@ -650,7 +654,15 @@ function wireTaskManager(){
     if(el) el.value = tasksViewState[pair[1]];
   });
   var layoutBtn = document.getElementById('tasks-layout');
-  if(layoutBtn) layoutBtn.textContent = tasksViewState.layout === 'board' ? '\u25a4 Board' : '\u2630 List';
+  function setTaskLayoutLabel(){
+    var btn = document.getElementById('tasks-layout');
+    if(!btn) return;
+    var labels = {board:'\u25a4 Board', list:'\u2630 List', gallery:'\u25a6 Gallery'};
+    btn.textContent = labels[tasksViewState.layout] || labels.board;
+    btn.title = 'Switch task layout (Board, List, Gallery)';
+    btn.setAttribute('aria-label', 'Task layout: ' + (tasksViewState.layout === 'board' ? 'Board' : tasksViewState.layout === 'list' ? 'List' : 'Gallery') + '. Click to switch.');
+  }
+  setTaskLayoutLabel();
 
   function on(id, ev, fn){
     var el = document.getElementById(id);
@@ -664,9 +676,10 @@ function wireTaskManager(){
   on('tasks-page', 'change', function(e){ tasksViewState.page = e.target.value; renderTasksView(); });
   on('tasks-tag', 'change', function(e){ tasksViewState.tag = e.target.value; renderTasksView(); });
   on('tasks-layout', 'click', function(){
-    tasksViewState.layout = tasksViewState.layout === 'board' ? 'list' : 'board';
-    document.getElementById('tasks-layout').textContent =
-      tasksViewState.layout === 'board' ? '▤ Board' : '☰ List';
+    var order = ['board','list','gallery'];
+    var i = order.indexOf(tasksViewState.layout);
+    tasksViewState.layout = order[(i + 1) % order.length];
+    setTaskLayoutLabel();
     renderTasksView();
   });
   on('tasks-quickadd', 'keydown', function(e){
