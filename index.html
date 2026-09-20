@@ -701,6 +701,16 @@
         <div class="hint" id="gdrive-authttl-status"></div>
       </div>
       <div>
+        <div class="settings-label">Remember sync encryption key for</div>
+        <div class="settings-row" id="settings-gdrivesynckeysession-row">
+          <button type="button" class="settings-opt" data-gdrivesynckeysession="1">1 hour</button>
+          <button type="button" class="settings-opt" data-gdrivesynckeysession="6">6 hours</button>
+          <button type="button" class="settings-opt" data-gdrivesynckeysession="12">12 hours</button>
+          <button type="button" class="settings-opt" data-gdrivesynckeysession="24">24 hours</button>
+        </div>
+        <div class="hint" id="gdrive-synckeysession-status">When Google Drive sync is encrypted with your passcode, Nexus remembers the key for this long after you enter it, so you are not asked again on every page reload. The key is kept in tab session storage only — it is never written to disk and is automatically cleared when you close the tab or the interval expires.</div>
+      </div>
+      <div>
         <div class="settings-label">Data health</div>
         <div class="settings-row">
           <button type="button" class="settings-opt" id="btn-data-health">Open data health</button>

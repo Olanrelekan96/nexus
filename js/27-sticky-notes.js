@@ -31,7 +31,7 @@ function visibleStickyNotes(){var q=(stickyNoteState.query||'').trim().toLowerCa
 function ensureDefaultStickyNotesPage(){
   if(!state)return null;var key=DEFAULT_STICKY_NOTES_TITLE.toLowerCase(),id=state.titleIndex&&state.titleIndex[key],page=id&&state.pages[id]?state.pages[id]:null;
   if(page){page.systemStickyNotesPage=true;page.permanentSidebarStickyNotes=true;if(!Array.isArray(page.rootBlocks))page.rootBlocks=[];if(!page.icon)page.icon='🗒';if(!page.banner)page.banner='sunset';return page;}
-  var pid=uid(),b1=uid(),b2=uid();page={id:pid,title:DEFAULT_STICKY_NOTES_TITLE,type:'page',systemKey:'sticky-notes',createdAt:Date.now(),properties:[{key:'status',value:'system'},{key:'type',value:'sticky note hub'}],icon:'🗒',banner:'sunset',rootBlocks:[b1,b2],systemStickyNotesPage:true,permanentSidebarStickyNotes:true};
+  var pid=uid(),b1=uid(),b2=uid();page={id:pid,title:DEFAULT_STICKY_NOTES_TITLE,type:'page',createdAt:Date.now(),properties:[{key:'status',value:'system'},{key:'type',value:'sticky note hub'}],icon:'🗒',banner:'sunset',rootBlocks:[b1,b2],systemStickyNotesPage:true,permanentSidebarStickyNotes:true};
   state.pages[pid]=page;state.blocks[b1]=mkBlock(b1,pid,null,'**Sticky Note Cards**');state.blocks[b2]=mkBlock(b2,pid,null,'Use 🗒 Sticky Notes in the sidebar for colorful quick-capture cards. Important notes can link back to pages or blocks.');state.titleIndex[key]=pid;return page;
 }
 function ensureStickyNotesWorkspace(){if(!state)return;ensureStickyNoteState();ensureDefaultStickyNotesPage();}

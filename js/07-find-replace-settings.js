@@ -150,6 +150,7 @@ var SETTINGS_DEFAULTS = {
   confirmTrash: 'off',
   autoBackupInterval: 'off',
   gdriveAutoSync: 'off',
+  gdriveSyncKeySessionHours: '24',
   passcodeReentryHours: '24',
   passcodeRequestOnLaunch: 'on'
 };
@@ -163,6 +164,7 @@ var SETTINGS_ROWS = [
   ['settings-autobackup-row', 'autobackup', 'autoBackupInterval'],
   ['settings-confirmtrash-row', 'confirmtrash', 'confirmTrash'],
   ['settings-gdriveautosync-row', 'gdriveautosync', 'gdriveAutoSync'],
+  ['settings-gdrivesynckeysession-row', 'gdrivesynckeysession', 'gdriveSyncKeySessionHours'],
   ['settings-passcodereentry-row', 'passcodereentry', 'passcodeReentryHours'],
   ['settings-passcode-launch-row', 'passcoderequest', 'passcodeRequestOnLaunch']
 ];

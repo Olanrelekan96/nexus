@@ -44,7 +44,6 @@ function ensureDefaultDatabasePage(){
     id: pid,
     title: DEFAULT_DATABASE_TITLE,
     type: 'page',
-    systemKey: 'database',
     createdAt: Date.now(),
     properties: [{key:'status', value:'system'}, {key:'type', value:'database hub'}],
     icon:'🗃️', banner:'forest',

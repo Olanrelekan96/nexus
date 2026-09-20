@@ -48,7 +48,6 @@ function ensureDefaultQueryPage(){
     id: pid,
     title: DEFAULT_QUERY_TITLE,
     type: 'page',
-    systemKey: 'queries',
     createdAt: Date.now(),
     properties: [{key:'status', value:'system'}, {key:'type', value:'query hub'}],
     icon:'⌕', banner:'slate',
