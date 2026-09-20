@@ -270,7 +270,7 @@ function bootNotebook(){
     maybeAutoSnapshot();
     updateBackupBanner();
     updateUndoRedoButtons();
-    updateConflictsBadge();
+    initConflictsStore();
     registerPwa();
     renderAttachmentsSection();
     maybeRunAutoBackup();

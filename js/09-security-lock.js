@@ -560,6 +560,15 @@ function setPasscode(passcode){
       });
     })
     .then(function(){
+      /* Older version snapshots were stored as plaintext copies of the whole notebook, and the
+         conflict log holds snippets of notes: both get encrypted under the new key as well. */
+      return encryptExistingVersions().then(function(failed){
+        return persistConflicts().then(function(){
+          if(failed && typeof toast === 'function') toast(failed + ' older snapshot' + (failed === 1 ? '' : 's') + ' could not be encrypted — check Version history.');
+        });
+      });
+    })
+    .then(function(){
       /* Setting the passcode is also a successful unlock. Start the re-entry
          clock here so the first passcode session cannot remain unlocked
          indefinitely while the recovery key dialog is displayed. */
@@ -693,13 +702,27 @@ function removePasscode(){
             still exist. If anything here fails, nothing has been discarded:
             encrypted and plain records are both readable with the lock still on. */
       var attWrites = decrypted.filter(Boolean).map(function(rec){ return idbPutRaw(ATT_STORE, rec); });
+      var migratedVersions = null;
       return Promise.all(attWrites).then(function(){
+        /* Version snapshots and the conflict log are encrypted under the same key: convert them too, or
+           they would be unreadable garbage the moment the key is forgotten. */
+        return decryptExistingVersions();
+      }).then(function(res){
+        migratedVersions = res;
+        return idbPutRaw(NB_STORE, JSON.stringify(conflictsCache), CONFLICTS_REC);
+      }).then(function(){
         if(!currentJson) return;
         return idbPutRaw(NB_STORE, currentJson, 'state').then(function(){
           return readRawNotebookRecord();
         }).then(function(back){
           if(back !== currentJson) throw new Error('Could not verify the decrypted notebook, so the passcode was kept.');
         });
+      }).then(function(){
+        /* Snapshots that would not decrypt are corrupt; do not leave unreadable data behind. */
+        return Promise.all((migratedVersions ? migratedVersions.unreadable : []).map(function(ts){ return deleteVersion(ts); }));
+      }).catch(function(err){
+        /* Nothing was discarded: put the snapshots and the conflict log back under the passcode. */
+        return encryptExistingVersions().then(function(){ return persistConflicts(); }).catch(function(){}).then(function(){ throw err; });
       });
     }).then(function(){
       /* 2) Only now is it safe to forget the key. */
@@ -784,9 +807,13 @@ function eraseAndStartOver(){
     return new Promise(function(resolve, reject){
       var tx = db.transaction(NB_STORE, 'readwrite');
       tx.objectStore(NB_STORE).delete('state');
+      tx.objectStore(NB_STORE).delete(CONFLICTS_REC);
       tx.oncomplete = function(){ resolve(); };
       tx.onerror = function(){ reject(tx.error); };
     });
+  }).then(function(){
+    /* Snapshots of the erased notebook are encrypted under a key nobody has any more. */
+    return clearAllVersions();
   }).then(function(){
     clearLockMeta();
     location.reload();

@@ -14,7 +14,6 @@
    BACKUP / RESTORE + VERSION SAFETY NET + REMINDER
    ============================================================ */
 var META_KEY = STORAGE_KEY + '_meta';
-var MAX_VERSIONS = 5;
 
 function loadMeta(){
   try{ return JSON.parse(localStorage.getItem(META_KEY)) || {}; }catch(e){ return {}; }
@@ -26,13 +25,16 @@ function saveMeta(meta){
 /* Version snapshots are full copies of the entire notebook (see
    snapshotVersion below), so — unlike everything else that shares
    localStorage's ~5-10MB budget — they live in their own IndexedDB
-   object store, right alongside attachments. Up to MAX_VERSIONS
-   snapshots of a large notebook would otherwise multiply the
-   localStorage footprint several times over for no benefit, and
-   IndexedDB has effectively no comparable ceiling. All access is
-   necessarily async now; call sites use .then() rather than reading
-   the list synchronously. */
+   object store, right alongside attachments. Retention: pinned or named
+   snapshots are never removed automatically; the other ones keep the newest
+   MAX_UNPINNED_VERSIONS (and stop growing past MAX_VERSION_BYTES, always
+   keeping the newest MIN_KEEP_VERSIONS). All access is necessarily async;
+   call sites use .then() rather than reading the list synchronously. */
 var VERS_STORE = "versions";
+var MAX_UNPINNED_VERSIONS = 30;
+var MAX_VERSION_BYTES = 150 * 1024 * 1024;
+var MIN_KEEP_VERSIONS = 5;
+var lastVersionTs = 0;
 /* Shares one DB (and one open connection) with attachments — see
    openAttachmentDb() further down, which now creates both object
    stores. Kept as a single opener so there's no risk of two
@@ -47,27 +49,53 @@ function loadVersions(){
     });
   }).catch(function(){ return []; });
 }
+/* Cheap content fingerprint (FNV-1a + length) so an unchanged notebook does not fill the
+   history with identical copies. */
+function versionDigest(str){
+  var h = 2166136261;
+  for(var i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(16) + ':' + str.length;
+}
+function versionSize(v){ return v.bytes || (v.data ? v.data.length : (v.ct ? v.ct.length : 0)); }
+function versionIsProtected(v){ return !!(v.pinned || v.name || v.nameEnc); }
+function versionKind(v){
+  if(v.kind) return v.kind;
+  var r = v.reason || '';
+  return /daily/i.test(r) ? 'auto' : /backup/i.test(r) ? 'backup' : 'safety';
+}
+function versionRecordBase(entry){
+  return {ts: entry.ts, reason: entry.reason, kind: entry.kind || 'safety', pinned: !!entry.pinned,
+          pages: entry.pages, blocks: entry.blocks, bytes: entry.bytes, digest: entry.digest};
+}
+function writeVersionRecord(db, payload){
+  return new Promise(function(resolve, reject){
+    var tx = db.transaction(VERS_STORE, 'readwrite');
+    tx.objectStore(VERS_STORE).put(payload);
+    tx.oncomplete = function(){ resolve(); };
+    tx.onerror = function(){ reject(tx.error); };
+    tx.onabort = function(){ reject(tx.error || new Error('IndexedDB transaction aborted.')); };
+  });
+}
 /* Same at-rest treatment as the notebook JSON and attachments: when a
-   passcode is set, entry.data (the full-notebook JSON string) is AES-GCM
-   encrypted under the DEK before being written, and {ts, reason} stay in
-   the clear so the versions list can render without decrypting anything.
-   Callers of getVersionData() never see the difference. */
+   passcode is set, the snapshot JSON (and a name you gave it) is AES-GCM
+   encrypted under the DEK before being written. Time, reason, kind and the
+   page/block counts stay in the clear so the list renders without decrypting
+   anything. Callers of getVersionData() never see the difference. */
 function putVersion(entry){
   return openAttachmentDb().then(function(db){
-    function write(payload){
-      return new Promise(function(resolve, reject){
-        var tx = db.transaction(VERS_STORE, 'readwrite');
-        tx.objectStore(VERS_STORE).put(payload);
-        tx.oncomplete = function(){ resolve(); };
-        tx.onerror = function(){ reject(tx.error); };
-      });
-    }
+    var base = versionRecordBase(entry);
     if(lockCryptoKey){
-      return encryptWithKey(lockCryptoKey, entry.data).then(function(enc){
-        return write({ts: entry.ts, reason: entry.reason, enc: true, iv: enc.iv, ct: enc.ct});
+      var jobs = [encryptWithKey(lockCryptoKey, entry.data)];
+      if(entry.name) jobs.push(encryptWithKey(lockCryptoKey, entry.name));
+      return Promise.all(jobs).then(function(r){
+        base.enc = true; base.iv = r[0].iv; base.ct = r[0].ct;
+        if(r[1]) base.nameEnc = {iv: r[1].iv, ct: r[1].ct};
+        return writeVersionRecord(db, base);
       });
     }
-    return write(entry);
+    base.data = entry.data;
+    if(entry.name) base.name = entry.name;
+    return writeVersionRecord(db, base);
   });
 }
 /* Resolves the full-notebook JSON string for a version list entry,
@@ -81,6 +109,11 @@ function getVersionData(entry){
   }
   return Promise.resolve(entry.data);
 }
+function resolveVersionName(entry){
+  if(entry.name) return Promise.resolve(entry.name);
+  if(entry.nameEnc && lockCryptoKey) return decryptWithKey(lockCryptoKey, entry.nameEnc).catch(function(){ return ''; });
+  return Promise.resolve('');
+}
 function deleteVersion(ts){
   return openAttachmentDb().then(function(db){
     return new Promise(function(resolve, reject){
@@ -91,16 +124,110 @@ function deleteVersion(ts){
     });
   });
 }
-function snapshotVersion(reason){
-  var entry = {ts: Date.now(), reason: reason, data: JSON.stringify(state)};
-  return putVersion(entry).then(function(){
-    return loadVersions();
-  }).then(function(list){
-    var excess = list.length - MAX_VERSIONS;
-    if(excess <= 0) return;
-    var toDrop = list.slice(0, excess); // oldest first
-    return Promise.all(toDrop.map(function(v){ return deleteVersion(v.ts); }));
-  }).catch(function(){ /* IndexedDB unavailable — snapshot silently skipped, same as attachments do */ });
+function clearAllVersions(){
+  return openAttachmentDb().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(VERS_STORE, 'readwrite');
+      tx.objectStore(VERS_STORE).clear();
+      tx.oncomplete = function(){ resolve(); };
+      tx.onerror = function(){ reject(tx.error); };
+    });
+  });
+}
+/* Read-modify-write of one record's metadata, without touching (or re-encrypting) the snapshot data. */
+function patchVersionRecord(ts, fn){
+  return openAttachmentDb().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(VERS_STORE, 'readwrite'), st = tx.objectStore(VERS_STORE), g = st.get(ts);
+      g.onsuccess = function(){ var rec = g.result; if(rec){ fn(rec); st.put(rec); } };
+      tx.oncomplete = function(){ resolve(); };
+      tx.onerror = function(){ reject(tx.error); };
+      tx.onabort = function(){ reject(tx.error || new Error('IndexedDB transaction aborted.')); };
+    });
+  });
+}
+function setVersionPinned(ts, pinned){ return patchVersionRecord(ts, function(r){ r.pinned = !!pinned; }); }
+function setVersionName(ts, name){
+  name = (name || '').trim().slice(0, 80);
+  if(!name) return patchVersionRecord(ts, function(r){ delete r.name; delete r.nameEnc; });
+  if(lockCryptoKey){
+    return encryptWithKey(lockCryptoKey, name).then(function(enc){
+      return patchVersionRecord(ts, function(r){ delete r.name; r.nameEnc = {iv: enc.iv, ct: enc.ct}; });
+    });
+  }
+  return patchVersionRecord(ts, function(r){ delete r.nameEnc; r.name = name; });
+}
+function pruneVersions(){
+  return loadVersions().then(function(list){
+    var kept = list.filter(function(v){ return !versionIsProtected(v); });
+    var drop = [];
+    while(kept.length > MAX_UNPINNED_VERSIONS) drop.push(kept.shift());
+    var total = kept.reduce(function(sum, v){ return sum + versionSize(v); }, 0);
+    while(kept.length > MIN_KEEP_VERSIONS && total > MAX_VERSION_BYTES){
+      var v = kept.shift(); total -= versionSize(v); drop.push(v);
+    }
+    return Promise.all(drop.map(function(v){ return deleteVersion(v.ts); }));
+  });
+}
+/* opts: kind ('auto' | 'safety' | 'sync' | 'manual' | 'backup'), name, pinned, force.
+   The state is captured synchronously at call time, so a caller can snapshot and then go on to
+   change it. An unchanged notebook is not stored twice in a row unless force is set. */
+function snapshotVersion(reason, opts){
+  opts = opts || {};
+  if(!state || !state.pages) return Promise.resolve(null);
+  var json = JSON.stringify(state);
+  var ts = Date.now(); if(ts <= lastVersionTs) ts = lastVersionTs + 1; lastVersionTs = ts;
+  var entry = {ts: ts, reason: reason, kind: opts.kind || 'safety', data: json, name: opts.name || '', pinned: !!opts.pinned,
+               pages: Object.keys(state.pages).length, blocks: Object.keys(state.blocks || {}).length,
+               bytes: json.length, digest: versionDigest(json)};
+  return loadVersions().then(function(list){
+    var last = list.length ? list[list.length-1] : null;
+    if(!opts.force && !entry.name && last && last.digest && last.digest === entry.digest) return null;
+    return putVersion(entry).then(function(){ return pruneVersions(); }).then(function(){ return entry.ts; });
+  }).catch(function(){ return null; /* IndexedDB unavailable — snapshot silently skipped, same as attachments do */ });
+}
+/* At most one snapshot per key every `ms` — for actions that can repeat quickly (deleting several pages). */
+var snapshotThrottle = {};
+function snapshotVersionThrottled(key, ms, reason, opts){
+  var now = Date.now();
+  if(snapshotThrottle[key] && now - snapshotThrottle[key] < ms) return Promise.resolve(null);
+  snapshotThrottle[key] = now;
+  return snapshotVersion(reason, opts);
+}
+/* Passcode lifecycle. Snapshots taken before a passcode existed sat in the store as plaintext copies of
+   the whole notebook, and snapshots encrypted under a passcode became unreadable the moment it was removed.
+   Both directions are migrated with the key still in hand (see setPasscode / removePasscode). */
+function encryptExistingVersions(){
+  return loadVersions().then(function(list){
+    var plain = list.filter(function(v){ return !v.enc && typeof v.data === 'string'; });
+    var failed = 0;
+    return plain.reduce(function(chain, v){
+      return chain.then(function(){
+        return putVersion({ts: v.ts, reason: v.reason, kind: v.kind, pinned: v.pinned, pages: v.pages, blocks: v.blocks,
+                           bytes: v.bytes, digest: v.digest, data: v.data, name: v.name});
+      }).catch(function(){ failed++; });
+    }, Promise.resolve()).then(function(){ return failed; });
+  });
+}
+function decryptExistingVersions(){
+  return loadVersions().then(function(list){
+    var encs = list.filter(function(v){ return v.enc; });
+    var result = {migrated: 0, unreadable: []};
+    return encs.reduce(function(chain, v){
+      return chain.then(function(){
+        return Promise.all([getVersionData(v), resolveVersionName(v)]).then(function(r){
+          var rec = versionRecordBase(v); rec.data = r[0]; if(r[1]) rec.name = r[1];
+          return idbPutRaw(VERS_STORE, rec);
+        }).then(function(){ result.migrated++; }, function(){ result.unreadable.push(v.ts); });
+      });
+    }, Promise.resolve()).then(function(){
+      return loadVersions().then(function(after){
+        var still = after.filter(function(v){ return v.enc && result.unreadable.indexOf(v.ts) === -1; });
+        if(still.length) throw new Error('Could not verify the decrypted snapshots, so the passcode was kept.');
+        return result;
+      });
+    });
+  });
 }
 
 /* Bundles state plus every attachment's actual bytes (base64) into one
@@ -195,7 +322,7 @@ function downloadBackupFallback(json, fname){
 
 function finishBackup(fname){
   toast('Backup saved: ' + fname);
-  snapshotVersion('manual backup');
+  snapshotVersion('manual backup', {kind:'backup'});
   var meta = loadMeta();
   meta.lastBackupAt = Date.now();
   meta.snoozeUntil = 0;
@@ -578,8 +705,9 @@ function gdriveCredentialsConfigured(){
 
 /* Returns true (and shows an explanation) if this page can't do Google
    OAuth from where it's currently running — i.e. opened as a local file. */
-function gdriveBlockedByOrigin(){
+function gdriveBlockedByOrigin(silent){
   if(location.protocol === 'file:'){
+    if(silent) return true; /* background sync must never pop an alert */
     alert('Google Drive import/export needs Nexus to be opened over http(s), not as a local file.\n\n' +
           'Google\'s sign-in won\'t authorize a page opened directly from disk (a file:// address). ' +
           'Host this file somewhere simple — GitHub Pages, Netlify, Vercel, or even "python3 -m http.server" ' +
@@ -753,7 +881,7 @@ function gdriveUploadBackup(){
     return res.json();
   }).then(function(file){
     toast('Backup saved to Google Drive: ' + fname);
-    snapshotVersion('manual backup (Google Drive)');
+    snapshotVersion('manual backup (Google Drive)', {kind:'backup'});
   }).catch(function(err){
     if(err && err.message === 'export-cancelled') return; /* already toasted, or silently cancelled */
     toast('Could not save the backup to Google Drive.');
@@ -1067,7 +1195,8 @@ var GDRIVE_CYCLE_STALE_MS = 90000; /* a cycle that hasn't finished in this long 
    arrives mid-cycle is remembered and re-run once, right after, so a
    local edit made while a sync was in flight is never left behind. */
 function gdrivePerformSyncCycle(){
-  if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin()) return;
+  if(typeof appLocked !== 'undefined' && appLocked) return;
+  if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin(true)) return;
   if(gdriveCycleRunning && (Date.now() - gdriveCycleStartedAt) < GDRIVE_CYCLE_STALE_MS){
     gdriveCycleQueued = true;
     return;
@@ -1115,6 +1244,7 @@ function gdriveRunSyncCycleBody(done){
       if(!merged.syncPeers) merged.syncPeers = {};
       merged.syncPeers.gdrive = syncTs;
       if(changed){
+        syncSafetySnapshot(mergeResult, 'Google Drive');
         applyIncomingMerge(merged);
         toast('Synced with Google Drive.');
       } else {
@@ -1143,7 +1273,10 @@ function gdriveRunSyncCycleBody(done){
    line asking for a "Sync now" click rather than interrupting. */
 function runGdriveSyncCycle(){
   if(!gdriveAutoSyncEnabled()) return;
-  if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin()) return;
+  /* A locked notebook must not be merged with, or uploaded to, Drive in the background: the
+     passcode gate also covers sync. The next timer tick / resume after unlocking catches up. */
+  if(typeof appLocked !== 'undefined' && appLocked) return;
+  if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin(true)) return;
   if(gdriveAccessToken && gdriveAuthStillValid()){ gdrivePerformSyncCycle(); return; }
   gdriveGetTokenSilently(gdrivePerformSyncCycle, function(){
     setGdriveAutoSyncStatus(gdriveAuthExpired()
@@ -1262,22 +1395,115 @@ function disableGdriveAutoSync(){
   stopGdriveAutoSyncTimer();
 }
 
+function parseSnapshotJson(json){
+  var snap = JSON.parse(json);
+  if(!snap || typeof snap !== 'object' || !snap.pages || !snap.blocks) throw new Error('not a notebook snapshot');
+  return snap;
+}
 function restoreFromVersion(entry){
   if(!confirm('Load this snapshot from ' + new Date(entry.ts).toLocaleString() + '? This will replace what\'s currently open.')) return;
-  snapshotVersion('before version restore');
+  snapshotVersion('Before restoring a snapshot', {kind:'safety'});
   getVersionData(entry).then(function(json){
-    state = normalizeState(JSON.parse(json));
+    state = normalizeState(parseSnapshotJson(json));
     save();
     renderAll();
     closeVersions();
+    closeVersionDiff();
     toast('Snapshot loaded.');
   }).catch(function(){ toast('That snapshot could not be read.'); });
 }
 
-/* ---- Version diff: a per-page/per-block summary of what a snapshot
-   restore would change, computed on demand from the two full-state
-   JSON blobs — no separate diff storage needed. This is a summary
-   view (which pages/blocks changed), not a character-level text diff. ---- */
+/* Bring one page (its title, properties and every line, exactly as the snapshot had them) back into the
+   notebook without touching anything else. A safety snapshot of the current state is taken first. */
+function restorePageFromSnapshot(snap, pageId){
+  var sp = snap.pages && snap.pages[pageId];
+  if(!sp){ toast('That page is not in this snapshot.'); return false; }
+  var curP = state.pages[pageId];
+  snapshotVersion('Before restoring page "' + (curP ? curP.title : sp.title) + '"', {kind:'safety'});
+  var copy = JSON.parse(JSON.stringify(sp));
+  var snapIds = Object.keys(snap.blocks || {}).filter(function(id){ return snap.blocks[id] && snap.blocks[id].pageId === pageId; });
+  /* A line id that has since moved to a different page keeps living there; the restored line gets a fresh id. */
+  var remap = {};
+  snapIds.forEach(function(id){ var ex = state.blocks[id]; if(ex && ex.pageId !== pageId) remap[id] = uid(); });
+  function mapId(id){ return remap[id] || id; }
+  Object.keys(state.blocks).forEach(function(id){ if(state.blocks[id].pageId === pageId) delete state.blocks[id]; });
+  snapIds.forEach(function(id){
+    var nb = JSON.parse(JSON.stringify(snap.blocks[id]));
+    nb.id = mapId(id);
+    nb.pageId = pageId;
+    nb.parent = nb.parent ? mapId(nb.parent) : null;
+    nb.children = (nb.children || []).map(mapId);
+    delete nb.conflict;
+    state.blocks[nb.id] = nb;
+    if(state.tombstones && state.tombstones.blocks){ delete state.tombstones.blocks[nb.id]; delete state.tombstones.blocks[id]; }
+  });
+  snapIds.forEach(function(id){
+    var b = state.blocks[mapId(id)];
+    b.children = b.children.filter(function(c){ return !!state.blocks[c]; });
+    if(b.parent && !state.blocks[b.parent]) b.parent = null;
+  });
+  copy.rootBlocks = (copy.rootBlocks || []).map(mapId).filter(function(id){ return state.blocks[id] && !state.blocks[id].parent; });
+  snapIds.forEach(function(id){ var nid = mapId(id); if(state.blocks[nid] && !state.blocks[nid].parent && copy.rootBlocks.indexOf(nid) === -1) copy.rootBlocks.push(nid); });
+  var key = (copy.title || '').toLowerCase();
+  var clash = Object.keys(state.pages).some(function(pid){ return pid !== pageId && (state.pages[pid].title || '').toLowerCase() === key; });
+  if(clash) copy.title = copy.title + ' (restored)';
+  delete copy.trashedAt;
+  state.pages[pageId] = copy;
+  if(state.tombstones && state.tombstones.pages) delete state.tombstones.pages[pageId];
+  state.titleIndex = rebuildTitleIndex(state);
+  save();
+  renderAll();
+  openPage(pageId);
+  toast('Restored "' + copy.title + '".');
+  return true;
+}
+function restoreLineFromSnapshot(snap, blockId){
+  var sb = snap.blocks && snap.blocks[blockId], cb = state.blocks[blockId];
+  if(!sb || !cb){ toast('That line is not available to restore.'); return false; }
+  snapshotVersionThrottled('line-restore', 2*60*1000, 'Before restoring lines from a snapshot', {kind:'safety'});
+  cb.text = sb.text;
+  save();
+  renderPage();
+  return true;
+}
+
+/* ---- Word-level highlighting (used by the snapshot comparison and by sync conflicts). Pure text →
+   DOM built with textContent, so nothing from a note is ever interpreted as markup. ---- */
+function tokenizeWords(s){ return (s || '').split(/(\s+)/).filter(function(t){ return t.length; }); }
+function wordDiffParts(a, b){
+  var A = tokenizeWords(a), B = tokenizeWords(b), n = A.length, m = B.length, i, j;
+  if(n * m > 250000) return {a:[{t:a || '', d:true}], b:[{t:b || '', d:true}]};
+  var dp = [];
+  for(i=0;i<=n;i++){ dp.push(new Array(m+1)); dp[i][m] = 0; }
+  for(j=0;j<=m;j++) dp[n][j] = 0;
+  for(i=n-1;i>=0;i--) for(j=m-1;j>=0;j--) dp[i][j] = A[i] === B[j] ? dp[i+1][j+1] + 1 : Math.max(dp[i+1][j], dp[i][j+1]);
+  var oa = [], ob = [];
+  i = 0; j = 0;
+  while(i < n && j < m){
+    if(A[i] === B[j]){ oa.push({t:A[i]}); ob.push({t:B[j]}); i++; j++; }
+    else if(dp[i+1][j] >= dp[i][j+1]){ oa.push({t:A[i], d:true}); i++; }
+    else { ob.push({t:B[j], d:true}); j++; }
+  }
+  while(i < n){ oa.push({t:A[i++], d:true}); }
+  while(j < m){ ob.push({t:B[j++], d:true}); }
+  return {a:oa, b:ob};
+}
+function fillWordDiff(el, parts, cls){
+  el.textContent = '';
+  parts.forEach(function(p){
+    if(p.d && /\S/.test(p.t)){ var s = document.createElement('span'); s.className = cls; s.textContent = p.t; el.appendChild(s); }
+    else el.appendChild(document.createTextNode(p.t));
+  });
+  if(!el.firstChild) el.textContent = '(empty)';
+}
+function fillWordDiffPair(elOld, elNew, oldText, newText){
+  var d = wordDiffParts(oldText, newText);
+  fillWordDiff(elOld, d.a, 'wd-del');
+  fillWordDiff(elNew, d.b, 'wd-ins');
+}
+
+/* ---- Version diff: a per-page/per-block summary of what a snapshot restore would change, computed on
+   demand from the two full-state JSON blobs — no separate diff storage needed. ---- */
 function truncateForDiff(s, n){
   s = s || '';
   return s.length > n ? s.slice(0, n) + '…' : s;
@@ -1285,8 +1511,8 @@ function truncateForDiff(s, n){
 function computeVersionDiff(entry){
   return getVersionData(entry).then(function(json){
     var snap;
-    try{ snap = JSON.parse(json); }catch(e){ return null; }
-    return buildVersionDiff(snap);
+    try{ snap = parseSnapshotJson(json); }catch(e){ return null; }
+    return {snap: snap, diff: buildVersionDiff(snap)};
   }).catch(function(){ return null; });
 }
 function buildVersionDiff(snap){
@@ -1322,146 +1548,383 @@ function buildVersionDiff(snap){
       var cText = curBlocks.hasOwnProperty(bid) ? curBlocks[bid] : null;
       var sText = snapBlocks.hasOwnProperty(bid) ? snapBlocks[bid] : null;
       if(cText === sText) return;
-      changedBlocks.push({current: cText, snapshot: sText});
+      changedBlocks.push({id: bid, current: cText, snapshot: sText});
     });
     var titleChanged = curP.title !== snapP.title;
     if(changedBlocks.length || titleChanged){
-      result.modified.push({id:pid, currentTitle:curP.title, titleChanged:titleChanged, blocks:changedBlocks});
+      result.modified.push({id:pid, currentTitle:curP.title, snapshotTitle:snapP.title, titleChanged:titleChanged, blocks:changedBlocks});
     } else {
       result.unchangedCount++;
     }
   });
   return result;
 }
+function scopeVersionDiffToPage(diff, pageId){
+  function only(list){ return list.filter(function(x){ return x.id === pageId; }); }
+  return {restored: only(diff.restored), removed: only(diff.removed), modified: only(diff.modified), unchangedCount: 0};
+}
 
-function openVersionDiff(entry){
+function openVersionDiff(entry, opts){
+  opts = opts || {};
   var wrap = document.getElementById('diff-list');
-  document.getElementById('diff-overlay-title').textContent = 'Comparing to ' + new Date(entry.ts).toLocaleString();
-  wrap.innerHTML = '<div class="version-empty">Loading…</div>';
-  document.getElementById('diff-restore-btn').onclick = function(){ closeVersionDiff(); restoreFromVersion(entry); };
+  document.getElementById('diff-overlay-title').textContent = (opts.pageId ? 'This page vs. ' : 'Comparing to ') + new Date(entry.ts).toLocaleString();
+  var restoreBtn = document.getElementById('diff-restore-btn');
+  restoreBtn.textContent = opts.pageId ? 'Restore this page' : 'Restore this snapshot';
+  restoreBtn.style.display = 'none';
+  wrap.textContent = '';
+  var loading = document.createElement('div'); loading.className = 'version-empty'; loading.textContent = 'Loading…'; wrap.appendChild(loading);
   document.getElementById('diff-overlay').style.display = 'flex';
-  computeVersionDiff(entry).then(function(diff){
-    wrap.innerHTML = "";
-    if(!diff){
-      wrap.innerHTML = '<div class="version-empty">That snapshot could not be read.</div>';
-    } else if(!diff.removed.length && !diff.restored.length && !diff.modified.length){
-      wrap.innerHTML = '<div class="version-empty">No differences — this snapshot matches what\'s currently open.</div>';
-    } else {
-      var summary = document.createElement('div');
-      summary.className = 'diff-summary';
-      summary.textContent = diff.modified.length + ' page' + (diff.modified.length===1?'':'s') + ' changed, ' +
-        diff.removed.length + ' would be removed, ' + diff.restored.length + ' would come back, ' +
-        diff.unchangedCount + ' unchanged if you restore this snapshot.';
-      wrap.appendChild(summary);
-  
-      function addSection(label, items, cls, render){
-        if(!items.length) return;
-        var h = document.createElement('div'); h.className = 'diff-section-head'; h.textContent = label;
-        wrap.appendChild(h);
-        items.forEach(function(it){ wrap.appendChild(render(it)); });
+  computeVersionDiff(entry).then(function(res){
+    wrap.textContent = '';
+    function message(text){ var d = document.createElement('div'); d.className = 'version-empty'; d.textContent = text; wrap.appendChild(d); }
+    if(!res){ message('That snapshot could not be read.'); return; }
+    var snap = res.snap, diff = opts.pageId ? scopeVersionDiffToPage(res.diff, opts.pageId) : res.diff;
+    if(opts.pageId){
+      if(snap.pages[opts.pageId]){
+        restoreBtn.style.display = '';
+        restoreBtn.onclick = function(){
+          if(!confirm('Replace this page with its version from ' + new Date(entry.ts).toLocaleString() + '? Everything else stays as it is.')) return;
+          if(restorePageFromSnapshot(snap, opts.pageId)){ closeVersionDiff(); closeVersions(); }
+        };
       }
-  
-      addSection('Would be removed (' + diff.removed.length + ')', diff.removed, 'removed', function(it){
-        var row = document.createElement('div'); row.className = 'diff-page-row removed';
-        row.textContent = it.title || '(untitled)';
-        return row;
-      });
-      addSection('Would come back (' + diff.restored.length + ')', diff.restored, 'restored', function(it){
-        var row = document.createElement('div'); row.className = 'diff-page-row restored';
-        row.textContent = it.title || '(untitled)';
-        return row;
-      });
-      addSection('Changed (' + diff.modified.length + ')', diff.modified, 'modified', function(it){
-        var row = document.createElement('div'); row.className = 'diff-page-row modified';
-        var head = document.createElement('div'); head.className = 'diff-page-head';
-        head.textContent = (it.currentTitle || '(untitled)') + (it.titleChanged ? ' (title changed)' : '') +
-          ' — ' + it.blocks.length + ' block' + (it.blocks.length===1?'':'s') + ' changed';
-        var body = document.createElement('div'); body.className = 'diff-block-list'; body.style.display = 'none';
-        it.blocks.forEach(function(b){
-          var bRow = document.createElement('div'); bRow.className = 'diff-block-row';
-          var oldEl = document.createElement('div'); oldEl.className = 'diff-old';
-          oldEl.textContent = b.snapshot === null ? '(added since snapshot)' : truncateForDiff(b.snapshot, 140);
-          var newEl = document.createElement('div'); newEl.className = 'diff-new';
-          newEl.textContent = b.current === null ? '(removed since snapshot)' : truncateForDiff(b.current, 140);
-          bRow.appendChild(oldEl); bRow.appendChild(newEl);
-          body.appendChild(bRow);
-        });
-        head.addEventListener('click', function(){ body.style.display = body.style.display === 'none' ? '' : 'none'; });
-        row.appendChild(head); row.appendChild(body);
-        return row;
-      });
+    } else {
+      restoreBtn.style.display = '';
+      restoreBtn.onclick = function(){ closeVersionDiff(); restoreFromVersion(entry); };
     }
+    if(!diff.removed.length && !diff.restored.length && !diff.modified.length){
+      message(opts.pageId ? 'This page is identical to that snapshot.' : 'No differences — this snapshot matches what\'s currently open.');
+      return;
+    }
+    var summary = document.createElement('div');
+    summary.className = 'diff-summary';
+    summary.textContent = diff.modified.length + ' page' + (diff.modified.length===1?'':'s') + ' changed, ' +
+      diff.removed.length + ' created since (would be removed by a full restore), ' + diff.restored.length + ' missing now (would come back), ' +
+      diff.unchangedCount + ' unchanged.';
+    wrap.appendChild(summary);
+    var rows = [];
+    if(diff.modified.length + diff.restored.length + diff.removed.length > 8){
+      var filter = document.createElement('input');
+      filter.type = 'search'; filter.className = 'diff-filter'; filter.placeholder = 'Filter pages…'; filter.setAttribute('aria-label', 'Filter changed pages');
+      filter.addEventListener('input', function(){
+        var q = filter.value.toLowerCase();
+        rows.forEach(function(r){ r.el.style.display = !q || r.title.toLowerCase().indexOf(q) !== -1 ? '' : 'none'; });
+      });
+      wrap.appendChild(filter);
+    }
+    function addSection(label, items, render){
+      if(!items.length) return;
+      var h = document.createElement('div'); h.className = 'diff-section-head'; h.textContent = label;
+      wrap.appendChild(h);
+      items.forEach(function(it){ var el = render(it); wrap.appendChild(el); rows.push({el: el, title: it.currentTitle || it.title || ''}); });
+    }
+    addSection('Created since this snapshot (' + diff.removed.length + ')', diff.removed, function(it){
+      var row = document.createElement('div'); row.className = 'diff-page-row removed';
+      row.textContent = it.title || '(untitled)';
+      return row;
+    });
+    addSection('Not in your notebook now (' + diff.restored.length + ')', diff.restored, function(it){
+      var row = document.createElement('div'); row.className = 'diff-page-row restored';
+      var t = document.createElement('span'); t.textContent = it.title || '(untitled)';
+      var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'diff-action'; btn.textContent = 'Bring this page back';
+      btn.onclick = function(){ if(restorePageFromSnapshot(snap, it.id)){ closeVersionDiff(); closeVersions(); } };
+      row.appendChild(t); row.appendChild(btn);
+      return row;
+    });
+    addSection('Changed (' + diff.modified.length + ')', diff.modified, function(it){
+      var row = document.createElement('div'); row.className = 'diff-page-row modified';
+      var head = document.createElement('div'); head.className = 'diff-page-head';
+      var label = document.createElement('span');
+      label.textContent = (it.currentTitle || '(untitled)') + (it.titleChanged ? ' (was “' + (it.snapshotTitle || '') + '”)' : '') +
+        ' — ' + it.blocks.length + ' line' + (it.blocks.length===1?'':'s') + ' changed';
+      head.appendChild(label);
+      if(!opts.pageId){
+        var pbtn = document.createElement('button'); pbtn.type = 'button'; pbtn.className = 'diff-action'; pbtn.textContent = 'Restore this page';
+        pbtn.onclick = function(ev){
+          ev.stopPropagation();
+          if(!confirm('Replace “' + (it.currentTitle || 'this page') + '” with its version from ' + new Date(entry.ts).toLocaleString() + '? Everything else stays as it is.')) return;
+          if(restorePageFromSnapshot(snap, it.id)){ closeVersionDiff(); closeVersions(); }
+        };
+        head.appendChild(pbtn);
+      }
+      var body = document.createElement('div'); body.className = 'diff-block-list'; body.style.display = opts.pageId ? '' : 'none';
+      it.blocks.slice(0, 200).forEach(function(b){
+        var bRow = document.createElement('div'); bRow.className = 'diff-block-row';
+        var oldEl = document.createElement('div'); oldEl.className = 'diff-old';
+        var newEl = document.createElement('div'); newEl.className = 'diff-new';
+        if(b.snapshot === null) oldEl.textContent = '(added since snapshot)'; else if(b.current === null) fillWordDiff(oldEl, [{t: truncateForDiff(b.snapshot, 300)}], 'wd-del');
+        if(b.current === null) newEl.textContent = '(removed since snapshot)'; else if(b.snapshot === null) fillWordDiff(newEl, [{t: truncateForDiff(b.current, 300)}], 'wd-ins');
+        if(b.snapshot !== null && b.current !== null) fillWordDiffPair(oldEl, newEl, truncateForDiff(b.snapshot, 300), truncateForDiff(b.current, 300));
+        bRow.appendChild(oldEl); bRow.appendChild(newEl);
+        if(b.snapshot !== null && b.current !== null){
+          var useBtn = document.createElement('button'); useBtn.type = 'button'; useBtn.className = 'diff-action diff-line-btn'; useBtn.textContent = 'Use the snapshot’s line';
+          useBtn.onclick = function(){
+            if(restoreLineFromSnapshot(snap, b.id)){ useBtn.disabled = true; useBtn.textContent = '✓ Restored'; }
+          };
+          bRow.appendChild(useBtn);
+        }
+        body.appendChild(bRow);
+      });
+      if(it.blocks.length > 200){ var more = document.createElement('div'); more.className = 'v-meta'; more.textContent = '…and ' + (it.blocks.length - 200) + ' more lines. Restore the page to bring them all back.'; body.appendChild(more); }
+      head.addEventListener('click', function(){ body.style.display = body.style.display === 'none' ? '' : 'none'; });
+      row.appendChild(head); row.appendChild(body);
+      return row;
+    });
   });
 }
 function closeVersionDiff(){
   document.getElementById('diff-overlay').style.display = 'none';
 }
 
-function openVersions(){
+/* ---- Version history list ---- */
+var versionsView = {pageId: null};
+function formatBytes(n){
+  n = n || 0;
+  if(n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+  if(n >= 1024) return Math.round(n / 1024) + ' KB';
+  return n + ' B';
+}
+var VERSION_KIND_LABEL = {auto:'Automatic', safety:'Safety copy', sync:'Before a sync', manual:'Saved by you', backup:'Backup'};
+function setVersionsChrome(pageTitle){
+  var title = document.getElementById('versions-title');
+  title.textContent = pageTitle ? 'History of “' + pageTitle + '”' : 'Version history';
+  document.getElementById('versions-toolbar').style.display = pageTitle ? 'none' : '';
+}
+function versionMessage(text){
+  var d = document.createElement('div'); d.className = 'version-empty'; d.textContent = text; return d;
+}
+function buildVersionRow(entry){
+  var row = document.createElement('div');
+  row.className = 'version-item';
+  var main = document.createElement('div'); main.className = 'v-main';
+  var line1 = document.createElement('div'); line1.className = 'v-line1';
+  var when = document.createElement('span'); when.className = 'v-when'; when.textContent = new Date(entry.ts).toLocaleString();
+  var nameEl = document.createElement('span'); nameEl.className = 'v-name';
+  line1.appendChild(when); line1.appendChild(nameEl);
+  var meta = document.createElement('div'); meta.className = 'v-meta';
+  var badge = document.createElement('span'); badge.className = 'v-badge v-badge-' + versionKind(entry); badge.textContent = VERSION_KIND_LABEL[versionKind(entry)] || 'Snapshot';
+  meta.appendChild(badge);
+  var bits = [entry.reason || ''];
+  if(entry.pages != null) bits.push(entry.pages + ' page' + (entry.pages === 1 ? '' : 's') + ' · ' + entry.blocks + ' lines');
+  if(versionSize(entry)) bits.push(formatBytes(versionSize(entry)) + (entry.enc ? ' (encrypted)' : ''));
+  meta.appendChild(document.createTextNode(' ' + bits.filter(Boolean).join(' · ')));
+  main.appendChild(line1); main.appendChild(meta);
+  resolveVersionName(entry).then(function(n){ if(n){ nameEl.textContent = ' — ' + n; } });
+
+  var actions = document.createElement('div'); actions.className = 'version-actions';
+  function btn(label, title, fn, cls){
+    var b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.title = title; b.setAttribute('aria-label', title);
+    if(cls) b.className = cls; b.onclick = fn; actions.appendChild(b); return b;
+  }
+  btn('Compare', 'Compare this snapshot with what is open now', function(){ openVersionDiff(entry); });
+  btn('Restore', 'Replace the whole notebook with this snapshot', function(){ restoreFromVersion(entry); });
+  btn(entry.pinned ? '📌' : '📍', entry.pinned ? 'Pinned — never deleted automatically. Click to unpin' : 'Pin: never delete this snapshot automatically', function(){
+    setVersionPinned(entry.ts, !entry.pinned).then(refreshVersionsList);
+  }, entry.pinned ? 'v-pinned' : '');
+  btn('✎', 'Name this snapshot (named snapshots are kept)', function(){
+    resolveVersionName(entry).then(function(cur){
+      var n = prompt('Name this snapshot (leave empty to remove the name):', cur);
+      if(n === null) return;
+      setVersionName(entry.ts, n).then(refreshVersionsList);
+    });
+  });
+  btn('🗑', 'Delete this snapshot', function(){
+    if(!confirm('Delete this snapshot? This cannot be undone.')) return;
+    deleteVersion(entry.ts).then(refreshVersionsList);
+  });
+  row.appendChild(main); row.appendChild(actions);
+  return row;
+}
+function refreshVersionsList(){
   var wrap = document.getElementById('versions-list');
-  wrap.innerHTML = '<div class="version-empty">Loading…</div>';
-  document.getElementById('versions-overlay').style.display = 'flex';
   loadVersions().then(function(list){
-    list = list.slice().reverse();
-    wrap.innerHTML = "";
+    var filter = document.getElementById('versions-filter').value;
+    list = list.slice().reverse().filter(function(v){
+      if(filter === 'pinned') return versionIsProtected(v);
+      if(filter === 'safety') return versionKind(v) === 'safety' || versionKind(v) === 'sync';
+      return true;
+    });
+    wrap.textContent = '';
     if(!list.length){
-      wrap.innerHTML = '<div class="version-empty">No snapshots yet — one is taken automatically before any restore, and roughly once a day while you use Nexus.</div>';
-    } else {
-      list.forEach(function(entry){
-        var row = document.createElement('div');
-        row.className = 'version-item';
-        var label = document.createElement('div');
-        label.innerHTML = new Date(entry.ts).toLocaleString() + '<div class="v-meta">' + escapeHtml(entry.reason) + '</div>';
-        var btnRow = document.createElement('div');
-        btnRow.style.display = 'flex'; btnRow.style.gap = '6px';
-        var compareBtn = document.createElement('button');
-        compareBtn.textContent = 'Compare';
-        compareBtn.onclick = function(){ openVersionDiff(entry); };
-        var btn = document.createElement('button');
-        btn.textContent = 'Restore this';
-        btn.onclick = function(){ restoreFromVersion(entry); };
-        btnRow.appendChild(compareBtn); btnRow.appendChild(btn);
-        row.appendChild(label); row.appendChild(btnRow);
-        wrap.appendChild(row);
-      });
+      wrap.appendChild(versionMessage(filter === 'all'
+        ? 'No snapshots yet — Nexus takes one automatically about once a day, before every restore, big replace or sync that would overwrite your edits. You can also save one yourself above.'
+        : 'No snapshots match this filter.'));
+      return;
     }
+    list.forEach(function(entry){ wrap.appendChild(buildVersionRow(entry)); });
+  });
+}
+function openVersions(){
+  versionsView = {pageId: null};
+  setVersionsChrome(null);
+  document.getElementById('versions-overlay').style.display = 'flex';
+  refreshVersionsList();
+}
+function createManualSnapshot(){
+  var input = document.getElementById('versions-name-input');
+  var name = (input.value || '').trim();
+  snapshotVersion(name ? 'Saved snapshot' : 'Manual snapshot', {kind:'manual', name: name, force: true}).then(function(ts){
+    input.value = '';
+    if(ts){ toast('Snapshot saved.'); } else { toast('Could not save a snapshot on this device.'); }
+    refreshVersionsList();
   });
 }
 function closeVersions(){
+  versionsView = {pageId: null};
   document.getElementById('versions-overlay').style.display = 'none';
 }
+
+/* ---- Page history: every earlier version of ONE page found in the stored snapshots ---- */
+function pageOutlineText(s, pageId){
+  var p = s.pages && s.pages[pageId];
+  if(!p) return null;
+  var out = [], seen = {};
+  function walk(id, depth){
+    var b = s.blocks && s.blocks[id];
+    if(!b || seen[id]) return;
+    seen[id] = true;
+    out.push(new Array(depth + 1).join('  ') + (b.text || ''));
+    (b.children || []).forEach(function(c){ walk(c, depth + 1); });
+  }
+  (p.rootBlocks || []).forEach(function(id){ walk(id, 0); });
+  return (p.title || '') + '\n' + out.join('\n');
+}
+function openPageHistory(pageId){
+  var page = state.pages[pageId];
+  if(!page) return;
+  versionsView = {pageId: pageId};
+  setVersionsChrome(page.title || 'Untitled');
+  var wrap = document.getElementById('versions-list');
+  wrap.textContent = '';
+  var progress = versionMessage('Reading your snapshots…'); wrap.appendChild(progress);
+  document.getElementById('versions-overlay').style.display = 'flex';
+  var currentSig = pageOutlineText(state, pageId);
+  loadVersions().then(function(list){
+    list = list.slice().reverse();
+    var rows = [], i = 0;
+    function next(){
+      if(i >= list.length || versionsView.pageId !== pageId) return Promise.resolve();
+      var entry = list[i++];
+      progress.textContent = 'Reading snapshot ' + i + ' of ' + list.length + '…';
+      return getVersionData(entry).then(function(json){
+        var sig = pageOutlineText(parseSnapshotJson(json), pageId);
+        if(sig !== null) rows.push({entry: entry, sig: sig});
+      }, function(){ /* unreadable snapshot: skip it */ }).then(next);
+    }
+    return next().then(function(){
+      if(versionsView.pageId !== pageId) return;
+      wrap.textContent = '';
+      /* Consecutive snapshots in which the page looked the same are one version. */
+      var groups = [];
+      rows.forEach(function(r){
+        var g = groups[groups.length - 1];
+        if(g && g.sig === r.sig){ g.count++; } else { groups.push({entry: r.entry, sig: r.sig, count: 1}); }
+      });
+      if(!groups.length){ wrap.appendChild(versionMessage('This page is not in any snapshot yet — snapshots are taken about once a day and before big changes.')); return; }
+      groups.forEach(function(g){
+        var same = g.sig === currentSig;
+        var row = document.createElement('div'); row.className = 'version-item';
+        var main = document.createElement('div'); main.className = 'v-main';
+        var line1 = document.createElement('div'); line1.className = 'v-line1';
+        var when = document.createElement('span'); when.className = 'v-when'; when.textContent = new Date(g.entry.ts).toLocaleString();
+        line1.appendChild(when);
+        var meta = document.createElement('div'); meta.className = 'v-meta';
+        var badge = document.createElement('span'); badge.className = 'v-badge ' + (same ? 'v-badge-same' : 'v-badge-diff'); badge.textContent = same ? 'Same as now' : 'Different from now';
+        meta.appendChild(badge);
+        meta.appendChild(document.createTextNode(' ' + (g.sig.split('\n').length - 1) + ' lines' + (g.count > 1 ? ' · same in ' + g.count + ' snapshots' : '')));
+        main.appendChild(line1); main.appendChild(meta);
+        var actions = document.createElement('div'); actions.className = 'version-actions';
+        if(!same){
+          var cmp = document.createElement('button'); cmp.type = 'button'; cmp.textContent = 'Compare';
+          cmp.onclick = function(){ openVersionDiff(g.entry, {pageId: pageId}); };
+          var res = document.createElement('button'); res.type = 'button'; res.textContent = 'Restore this version';
+          res.onclick = function(){
+            if(!confirm('Replace this page with its version from ' + new Date(g.entry.ts).toLocaleString() + '? Everything else stays as it is.')) return;
+            getVersionData(g.entry).then(function(json){
+              if(restorePageFromSnapshot(parseSnapshotJson(json), pageId)) closeVersions();
+            }).catch(function(){ toast('That snapshot could not be read.'); });
+          };
+          actions.appendChild(cmp); actions.appendChild(res);
+        }
+        row.appendChild(main); row.appendChild(actions); wrap.appendChild(row);
+      });
+    });
+  });
+}
+
 
 /* ============================================================
    SYNC CONFLICTS
    A local, device-only log of lines/pages where two devices edited
-   the same thing differently between syncs (see mergeStates). Kept
-   under its own storage key, like Versions and Meta, so it never
-   travels through Sync itself — only the inline `.conflict` flag on
+   the same thing differently between syncs, or where a deletion on one
+   device beat an edit on another (see mergeStates). Kept in its own
+   IndexedDB record — encrypted when a passcode is set — so it never
+   travels through Sync itself; only the inline `.conflict` flag on
    the affected block does, which is what makes it visible on the
    other device too.
    ============================================================ */
-var CONFLICTS_KEY = STORAGE_KEY + '_conflicts';
+var CONFLICTS_KEY = STORAGE_KEY + '_conflicts'; /* legacy plaintext location — migrated into IndexedDB (encrypted when a passcode is set) and removed */
+var CONFLICTS_REC = 'conflicts';
 var CONFLICTS_MAX = 200;
-function loadConflicts(){
-  try{ return JSON.parse(localStorage.getItem(CONFLICTS_KEY)) || []; }catch(e){ return []; }
+var conflictsCache = [];
+/* The log holds snippets of your notes (what was kept, what was dropped), so it gets the same at-rest
+   treatment as the notebook itself — it used to sit in plaintext localStorage even with a passcode set.
+   Reads are served from memory; every change is written through to IndexedDB. */
+function loadConflicts(){ return conflictsCache; }
+function readConflictsRecord(){
+  return openAttachmentDb().then(function(db){
+    return new Promise(function(resolve, reject){
+      var req = db.transaction(NB_STORE, 'readonly').objectStore(NB_STORE).get(CONFLICTS_REC);
+      req.onsuccess = function(){ resolve(req.result === undefined ? null : req.result); };
+      req.onerror = function(){ reject(req.error); };
+    });
+  });
+}
+/* Resolves true once the current log is safely stored. */
+function persistConflicts(){
+  var json = JSON.stringify(conflictsCache);
+  if(isLockEnabled()){
+    if(!lockCryptoKey) return Promise.resolve(false);
+    return encryptWithKey(lockCryptoKey, json).then(function(enc){
+      return idbPutRaw(NB_STORE, {enc: true, iv: enc.iv, ct: enc.ct}, CONFLICTS_REC);
+    }).then(function(){ return true; }, function(){ return false; });
+  }
+  return idbPutRaw(NB_STORE, json, CONFLICTS_REC).then(function(){ return true; }, function(){ return false; });
+}
+function initConflictsStore(){
+  return readConflictsRecord().then(function(rec){
+    if(!rec) return null;
+    if(typeof rec === 'string') return JSON.parse(rec);
+    if(rec.enc && lockCryptoKey) return decryptWithKey(lockCryptoKey, {iv: rec.iv, ct: rec.ct}).then(function(t){ return JSON.parse(t); });
+    return null;
+  }).catch(function(){ return null; }).then(function(list){
+    if(!Array.isArray(list)) list = [];
+    var legacy = null, hadLegacy = false;
+    try{ var raw = localStorage.getItem(CONFLICTS_KEY); if(raw !== null){ hadLegacy = true; legacy = JSON.parse(raw); } }catch(e){}
+    if(Array.isArray(legacy)){
+      var ids = {}; list.forEach(function(c){ ids[c.id] = true; });
+      legacy.forEach(function(c){ if(c && !ids[c.id]) list.push(c); });
+      list.sort(function(a,b){ return (b.detectedAt||0) - (a.detectedAt||0); });
+    }
+    if(list.length > CONFLICTS_MAX) list.length = CONFLICTS_MAX;
+    conflictsCache = list;
+    updateConflictsBadge();
+    if(hadLegacy){
+      return persistConflicts().then(function(ok){
+        if(ok){ try{ localStorage.removeItem(CONFLICTS_KEY); }catch(e){} }
+      });
+    }
+  });
 }
 function saveConflictsList(list){
-  try{ localStorage.setItem(CONFLICTS_KEY, JSON.stringify(list)); }
-  catch(e){
-    // if storage is tight, drop the oldest conflict entries and retry once
-    // (list is newest-first, so trim from the end) rather than silently
-    // losing the newest conflict we were just asked to record
-    while(list.length > 1){
-      list.length = list.length - 1;
-      try{ localStorage.setItem(CONFLICTS_KEY, JSON.stringify(list)); return; }
-      catch(e2){ /* still too big, keep trimming */ }
-    }
-  }
+  conflictsCache = list;
+  persistConflicts();
 }
 function recordConflicts(newOnes, peerLabel){
   if(!newOnes || !newOnes.length) return;
-  var list = loadConflicts();
+  var list = loadConflicts().slice();
   newOnes.forEach(function(c){
+    var dup = list.some(function(x){ return x.kind === c.kind && x.entityId === c.entityId && x.keptText === c.keptText && x.droppedText === c.droppedText; });
+    if(dup) return;
     c.id = uid();
     c.detectedAt = Date.now();
     c.peerLabel = peerLabel;
@@ -1484,6 +1947,19 @@ function updateConflictsBadge(){
   }
   btn.style.display = n ? '' : 'none';
 }
+/* Snapshot the notebook before a sync merge that would overwrite or remove something edited on this
+   device, or that found conflicts — so nothing a sync does to your edits is unrecoverable. (Ordinary
+   catching-up on a peer's edits, where nothing here changed since the last sync, needs no copy.) */
+var lastSyncSnapshotAt = 0;
+function syncSafetySnapshot(result, peerLabel){
+  var st = (result && result.stats) || {};
+  var hasConflicts = !!(result && result.conflicts && result.conflicts.length);
+  if(!(st.localLoss > 0 || hasConflicts)) return Promise.resolve(null);
+  var now = Date.now();
+  if(!hasConflicts && now - lastSyncSnapshotAt < 10*60*1000) return Promise.resolve(null);
+  lastSyncSnapshotAt = now;
+  return snapshotVersion('Before sync with ' + peerLabel, {kind:'sync'});
+}
 function clearBlockConflictFlag(entityId){
   var b = state.blocks[entityId];
   if(b && b.conflict){ delete b.conflict; save(); renderPage(); }
@@ -1495,12 +1971,38 @@ function openConflicts(){
 function closeConflicts(){
   document.getElementById('conflicts-overlay').style.display = 'none';
 }
+var CONFLICT_KIND_LABEL = {
+  'line': 'Line edited on two devices',
+  'page': 'Page title changed on two devices',
+  'properties': 'Page properties changed on two devices',
+  'line-deleted': 'Line deleted on one device, edited on another'
+};
+function conflictColumn(label, cls){
+  var col = document.createElement('div');
+  col.className = 'conflict-version' + (cls ? ' ' + cls : '');
+  var l = document.createElement('div'); l.className = 'cv-label'; l.textContent = label;
+  var body = document.createElement('div'); body.className = 'cv-body';
+  col.appendChild(l); col.appendChild(body);
+  return {el: col, body: body};
+}
+function finishConflict(c, message){
+  saveConflictsList(loadConflicts().filter(function(x){ return x.id !== c.id; }));
+  updateConflictsBadge();
+  renderConflictsList();
+  if(message) toast(message);
+}
+function conflictCurrentText(c){
+  if(c.kind === 'line'){ var b = state.blocks[c.entityId]; return b ? b.text : null; }
+  if(c.kind === 'page'){ var p = state.pages[c.pageId]; return p ? p.title : null; }
+  return undefined;
+}
 function renderConflictsList(){
   var list = loadConflicts();
   var wrap = document.getElementById('conflicts-list');
-  wrap.innerHTML = "";
+  wrap.textContent = '';
   if(!list.length){
-    wrap.innerHTML = '<div class="version-empty">No sync conflicts — nice and quiet.</div>';
+    var empty = document.createElement('div'); empty.className = 'version-empty'; empty.textContent = 'No sync conflicts — nice and quiet.';
+    wrap.appendChild(empty);
     return;
   }
   list.forEach(function(c){
@@ -1509,88 +2011,121 @@ function renderConflictsList(){
 
     var meta = document.createElement('div');
     meta.className = 'conflict-meta';
-    meta.textContent = (c.kind === 'page' ? 'Page title' : 'Line') + ' in "' + c.pageTitle + '" — conflicted syncing with ' +
+    meta.textContent = (CONFLICT_KIND_LABEL[c.kind] || 'Conflict') + ' — “' + c.pageTitle + '”, syncing with ' +
       (c.peerLabel || 'another device') + ', ' + timeAgo(c.detectedAt);
+    item.appendChild(meta);
 
     var versions = document.createElement('div');
     versions.className = 'conflict-versions';
-    var kept = document.createElement('div');
-    kept.className = 'conflict-version kept';
-    kept.innerHTML = '<div class="cv-label">Kept (newer edit)</div>' + escapeHtml(c.keptText || '(empty)');
-    var dropped = document.createElement('div');
-    dropped.className = 'conflict-version';
-    dropped.innerHTML = '<div class="cv-label">Dropped (older edit)</div>' + escapeHtml(c.droppedText || '(empty)');
-    versions.appendChild(kept); versions.appendChild(dropped);
+    var isDeleted = c.kind === 'line-deleted';
+    var kept = conflictColumn(isDeleted ? 'What happened' : 'Kept (newer edit)', 'kept');
+    var dropped = conflictColumn(isDeleted ? 'Your edit, lost in the sync' : 'Dropped (older edit)');
+    if(isDeleted){
+      kept.body.textContent = c.keptText || '(deleted)';
+      dropped.body.textContent = c.droppedText || '(empty)';
+    } else {
+      var d = wordDiffParts(c.keptText || '', c.droppedText || '');
+      fillWordDiff(kept.body, d.a, 'wd-diff');
+      fillWordDiff(dropped.body, d.b, 'wd-diff');
+    }
+    versions.appendChild(kept.el); versions.appendChild(dropped.el);
+    var now = conflictCurrentText(c);
+    var stale = (c.kind === 'line' || c.kind === 'page') && now !== undefined && now !== null && now !== c.keptText;
+    if(stale){
+      var cur = conflictColumn('Now (changed since the sync)', 'current');
+      cur.body.textContent = now;
+      versions.appendChild(cur.el);
+    }
+    item.appendChild(versions);
 
-    /* Real conflict resolution: keep the version already kept (just
-       dismiss), switch to the other version instead (overwrite), or —
-       for a single line only — bring the dropped text back as a second
-       line so both survive and can be merged by hand. */
     var actions = document.createElement('div');
     actions.className = 'conflict-actions';
-
-    var keepMineBtn = document.createElement('button');
-    keepMineBtn.type = 'button';
-    keepMineBtn.textContent = 'Keep this version';
-    keepMineBtn.onclick = function(){ dismissConflict(c.id); };
-    actions.appendChild(keepMineBtn);
-
-    var keepTheirsBtn = document.createElement('button');
-    keepTheirsBtn.type = 'button';
-    keepTheirsBtn.textContent = 'Use dropped version instead';
-    keepTheirsBtn.onclick = function(){ useDroppedInsteadOfKept(c); };
-    actions.appendChild(keepTheirsBtn);
-
-    if(c.kind === 'line'){
-      var restoreBtn = document.createElement('button');
-      restoreBtn.type = 'button';
-      restoreBtn.textContent = 'Keep both (add as new line)';
-      restoreBtn.onclick = function(){ restoreDroppedConflict(c); };
-      actions.appendChild(restoreBtn);
+    function action(label, fn){
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = fn; actions.appendChild(b); return b;
     }
-    var dismissBtn = document.createElement('button');
-    dismissBtn.type = 'button';
-    dismissBtn.textContent = 'Dismiss';
-    dismissBtn.onclick = function(){ dismissConflict(c.id); };
-    actions.appendChild(dismissBtn);
+    if(isDeleted){
+      action('Restore as a new line', function(){ restoreDeletedLine(c, c.droppedText); });
+      action('Leave it deleted', function(){ dismissConflict(c.id); });
+    } else {
+      action('Keep what\'s here', function(){ dismissConflict(c.id); });
+      action(c.kind === 'page' ? 'Use the other title' : c.kind === 'properties' ? 'Use the other properties' : 'Use the other version', function(){ useDroppedInsteadOfKept(c); });
+      if(c.kind === 'line') action('Keep both (add as new line)', function(){ restoreDroppedConflict(c); });
+      action('Dismiss', function(){ dismissConflict(c.id); });
+    }
+    item.appendChild(actions);
 
-    item.appendChild(meta); item.appendChild(versions); item.appendChild(actions);
+    /* Combine by hand: one editable box, so both edits can be merged into whatever the line should say. */
+    if(c.kind === 'line' || isDeleted){
+      var block = c.kind === 'line' ? state.blocks[c.entityId] : null;
+      if(c.kind === 'line' && !block){ /* the line is gone: nothing to combine into */ }
+      else {
+        var det = document.createElement('details'); det.className = 'conflict-merge';
+        var sum = document.createElement('summary'); sum.textContent = 'Combine by hand';
+        var ta = document.createElement('textarea'); ta.rows = 3; ta.value = c.kind === 'line' ? (block.text || '') : (c.droppedText || '');
+        ta.setAttribute('aria-label', 'Combined text');
+        var apply = document.createElement('button'); apply.type = 'button';
+        apply.textContent = isDeleted ? 'Restore this text as a new line' : 'Save combined text';
+        apply.onclick = function(){ if(isDeleted) restoreDeletedLine(c, ta.value); else applyMergedConflictText(c, ta.value); };
+        det.appendChild(sum); det.appendChild(ta); det.appendChild(apply);
+        item.appendChild(det);
+      }
+    }
     wrap.appendChild(item);
   });
 }
-/* "Use dropped version instead" — overwrites the kept text/title with the
-   dropped one, in place, then clears the conflict record. This is the
-   side-by-side "keep theirs" choice; "Keep this version" (dismissConflict)
-   is "keep mine", and "Keep both" (restoreDroppedConflict, line-only) is
-   the manual-merge option that preserves both as separate lines. */
+function applyMergedConflictText(c, text){
+  var b = state.blocks[c.entityId];
+  if(!b){ toast('That line no longer exists — nothing to change.'); return; }
+  b.text = text;
+  delete b.conflict;
+  save(); renderPage();
+  finishConflict(c, 'Saved your combined text.');
+}
+/* A line that was edited on this device but deleted elsewhere: put its text back as a new line on the
+   same page, or — if that page is gone too — on a "Recovered from sync" page. */
+function restoreDeletedLine(c, text){
+  var page = state.pages[c.pageId];
+  if(!page || page.trashedAt) page = resolvePage('Recovered from sync', 'page');
+  var id = uid();
+  state.blocks[id] = mkBlock(id, page.id, null, text || '');
+  page.rootBlocks.push(id);
+  save();
+  renderAll();
+  finishConflict(c, 'Restored the line' + (page.title === 'Recovered from sync' ? ' on “Recovered from sync”.' : '.'));
+  revealBlock(id);
+}
+/* "Use the other version" — overwrites the kept text/title/properties with the dropped one, in place. If the
+   line was changed again since the sync, ask first: this would overwrite that newer edit. */
 function useDroppedInsteadOfKept(c){
   if(c.kind === 'line'){
     var b = state.blocks[c.entityId];
     if(!b){ toast('That line no longer exists — nothing to switch.'); return; }
+    if(b.text !== c.keptText && !confirm('This line has been changed since the sync. Replace its current text with the other version?')) return;
     b.text = c.droppedText;
     delete b.conflict;
     save(); renderPage();
   } else if(c.kind === 'page'){
     var p = state.pages[c.pageId];
     if(!p){ toast('That page no longer exists — nothing to switch.'); return; }
+    if(p.title !== c.keptText && !confirm('This page has been renamed since the sync. Replace its current title with the other one?')) return;
     var oldTitle = p.title;
     p.title = c.droppedText;
     if(state.titleIndex[oldTitle.toLowerCase()] === p.id) delete state.titleIndex[oldTitle.toLowerCase()];
     state.titleIndex[p.title.toLowerCase()] = p.id;
     renameCascade(oldTitle, p.title);
     save(); renderAll();
+  } else if(c.kind === 'properties'){
+    var pp = state.pages[c.pageId];
+    if(!pp){ toast('That page no longer exists — nothing to switch.'); return; }
+    pp.properties = JSON.parse(JSON.stringify(c.droppedProps || []));
+    save(); renderAll();
   }
-  var list = loadConflicts().filter(function(x){ return x.id !== c.id; });
-  saveConflictsList(list);
-  updateConflictsBadge();
-  renderConflictsList();
-  toast('Switched to the dropped version.');
+  finishConflict(c, 'Switched to the other version.');
 }
 function dismissConflict(id){
   var list = loadConflicts();
   var entry = list.filter(function(c){ return c.id === id; })[0];
-  list = list.filter(function(c){ return c.id !== id; });
-  saveConflictsList(list);
+  saveConflictsList(list.filter(function(c){ return c.id !== id; }));
   if(entry && entry.kind === 'line') clearBlockConflictFlag(entry.entityId);
   renderConflictsList();
   updateConflictsBadge();
@@ -1615,11 +2150,7 @@ function restoreDroppedConflict(c){
   delete winnerBlock.conflict;
   var nb = createBlockAfter(winnerBlock, c.droppedText);
   save(); renderPage();
-  var list = loadConflicts().filter(function(x){ return x.id !== c.id; });
-  saveConflictsList(list);
-  updateConflictsBadge();
-  renderConflictsList();
-  toast('Recovered the other version as a new line.');
+  finishConflict(c, 'Recovered the other version as a new line.');
   revealBlock(nb.id);
 }
 document.getElementById('btn-conflicts').onclick = openConflicts;
@@ -1630,10 +2161,11 @@ document.getElementById('conflicts-dismiss-all').onclick = dismissAllConflicts;
 
 function maybeAutoSnapshot(){
   loadVersions().then(function(list){
-    var last = list.length ? list[list.length-1] : null;
+    var autos = list.filter(function(v){ return versionKind(v) === 'auto'; });
+    var last = autos.length ? autos[autos.length-1] : null;
     var oneDay = 24*60*60*1000;
     if(!last || Date.now() - last.ts > oneDay){
-      snapshotVersion('daily snapshot');
+      snapshotVersion('Daily snapshot', {kind:'auto'});
     }
   });
 }
@@ -1685,3 +2217,8 @@ document.getElementById('diff-overlay').addEventListener('click', function(e){
 document.getElementById('diff-close-btn').onclick = closeVersionDiff;
 
 var SIDEBAR_KEY = STORAGE_KEY + '_sidebar';
+
+document.getElementById('versions-create-btn').onclick = createManualSnapshot;
+document.getElementById('versions-name-input').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); createManualSnapshot(); } });
+document.getElementById('versions-filter').addEventListener('change', refreshVersionsList);
+document.getElementById('btn-page-history').onclick = function(){ if(state && state.currentPageId) openPageHistory(state.currentPageId); };

@@ -130,7 +130,7 @@
       <button class="side-btn" id="btn-restore">⭱ Restore (import)</button>
       <button class="side-btn" id="btn-restore-gdrive">⭱ Import from Google Drive</button>
       <button class="side-btn" id="btn-import-md">⭱ Import Markdown files</button>
-      <input type="file" id="import-md-input" accept=".md,text/markdown" multiple style="display:none">
+      <input type="file" id="import-md-input" accept=".md,text/markdown" multiple style="display:none" aria-label="Markdown files to import">
       <button class="side-btn" id="btn-export-md">⇩ Export page as Markdown</button>
       <button class="side-btn" id="btn-export-pdf">⇩ Export page as PDF</button>
       <button class="side-btn" id="btn-install-app" style="display:none;">⇩ Install app</button>
@@ -182,6 +182,7 @@
         <button class="topbtn" id="btn-undo" title="Undo (⌘Z)" disabled>↶ Undo</button>
         <button class="topbtn" id="btn-redo" title="Redo (⌘⇧Z)" disabled>↷ Redo</button>
         <button class="topbtn" id="btn-doc-mode" title="Switch between outline and doc view">▤ Doc mode</button>
+        <button class="topbtn" id="btn-page-history" title="Earlier versions of this page">🕘 History</button>
         <button class="topbtn" id="btn-delete-page">Delete page</button>
       </div>
       <div id="page-banner" class="page-banner page-banner-none" aria-hidden="true">
@@ -194,7 +195,7 @@
             <span class="type-pill" id="page-type-pill">Page</span>
             <div id="supertag-badges"></div>
           </div>
-          <div id="page-title" contenteditable="true" spellcheck="false"></div>
+          <div id="page-title" contenteditable="true" spellcheck="false" aria-label="Page title"></div>
           <div class="page-sub-row">
             <span id="page-sub"></span>
             <span class="word-count" id="word-count"></span>
@@ -204,7 +205,7 @@
 
       <div class="supertag-panel" id="supertag-panel">
         <label class="supertag-toggle">
-          <input type="checkbox" id="supertag-toggle-input">
+          <input type="checkbox" id="supertag-toggle-input" aria-label="Enable supertag fields">
           <span>Supertag — pages tagged <strong>#<span id="supertag-name"></span></strong> automatically get these fields</span>
         </label>
         <div id="supertag-fields"></div>
@@ -228,7 +229,7 @@
           <button type="button" id="dock-color-btn" class="dock-fmt-btn dock-color-btn" title="Text color" aria-label="Text color">A</button>
           <span class="dock-divider"></span>
           <button type="button" id="dock-attach-btn" class="dock-fmt-btn" title="Add an image or file" aria-label="Add an image or file">📎</button>
-          <input type="file" id="attach-file-input" multiple style="display:none">
+          <input type="file" id="attach-file-input" multiple style="display:none" aria-label="Files to attach">
         </div>
         <div class="dock-row dock-row-nav">
           <button type="button" id="dock-indent-btn" class="dock-pill-btn" title="Indent (Tab)" aria-label="Indent"><span class="dock-ico">⇥</span><span class="dock-lbl"> Indent</span></button>
@@ -542,17 +543,17 @@
 </div>
 
 <div id="palette-overlay">
-  <div id="palette">
-    <input id="palette-input" placeholder="Jump to a page or line, or type to create a page…" autocomplete="off" title="Also takes #tag, is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;">
+  <div id="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+    <input id="palette-input" placeholder="Jump to a page or line, or type to create a page…" autocomplete="off" title="Also takes #tag, is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;" aria-label="Command palette input">
     <div id="palette-results"></div>
   </div>
 </div>
 
 <div id="gs-overlay">
-  <div id="gs-modal">
+  <div id="gs-modal" role="dialog" aria-modal="true" aria-label="Global search">
     <div id="gs-head">
       <span id="gs-head-icon">🔎</span>
-      <input id="gs-input" placeholder="Search every page and line…" autocomplete="off" title="Also takes #tag, [[Page]], is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;">
+      <input id="gs-input" placeholder="Search every page and line…" autocomplete="off" title="Also takes #tag, [[Page]], is:done, has:due, before:/after:, priority:, /regex/, and &quot;a OR b&quot;" aria-label="Search every page and line">
       <button id="gs-close" title="Close" aria-label="Close search">✕</button>
     </div>
     <div id="gs-count"></div>
@@ -560,15 +561,20 @@
   </div>
 </div>
 
-<div id="versions-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:50;">
-  <div style="width:480px; max-width:90vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden;">
-    <div style="padding:14px 18px; border-bottom:1px solid var(--border); font-size:0.875rem; font-weight:600;">Version history</div>
-    <div style="padding:6px; max-height:360px; overflow-y:auto;" id="versions-list"></div>
-    <div style="padding:10px 18px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--ink-soft);">Snapshots are taken automatically before each restore, and roughly once a day — kept as a safety net, in addition to your manual backups.</div>
+<div id="versions-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:8vh; z-index:50;" role="dialog" aria-modal="true" aria-label="Version history">
+  <div style="width:600px; max-width:94vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden; display:flex; flex-direction:column; max-height:84vh;">
+    <div id="versions-title" style="padding:14px 18px; border-bottom:1px solid var(--border); font-size:0.875rem; font-weight:600;">Version history</div>
+    <div id="versions-toolbar" class="versions-toolbar">
+      <input id="versions-name-input" type="text" maxlength="80" placeholder="Name this snapshot (optional)" aria-label="Snapshot name" autocomplete="off">
+      <button id="versions-create-btn" type="button">Save snapshot now</button>
+      <select id="versions-filter" aria-label="Filter snapshots"><option value="all">All snapshots</option><option value="pinned">Pinned &amp; named</option><option value="safety">Safety copies</option></select>
+    </div>
+    <div style="padding:6px; overflow-y:auto; flex:1;" id="versions-list"></div>
+    <div style="padding:10px 18px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--ink-soft);">Nexus keeps a snapshot about once a day, and before every restore, big replace, permanent delete, or sync that would overwrite your edits. Pinned or named snapshots are never deleted automatically; the rest keep the newest 30.</div>
   </div>
 </div>
 
-<div id="diff-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:8vh; z-index:51;">
+<div id="diff-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:8vh; z-index:51;" role="dialog" aria-modal="true" aria-label="Snapshot comparison">
   <div style="width:560px; max-width:92vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden; display:flex; flex-direction:column; max-height:82vh;">
     <div id="diff-overlay-title" style="padding:14px 18px; border-bottom:1px solid var(--border); font-size:0.875rem; font-weight:600;">Compare snapshot</div>
     <div style="padding:6px 10px; overflow-y:auto; flex:1;" id="diff-list"></div>
@@ -580,7 +586,7 @@
 </div>
 
 
-<div id="conflicts-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:50;">
+<div id="conflicts-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:50;" role="dialog" aria-modal="true" aria-label="Sync conflicts">
   <div style="width:520px; max-width:92vw; max-height:74vh; overflow-y:auto; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25);">
     <div style="padding:14px 18px; border-bottom:1px solid var(--border); font-size:0.875rem; font-weight:600; display:flex; justify-content:space-between; align-items:center;">
       <span>Sync conflicts</span>
@@ -591,7 +597,7 @@
   </div>
 </div>
 
-<div id="settings-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:50;">
+<div id="settings-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:50;" role="dialog" aria-modal="true" aria-label="Settings">
   <div id="settings-modal">
     <div class="settings-head">Settings</div>
     <div class="settings-body">
@@ -761,32 +767,32 @@
   </div>
 </div>
 
-<div id="lock-overlay" style="z-index:10000;">
+<div id="lock-overlay" style="z-index:10000;" role="dialog" aria-modal="true" aria-label="Unlock Nexus">
   <div class="lock-card">
     <div class="lock-title">Nexus is locked</div>
     <div class="hint" style="margin-bottom:18px;">Enter your passcode to open your notes.</div>
-    <input type="password" id="lock-input" autocomplete="off" placeholder="Passcode">
+    <input type="password" id="lock-input" autocomplete="off" placeholder="Passcode" aria-label="Passcode">
     <div id="lock-error" class="lock-error"></div>
     <button type="button" id="lock-submit">Unlock</button>
     <button type="button" id="lock-forgot">Forgot your passcode?</button>
   </div>
 </div>
 
-<div id="passcode-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:14vh; z-index:320;">
+<div id="passcode-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:14vh; z-index:320;" role="dialog" aria-modal="true" aria-label="Passcode settings">
   <div style="width:380px; max-width:90vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden;">
     <div id="pc-title" class="settings-head">Set a passcode</div>
     <div class="settings-body">
       <div id="pc-current-row" style="display:none;">
         <div class="settings-label">Current passcode</div>
-        <input type="password" id="pc-current" class="sync-name-input" autocomplete="off">
+        <input type="password" id="pc-current" class="sync-name-input" autocomplete="off" aria-label="Current passcode">
       </div>
       <div id="pc-new-row">
         <div class="settings-label">New passcode</div>
-        <input type="password" id="pc-new" class="sync-name-input" autocomplete="off">
+        <input type="password" id="pc-new" class="sync-name-input" autocomplete="off" aria-label="New passcode">
       </div>
       <div id="pc-confirm-row">
         <div class="settings-label">Confirm passcode</div>
-        <input type="password" id="pc-confirm" class="sync-name-input" autocomplete="off">
+        <input type="password" id="pc-confirm" class="sync-name-input" autocomplete="off" aria-label="Confirm new passcode">
       </div>
       <div id="pc-error" class="lock-error"></div>
       <div class="sync-note" id="pc-note">This encrypts your notes at rest with a key derived from your passcode. You'll get a recovery key afterward — save it somewhere safe, since it's the only other way back in if you forget your passcode.</div>
@@ -798,12 +804,12 @@
   </div>
 </div>
 
-<div id="recovery-unlock-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:14vh; z-index:310;">
+<div id="recovery-unlock-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:14vh; z-index:310;" role="dialog" aria-modal="true" aria-label="Recovery key unlock">
   <div style="width:380px; max-width:90vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden;">
     <div class="settings-head">Recover with your recovery key</div>
     <div class="settings-body">
       <div class="hint" style="margin-bottom:10px;">Enter the recovery key you saved when you turned on your passcode.</div>
-      <input type="text" id="recovery-input" class="sync-name-input" autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" style="font-family:monospace; letter-spacing:1px;">
+      <input type="text" id="recovery-input" class="sync-name-input" autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" style="font-family:monospace; letter-spacing:1px;" aria-label="Recovery key">
       <div id="recovery-unlock-error" class="lock-error"></div>
     </div>
     <div class="settings-foot" style="justify-content:space-between; align-items:center;">
@@ -816,7 +822,7 @@
   </div>
 </div>
 
-<div id="recovery-show-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:14vh; z-index:320;">
+<div id="recovery-show-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:14vh; z-index:320;" role="dialog" aria-modal="true" aria-label="Save recovery key">
   <div style="width:420px; max-width:92vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden;">
     <div class="settings-head">Save your recovery key</div>
     <div class="settings-body">
@@ -824,7 +830,7 @@
       <div id="recovery-code-display" style="font-family:monospace; font-size:1rem; letter-spacing:1px; text-align:center; background:var(--paper); border:1px solid var(--border); border-radius:6px; padding:12px; word-break:break-all; user-select:all;"></div>
       <button type="button" id="recovery-copy-btn" class="settings-opt" style="margin-top:10px;">Copy recovery key</button>
       <label class="fr-checkrow" style="margin-top:14px;">
-        <input type="checkbox" id="recovery-saved-check">
+        <input type="checkbox" id="recovery-saved-check" aria-label="Confirm recovery key saved">
         <span>I've saved this recovery key somewhere safe</span>
       </label>
     </div>
@@ -834,7 +840,7 @@
   </div>
 </div>
 
-<div id="sync-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:8vh; z-index:50;">
+<div id="sync-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:8vh; z-index:50;" role="dialog" aria-modal="true" aria-label="Sync devices">
   <div style="width:460px; max-width:92vw; max-height:82vh; overflow-y:auto; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25);">
     <div class="settings-head" style="display:flex; justify-content:space-between; align-items:center;">
       <span>Sync devices</span>
@@ -844,7 +850,7 @@
 
       <div>
         <div class="settings-label">This device's name (shown to peers you pair with)</div>
-        <input type="text" id="sync-device-name" class="sync-name-input" maxlength="40" placeholder="e.g. Sam's laptop">
+        <input type="text" id="sync-device-name" class="sync-name-input" maxlength="40" placeholder="e.g. Sam's laptop" aria-label="This device's name">
       </div>
 
       <div style="margin-top:4px;">
@@ -863,12 +869,12 @@
             <button type="button" class="sync-back-btn" id="lan-offer-back">← Back</button>
             <div class="sync-step">
               <div class="settings-label">1. Send this code to your other device (any way you like — it never leaves your control)</div>
-              <textarea id="lan-offer-code" class="sync-textarea" rows="3" readonly placeholder="Generating…"></textarea>
+              <textarea id="lan-offer-code" class="sync-textarea" rows="3" readonly placeholder="Generating…" aria-label="LAN offer code"></textarea>
               <button type="button" class="settings-opt" id="lan-offer-copy" style="margin-top:6px;">Copy code</button>
             </div>
             <div class="sync-step" style="margin-top:10px;">
               <div class="settings-label">2. Paste the reply code it gives you back</div>
-              <textarea id="lan-offer-reply-input" class="sync-textarea" rows="3" placeholder="Paste reply code here"></textarea>
+              <textarea id="lan-offer-reply-input" class="sync-textarea" rows="3" placeholder="Paste reply code here" aria-label="LAN reply code"></textarea>
               <button type="button" class="settings-opt" id="lan-offer-complete" style="margin-top:6px;">Complete pairing</button>
             </div>
             <div class="sync-status" id="lan-offer-status"></div>
@@ -878,12 +884,12 @@
             <button type="button" class="sync-back-btn" id="lan-answer-back">← Back</button>
             <div class="sync-step">
               <div class="settings-label">1. Paste the code from the other device</div>
-              <textarea id="lan-answer-input" class="sync-textarea" rows="3" placeholder="Paste code here"></textarea>
+              <textarea id="lan-answer-input" class="sync-textarea" rows="3" placeholder="Paste code here" aria-label="LAN pairing code"></textarea>
               <button type="button" class="settings-opt" id="lan-answer-generate" style="margin-top:6px;">Generate reply code</button>
             </div>
             <div class="sync-step" style="margin-top:10px; display:none;" id="lan-answer-reply-wrap">
               <div class="settings-label">2. Send this reply code back to the other device</div>
-              <textarea id="lan-answer-reply-code" class="sync-textarea" rows="3" readonly></textarea>
+              <textarea id="lan-answer-reply-code" class="sync-textarea" rows="3" readonly aria-label="LAN reply code to send"></textarea>
               <button type="button" class="settings-opt" id="lan-answer-copy" style="margin-top:6px;">Copy reply code</button>
             </div>
             <div class="sync-status" id="lan-answer-status"></div>
@@ -896,19 +902,19 @@
   </div>
 </div>
 
-<div id="findreplace-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:50;">
+<div id="findreplace-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:50;" role="dialog" aria-modal="true" aria-label="Find and replace">
   <div style="width:420px; max-width:90vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden;">
     <div style="padding:14px 18px; border-bottom:1px solid var(--border); font-size:0.875rem; font-weight:600;">Find &amp; replace</div>
     <div style="padding:16px 18px; display:flex; flex-direction:column; gap:12px;">
       <div>
         <div class="settings-label">Find</div>
-        <input id="fr-find" type="text" autocomplete="off">
+        <input id="fr-find" type="text" autocomplete="off" aria-label="Find text">
       </div>
       <div>
         <div class="settings-label">Replace with</div>
-        <input id="fr-replace" type="text" autocomplete="off">
+        <input id="fr-replace" type="text" autocomplete="off" aria-label="Replace with text">
       </div>
-      <label class="fr-checkrow"><input id="fr-case" type="checkbox">Case sensitive</label>
+      <label class="fr-checkrow"><input id="fr-case" type="checkbox" aria-label="Case sensitive">Case sensitive</label>
       <div id="fr-preview" class="hint"></div>
     </div>
     <div class="settings-foot" style="justify-content:space-between; align-items:center;">
@@ -921,7 +927,7 @@
   </div>
 </div>
 
-<div id="querybuilder-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:10vh; z-index:50;">
+<div id="querybuilder-overlay" style="position:fixed; inset:0; background:rgba(20,24,20,.35); display:none; align-items:flex-start; justify-content:center; padding-top:10vh; z-index:50;" role="dialog" aria-modal="true" aria-label="Query builder">
   <div style="width:460px; max-width:92vw; background:var(--paper-raised); border-radius:10px; box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden;">
     <div id="qb-title" style="padding:14px 18px; border-bottom:1px solid var(--border); font-size:0.875rem; font-weight:600;">Query</div>
     <div style="padding:16px 18px; display:flex; flex-direction:column; gap:10px;">
@@ -944,7 +950,7 @@
 <datalist id="qb-pagelist"></datalist>
 <datalist id="qb-proplist"></datalist>
 
-<input type="file" id="restore-input" accept="application/json" style="display:none">
+<input type="file" id="restore-input" accept="application/json" style="display:none" aria-label="Backup file to restore">
 <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 

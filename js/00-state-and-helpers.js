@@ -237,7 +237,10 @@ function ensureDocsPage(){
     "Backup (export) saves your whole notebook — including every attached image and file — as a single .json file — keep a copy somewhere safe.",
     "In browsers that support it (Chrome, Edge, Opera), Backup opens a native Save As dialog so you can choose exactly which folder and filename to use. Other browsers save to your usual downloads location instead.",
     "Restore (import) loads a previously exported file back in, replacing what's currently here and restoring any attachments it contains; a safety snapshot is taken automatically right before it does.",
-    "Version history keeps automatic snapshots (roughly daily, plus one before every restore) so you can recover from a mistake. These snapshots cover your notes; attached files aren't duplicated into each snapshot, since the reference-not-bytes design above means they don't need to be."
+    "Version history keeps snapshots of your whole notebook: about one a day, plus a safety copy before every restore, Find & replace, permanent delete or emptying the trash, and before any sync that would overwrite something you edited. Pin a snapshot (📍) or give it a name (✎) and it is never deleted automatically; the others keep the newest 30. Snapshots cover your notes; attached files aren't duplicated into each snapshot, since the reference-not-bytes design above means they don't need to be.",
+    "Compare shows exactly which pages and lines differ, with the changed words highlighted. From there you can restore a single page, bring back a page that no longer exists, or take back one line at a time — without touching anything else. The 🕘 History button on every page lists that page's earlier versions on its own.",
+    "When a passcode is set, snapshots (and their names) are encrypted with it, like the notebook; snapshots taken before the passcode existed are encrypted at the moment you set it, and converted back to readable ones if you ever remove it.",
+    "Sync conflicts lists edits that two devices made to the same line, page title or page properties, and lines you edited on one device that another device deleted. Each entry shows both versions with the differing words highlighted, so you can keep what is there, use the other version, keep both, or combine them by hand. The log is stored on this device only, encrypted when a passcode is set.",
   ]);
 
   section("Privacy & storage", [
@@ -273,7 +276,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 28;
+var NEXUS_HELP_GUIDE_VERSION = 30;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -623,6 +626,7 @@ function ensureCompleteHelpGuide(pid){
   addMaintainedSection("Google Drive sync & credentials", [
     "Settings → Google Drive connection stores the OAuth Client ID and browser API key locally on this device. The API key is not a password; restrict it in Google Cloud Console by allowed web origins/referrers and the APIs Nexus actually uses.",
     "Export to Google Drive and Import from Google Drive let you move a backup through your Drive account. Auto-sync with Google Drive can merge a small notebook-state file roughly once a minute while this tab is open; Sync now triggers it immediately.",
+    "Google's sign-in scripts are not loaded when Nexus starts. They are requested only when you use a Drive action (or when a Drive connection you already made needs quiet renewal), so simply opening Nexus never contacts Google and works fully offline.",
     "The Google Drive connection lifetime setting controls how long Nexus may quietly maintain the connection before requiring another sign-in. Google's access-token lifetime is separate and can still require reauthentication.",
     "Credentials can be cleared from this device at any time. Treat exported backup files as sensitive because the app passcode does not encrypt exported JSON files."
   ]);
@@ -641,7 +645,7 @@ function ensureCompleteHelpGuide(pid){
 
   addMaintainedSection("PWA / install / offline", [
     "Nexus ships a manifest and app icons and can be installed as a Progressive Web App when the browser supports installation. The Install app button appears when the browser exposes the install prompt.",
-    "The companion sw.js service worker caches the app shell for offline startup. Install and reliable service-worker behavior require https:// or localhost; opening the HTML through a blob preview does not provide the same guarantees.",
+    "The companion sw.js service worker pre-caches the whole app shell (HTML, CSS, scripts, manifest and icons) when it installs, so Nexus opens offline even straight after its first visit; the cache refreshes whenever you are online. Install and reliable service-worker behavior require https:// or localhost; opening the HTML through a blob preview does not provide the same guarantees.",
     "The Download sw.js button is a deployment fallback: place the downloaded sw.js beside index.html on the same origin, then reload Nexus."
   ]);
 
@@ -1291,6 +1295,24 @@ function shallowFieldsChanged(oldObj, newObj, fields){
   }
   return false;
 }
+/* Sync bookkeeping is not content. Everything else on a page/block/card counts as an edit:
+   an explicit field list silently missed icon, banner, pinned, locked, saved database views,
+   conflict flags… so those changes never reached other devices (or were reverted by them). */
+var SYNC_META_KEYS = {updatedAt:1, updatedBy:1, order:1};
+function entityChanged(oldObj, newObj){
+  if(!oldObj || !newObj) return oldObj !== newObj;
+  var keys = {}, k;
+  for(k in oldObj) keys[k] = 1;
+  for(k in newObj) keys[k] = 1;
+  for(k in keys){
+    if(SYNC_META_KEYS[k]) continue;
+    if(JSON.stringify(oldObj[k]) !== JSON.stringify(newObj[k])) return true;
+  }
+  return false;
+}
+/* How far ahead of this device's own clock a peer's timestamps are believed (6 h). Anything
+   beyond it is treated as a wrong clock rather than as a reason to move our own clock forward. */
+var MAX_CLOCK_SKEW_MS = 6*60*60*1000;
 function touchChangedEntities(){
   if(!state.tombstones) state.tombstones = {pages:{}, blocks:{}};
   if(!state.deviceId) state.deviceId = uid();
@@ -1298,13 +1320,16 @@ function touchChangedEntities(){
   if(lastSnapshotJson){ try{ prev = JSON.parse(lastSnapshotJson); }catch(e){} }
   var prevPages = (prev && prev.pages) || {};
   var prevBlocks = (prev && prev.blocks) || {};
-  var now = Date.now();
+  /* Stamps never go backwards past anything this device has already seen from a peer
+     (state.clockFloor, raised by mergeStates). Without that, a peer whose clock runs fast
+     would win every later conflict even against genuinely newer edits made here. */
+  var now = Math.max(Date.now(), (state.clockFloor || 0) + 1);
+  var stamped = false;
+  function touch(cur){ cur.updatedAt = now; cur.updatedBy = state.deviceId; stamped = true; }
 
   Object.keys(state.pages).forEach(function(id){
     var cur = state.pages[id];
-    if(shallowFieldsChanged(prevPages[id], cur, ['title','type','properties','trashedAt','rootBlocks','folderId'])){
-      cur.updatedAt = now; cur.updatedBy = state.deviceId;
-    }
+    if(entityChanged(prevPages[id], cur)) touch(cur);
     if(!cur.createdAt) cur.createdAt = now;
   });
   /* Flashcards use the same lightweight LWW metadata as pages/blocks so
@@ -1318,44 +1343,44 @@ function touchChangedEntities(){
   var curFolders = state.folders || {};
   Object.keys(curFc.decks || {}).forEach(function(id){
     var cur = curFc.decks[id];
-    if(shallowFieldsChanged(prevFc.decks && prevFc.decks[id], cur, ['name','deletedAt'])){ cur.updatedAt = now; cur.updatedBy = state.deviceId; }
+    if(entityChanged(prevFc.decks && prevFc.decks[id], cur)) touch(cur);
     if(!cur.createdAt) cur.createdAt = now;
   });
   Object.keys(curFc.cards || {}).forEach(function(id){
     var cur = curFc.cards[id];
-    if(shallowFieldsChanged(prevFc.cards && prevFc.cards[id], cur, ['deckId','front','back','tags','sourcePageId','sourceBlockId','dueAt','interval','ease','reps','lapses','state','suspended','deletedAt'])){ cur.updatedAt = now; cur.updatedBy = state.deviceId; }
+    if(entityChanged(prevFc.cards && prevFc.cards[id], cur)) touch(cur);
     if(!cur.createdAt) cur.createdAt = now;
   });
   Object.keys(curSn.cards || {}).forEach(function(id){
     var cur = curSn.cards[id];
-    if(shallowFieldsChanged(prevSn.cards && prevSn.cards[id], cur, ['title','text','color','pinned','archived','tags','sourcePageId','sourceBlockId','deletedAt'])){ cur.updatedAt = now; cur.updatedBy = state.deviceId; }
+    if(entityChanged(prevSn.cards && prevSn.cards[id], cur)) touch(cur);
     if(!cur.createdAt) cur.createdAt = now;
   });
   Object.keys(curFolders || {}).forEach(function(id){
     var cur = curFolders[id];
-    if(shallowFieldsChanged(prevFolders[id], cur, ['name','parentId','collapsed','deletedAt'])){ cur.updatedAt = now; cur.updatedBy = state.deviceId; }
+    if(entityChanged(prevFolders[id], cur)) touch(cur);
     if(!cur.createdAt) cur.createdAt = now;
   });
   Object.keys(prevFolders).forEach(function(id){
     if(!state.folders || !state.folders[id]){
       if(!state.folders) state.folders = {};
       state.folders[id] = {id:id,name:'Deleted folder',parentId:null,deletedAt:now,updatedAt:now,updatedBy:state.deviceId};
+      stamped = true;
     }
   });
 
   Object.keys(prevPages).forEach(function(id){
-    if(!state.pages[id]) state.tombstones.pages[id] = now;
+    if(!state.pages[id]){ state.tombstones.pages[id] = now; stamped = true; }
   });
 
   Object.keys(state.blocks).forEach(function(id){
     var cur = state.blocks[id];
-    if(shallowFieldsChanged(prevBlocks[id], cur, ['text','parent','collapsed','pageId','children'])){
-      cur.updatedAt = now; cur.updatedBy = state.deviceId;
-    }
+    if(entityChanged(prevBlocks[id], cur)) touch(cur);
   });
   Object.keys(prevBlocks).forEach(function(id){
-    if(!state.blocks[id]) state.tombstones.blocks[id] = now;
+    if(!state.blocks[id]){ state.tombstones.blocks[id] = now; stamped = true; }
   });
+  if(stamped && now > (state.clockFloor || 0)) state.clockFloor = now;
 }
 
 /* ============================================================
@@ -1504,7 +1529,12 @@ function pickWinner(a, b){
   var ta = a.updatedAt||a.createdAt||0, tb = b.updatedAt||b.createdAt||0;
   if(ta !== tb) return ta > tb ? a : b;
   var da = a.updatedBy||"", db = b.updatedBy||"";
-  return da <= db ? a : b;
+  if(da !== db) return da < db ? a : b;
+  /* Same stamp and same author but the copies may still differ (e.g. legacy data with no
+     updatedBy). Break the tie on content so merge(a,b) and merge(b,a) pick the same copy —
+     otherwise two devices each keep their own version forever and never converge. */
+  var ja = JSON.stringify(a), jb = JSON.stringify(b);
+  return ja <= jb ? a : b;
 }
 
 /* sinceTs is the timestamp of the last successful sync with this
@@ -1520,6 +1550,7 @@ function mergeStates(local, remote, sinceTs){
   if(local === state && syncEditingBlockToState()){ try{ touchChangedEntities(); }catch(e){} }
   deriveOrder(local);
   deriveOrder(remote);
+  var since = sinceTs || 0;
   var merged = {
     pages:{}, blocks:{}, titleIndex:{},
     tombstones:{
@@ -1539,6 +1570,16 @@ function mergeStates(local, remote, sinceTs){
     syncPeers: JSON.parse(JSON.stringify(local.syncPeers || {}))
   };
   var conflicts = [];
+  /* localLoss counts local entities edited since the last sync whose content this merge replaces or
+     removes: the cue for the caller to take a safety snapshot before applying it. */
+  var stats = {localLoss:0, overwritten:0};
+
+  /* Causal clock: never let later local edits be stamped older than anything already seen from a
+     peer (see touchChangedEntities). A peer clock absurdly far ahead is capped, not followed. */
+  var maxRemote = 0;
+  Object.keys(remote.pages || {}).forEach(function(id){ var t = remote.pages[id].updatedAt || 0; if(t > maxRemote) maxRemote = t; });
+  Object.keys(remote.blocks || {}).forEach(function(id){ var t = remote.blocks[id].updatedAt || 0; if(t > maxRemote) maxRemote = t; });
+  merged.clockFloor = Math.max(local.clockFloor || 0, Math.min(maxRemote, Date.now() + MAX_CLOCK_SKEW_MS));
 
   function mergeFlashcardMap(localMap, remoteMap){
     var out = {};
@@ -1554,22 +1595,53 @@ function mergeStates(local, remote, sinceTs){
   merged.stickyNotes.cards = mergeFlashcardMap(local.stickyNotes && local.stickyNotes.cards, remote.stickyNotes && remote.stickyNotes.cards);
   merged.folders = mergeFlashcardMap(local.folders, remote.folders);
 
+  function propsText(list){
+    return (list || []).map(function(p){ return (p && p.key ? p.key : '?') + ': ' + (p && p.value != null && p.value !== '' ? p.value : '(empty)'); }).join('; ') || '(no properties)';
+  }
+  function deletedLine(b, why){
+    var pg = local.pages[b.pageId] || remote.pages[b.pageId];
+    return {
+      kind:'line-deleted', entityId:b.id, pageId:b.pageId, pageTitle: pg ? pg.title : '(deleted page)',
+      keptText: why, droppedText: b.text, keptBy: null, droppedBy: b.updatedBy,
+      keptAt: null, droppedAt: b.updatedAt
+    };
+  }
+
+  var pageWinner = {}, blockWinner = {};
   var pageIds = Object.keys(local.pages).concat(Object.keys(remote.pages)).filter(function(id,i,arr){ return arr.indexOf(id)===i; });
   pageIds.forEach(function(id){
     var la = local.pages[id], ra = remote.pages[id];
     var winner = pickWinner(la, ra);
+    pageWinner[id] = winner;
     var delAt = merged.tombstones.pages[id];
-    if(delAt && (!winner || delAt >= (winner.updatedAt||0))) return;
+    if(delAt && (!winner || delAt >= (winner.updatedAt||0))){
+      if(la && (la.updatedAt||0) > since) stats.localLoss++;
+      return;
+    }
     if(winner) merged.pages[id] = JSON.parse(JSON.stringify(winner));
-    if(sinceTs && la && ra && la.title !== ra.title &&
-       (la.updatedAt||0) > sinceTs && (ra.updatedAt||0) > sinceTs){
+    if(la && winner !== la && entityChanged(la, winner)){
+      stats.overwritten++;
+      if((la.updatedAt||0) > since) stats.localLoss++;
+    }
+    if(sinceTs && la && ra && (la.updatedAt||0) > sinceTs && (ra.updatedAt||0) > sinceTs){
       var loserP = (winner === la) ? ra : la;
-      conflicts.push({
-        kind:'page', entityId:id, pageId:id, pageTitle: winner.title,
-        keptText: winner.title, droppedText: loserP.title,
-        keptBy: winner.updatedBy, droppedBy: loserP.updatedBy,
-        keptAt: winner.updatedAt, droppedAt: loserP.updatedAt
-      });
+      if(la.title !== ra.title){
+        conflicts.push({
+          kind:'page', entityId:id, pageId:id, pageTitle: winner.title,
+          keptText: winner.title, droppedText: loserP.title,
+          keptBy: winner.updatedBy, droppedBy: loserP.updatedBy,
+          keptAt: winner.updatedAt, droppedAt: loserP.updatedAt
+        });
+      }
+      if(JSON.stringify(la.properties || []) !== JSON.stringify(ra.properties || [])){
+        conflicts.push({
+          kind:'properties', entityId:id, pageId:id, pageTitle: winner.title,
+          keptText: propsText(winner.properties), droppedText: propsText(loserP.properties),
+          droppedProps: JSON.parse(JSON.stringify(loserP.properties || [])),
+          keptBy: winner.updatedBy, droppedBy: loserP.updatedBy,
+          keptAt: winner.updatedAt, droppedAt: loserP.updatedAt
+        });
+      }
     }
   });
 
@@ -1577,9 +1649,26 @@ function mergeStates(local, remote, sinceTs){
   blockIds.forEach(function(id){
     var la = local.blocks[id], ra = remote.blocks[id];
     var winner = pickWinner(la, ra);
+    blockWinner[id] = winner;
     var delAt = merged.tombstones.blocks[id];
-    if(delAt && (!winner || delAt >= (winner.updatedAt||0))) return;
-    if(winner && merged.pages[winner.pageId]) merged.blocks[id] = JSON.parse(JSON.stringify(winner));
+    if(delAt && (!winner || delAt >= (winner.updatedAt||0))){
+      /* A deletion beat this line. If the surviving copy was edited since the last sync, that edit is
+         about to disappear: say so instead of dropping it silently. */
+      if(winner && since && (winner.updatedAt||0) > since && (winner.text||'').trim()) conflicts.push(deletedLine(winner, '(deleted on another device)'));
+      if(la && (la.updatedAt||0) > since) stats.localLoss++;
+      return;
+    }
+    if(winner && !merged.pages[winner.pageId]){
+      /* The whole page was deleted elsewhere while this line was written here. */
+      if(since && (winner.updatedAt||0) > since && (winner.text||'').trim()) conflicts.push(deletedLine(winner, '(its page was deleted on another device)'));
+      if(la && (la.updatedAt||0) > since) stats.localLoss++;
+      return;
+    }
+    if(winner) merged.blocks[id] = JSON.parse(JSON.stringify(winner));
+    if(la && winner !== la && entityChanged(la, winner)){
+      stats.overwritten++;
+      if((la.updatedAt||0) > since) stats.localLoss++;
+    }
     if(sinceTs && la && ra && la.text !== ra.text &&
        (la.updatedAt||0) > sinceTs && (ra.updatedAt||0) > sinceTs && merged.blocks[id]){
       var loserB = (winner === la) ? ra : la;
@@ -1617,12 +1706,11 @@ function mergeStates(local, remote, sinceTs){
   }
 
   Object.keys(merged.pages).forEach(function(pid){
-    var wp = pickWinner(local.pages[pid], remote.pages[pid]);
+    var wp = pageWinner[pid];
     (wp && wp.rootBlocks || []).forEach(function(bid){ addRoot(pid, bid); });
   });
   Object.keys(merged.blocks).forEach(function(parentId){
-    var parent = merged.blocks[parentId];
-    var wb = pickWinner(local.blocks[parentId], remote.blocks[parentId]);
+    var wb = blockWinner[parentId];
     (wb && wb.children || []).forEach(function(bid){ addChild(parentId, bid); });
   });
 
@@ -1641,7 +1729,7 @@ function mergeStates(local, remote, sinceTs){
     merged.currentPageId = Object.keys(merged.pages)[0];
   }
   merged = normalizeState(merged);
-  return {state: merged, conflicts: conflicts};
+  return {state: merged, conflicts: conflicts, stats: stats};
 }
 
 /* Applies a merge result as the new live state: persists it, pushes an

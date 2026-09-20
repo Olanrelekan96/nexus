@@ -191,6 +191,7 @@ function handleIncomingLanSync(link, msg){
     merged.syncPeers[link.peerId] = syncTs;
   }
   if(changed){
+    syncSafetySnapshot(result, link.label);
     applyIncomingMerge(merged);
     toast('Synced with ' + link.label + ' (LAN).');
   } else if(link.peerId){

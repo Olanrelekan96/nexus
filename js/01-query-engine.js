@@ -510,6 +510,13 @@ var qbKind = 'query';
 var qbTargetBlockId = null; /* null => inserting a brand-new block */
 var qbFilters = [];
 var qbView = null; /* {view, sort, sortDesc, group, cols} — only used when qbKind === 'table' */
+var qbSavedViewId = null; /* active saved-view id while the builder is open; null => raw directives */
+
+function cloneDbViewDirs(dirs){
+  if(!dirs || typeof dirs !== 'object') return {view:'table',sort:'',sortDesc:false,group:'',cols:null,agg:{}};
+  try{ return JSON.parse(JSON.stringify(dirs)); }
+  catch(e){ return {view:dirs.view||'table',sort:dirs.sort||'',sortDesc:!!dirs.sortDesc,group:dirs.group||'',cols:Array.isArray(dirs.cols)?dirs.cols.slice():null,agg:dirs.agg&&typeof dirs.agg==='object'?Object.assign({},dirs.agg):{}}; }
+}
 
 function qbQuoteIfNeeded(s){
   s = (s || '').replace(/"/g, '');
@@ -831,17 +838,17 @@ function renderQBViewControls(){
 function openQueryBuilder(kind, targetBlockId, existingQstr){
   qbKind = kind;
   qbTargetBlockId = targetBlockId || null;
+  qbSavedViewId = null;
   if(kind === 'table'){
     var parsed = extractTableDirectives(existingQstr || '');
     var qbBlock = targetBlockId ? state.blocks[targetBlockId] : null;
     if(qbBlock && Array.isArray(qbBlock.dbViews) && qbBlock.dbViews.length){
-      /* This database has saved views (see js/16-advanced-database.js) —
-         edit the active one's own dirs object directly (by reference)
-         rather than the now-vestigial directives in the raw text, so
-         View/Sort/Columns changes made here land where the tab bar
-         actually reads them from. */
+      /* This database has saved views (see js/16-advanced-database.js).
+         Work on an isolated copy: Cancel must never mutate the live saved
+         view. The copy is committed only by the Save handler below. */
       var qbActiveView = qbBlock.dbViews.filter(function(v){ return v.id === qbBlock.dbActiveViewId; })[0] || qbBlock.dbViews[0];
-      qbView = qbActiveView.dirs;
+      qbSavedViewId = qbActiveView.id;
+      qbView = cloneDbViewDirs(qbActiveView.dirs);
     } else {
       qbView = parsed.dirs;
     }
@@ -891,10 +898,14 @@ document.getElementById('qb-save').onclick = function(){
   var filterStr = filtersToQstr(qbFilters);
   var qbBlockOnSave = qbTargetBlockId ? state.blocks[qbTargetBlockId] : null;
   var qbUsesSavedViews = qbKind === 'table' && qbBlockOnSave && Array.isArray(qbBlockOnSave.dbViews) && qbBlockOnSave.dbViews.length;
-  /* When a saved view is being edited, qbView already *is* that view's
-     dirs object (see openQueryBuilder above) and every control above
-     mutated it live, so there's nothing left to fold into the text —
-     the text only needs to carry the filters. */
+  /* Saved-view edits are transactional: commit the isolated qbView only
+     after the user presses Save. Raw table directives still travel in the
+     block text exactly as before. */
+  if(qbUsesSavedViews){
+    var qbViewToSave = qbBlockOnSave.dbViews.filter(function(v){ return v.id === qbSavedViewId; })[0] ||
+      qbBlockOnSave.dbViews.filter(function(v){ return v.id === qbBlockOnSave.dbActiveViewId; })[0] || qbBlockOnSave.dbViews[0];
+    if(qbViewToSave) qbViewToSave.dirs = cloneDbViewDirs(qbView);
+  }
   var qstr = (qbKind === 'table' && !qbUsesSavedViews) ? [buildDirectivesStr(qbView), filterStr].filter(Boolean).join(' ').trim() : filterStr;
   if(qbTargetBlockId) updateQueryBlockFinal(qbTargetBlockId, qbKind, qstr);
   else insertQueryBlockFinal(qbKind, qstr);

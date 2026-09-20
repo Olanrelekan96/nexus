@@ -33,6 +33,9 @@ function renderBacklinks(page){
   Object.keys(state.blocks).forEach(function(id){
     var blk = state.blocks[id];
     if(blk.pageId === page.id) return;
+    /* A trashed page is archived, not live: its links must not appear as references. */
+    var sourcePage = state.pages[blk.pageId];
+    if(!sourcePage || sourcePage.trashedAt) return;
     var refs = extractRefs(blk.text);
     var hit = refs.some(function(r){ return r.title.toLowerCase() === page.title.toLowerCase(); });
     if(hit){

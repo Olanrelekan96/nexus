@@ -131,6 +131,96 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.ok(core.includes("contains('footnote-ref')") && core.includes("'[^'"), 'serializeInline must serialise footnote refs itself');
 }
 
+/* --- Trashed pages are archived: their links are not live backlinks; tag pages still list tagged blocks. */
+{
+  const bl = extractFn(read('js/05-backlinks-nav-graph.js'), 'renderBacklinks');
+  assert.ok(/sourcePage\.trashedAt\) return;/.test(bl), 'renderBacklinks must skip blocks from trashed pages');
+  assert.ok(!/r\.type === 'page' && r\.title/.test(bl), '#tag references must keep counting so tag pages list their tagged blocks');
+}
+
+/* --- User data (page titles, tags) must never be interpolated into task-group headers as HTML. */
+{
+  const tm = read('js/15-task-manager.js');
+  assert.ok(!/head\.innerHTML\s*=\s*'<span>'\s*\+\s*g\.label/.test(tm), 'task group header must not use innerHTML with g.label');
+  assert.ok(/labelEl\.textContent = g\.label;/.test(tm), 'task group label must be a text node');
+}
+
+/* --- Saved database views: the query builder edits a copy; only Save commits it (Cancel must not leak). */
+{
+  const qe = read('js/01-query-engine.js');
+  assert.ok(/function cloneDbViewDirs\(/.test(qe) && /qbView = cloneDbViewDirs\(qbActiveView\.dirs\);/.test(qe), 'builder must work on a copy of the saved view');
+  assert.ok(!/qbView = qbActiveView\.dirs;/.test(qe), 'builder must not edit the saved view by reference');
+  assert.ok(/qbViewToSave\.dirs = cloneDbViewDirs\(qbView\)/.test(qe), 'Save must commit the copy');
+}
+
+/* --- Background Drive sync on a file:// page must never raise an alert(). */
+{
+  const bk = read('js/06-backup-sync.js');
+  assert.ok(/function gdriveBlockedByOrigin\(silent\)/.test(bk) && /if\(silent\) return true;/.test(bk));
+  assert.ok(/function gdrivePerformSyncCycle\(\)\{[\s\S]{0,200}gdriveBlockedByOrigin\(true\)\) return;/.test(bk), 'sync cycle must use the silent origin check');
+  assert.ok(/function runGdriveSyncCycle\(\)\{[\s\S]{0,500}gdriveBlockedByOrigin\(true\)\) return;/.test(bk), 'the sync timer entry must use the silent origin check');
+}
+
+/* --- The passcode gate also covers Drive sync (no background merge/upload while locked). */
+{
+  const bk = read('js/06-backup-sync.js');
+  assert.ok(/function runGdriveSyncCycle\(\)\{[\s\S]{0,400}appLocked\) return;/.test(bk), 'runGdriveSyncCycle must stop while locked');
+  assert.ok(/function gdrivePerformSyncCycle\(\)\{\s*if\(typeof appLocked !== 'undefined' && appLocked\) return;/.test(bk), 'gdrivePerformSyncCycle must stop while locked');
+}
+
+/* --- Accessibility: dialogs and unlabeled inputs carry names; passcode fields keep autocomplete off (no password-manager capture). */
+{
+  const html = read('index.html');
+  ['settings-overlay', 'lock-overlay', 'passcode-overlay', 'versions-overlay', 'palette', 'gs-modal', 'page-title', 'attach-file-input', 'import-md-input'].forEach((id) => {
+    const tag = (html.match(new RegExp('<[^>]*\\bid="' + id + '"[^>]*>')) || [''])[0];
+    assert.ok(/aria-label="[^"]+"/.test(tag), id + ' must have an accessible name');
+  });
+  assert.ok(/<input[^>]*id="lock-input"[^>]*autocomplete="off"/.test(html) || /<input[^>]*autocomplete="off"[^>]*id="lock-input"/.test(html), 'passcode field must keep autocomplete="off"');
+  assert.ok(fs.existsSync(path.join(root, '.nojekyll')), '.nojekyll must ship for static hosting');
+}
+
+/* --- Sync: every content field counts as an edit; ties resolve identically on both devices. */
+{
+  const core = read('js/00-state-and-helpers.js');
+  const ctx = sandbox(['entityChanged', 'pickWinner'].map((n) => extractFn(core, n)).join('\n') + '\nvar SYNC_META_KEYS = {updatedAt:1, updatedBy:1, order:1};');
+  const base = { id: 'p', title: 'T', updatedAt: 1, updatedBy: 'a', order: 0 };
+  assert.strictEqual(ctx.entityChanged(base, Object.assign({}, base, { updatedAt: 9, updatedBy: 'b', order: 4 })), false, 'bookkeeping alone is not an edit');
+  ['icon', 'banner', 'pinned', 'locked', 'dbViews', 'conflict', 'viewMode', 'text'].forEach((k) => {
+    assert.strictEqual(ctx.entityChanged(base, Object.assign({}, base, { [k]: k === 'dbViews' ? [{ id: 'v' }] : 'x' })), true, k + ' must count as an edit');
+  });
+  const a = { id: 'b', text: 'A', updatedAt: 5, updatedBy: 's' }, b = { id: 'b', text: 'B', updatedAt: 5, updatedBy: 's' };
+  assert.strictEqual(ctx.pickWinner(a, b), ctx.pickWinner(b, a), 'equal stamps: both merge orders must pick the same copy');
+  assert.strictEqual(ctx.pickWinner({ updatedAt: 9, text: 'n' }, { updatedAt: 3, text: 'o' }).text, 'n');
+  assert.ok(/merged\.clockFloor = Math\.max\(local\.clockFloor \|\| 0, Math\.min\(maxRemote, Date\.now\(\) \+ MAX_CLOCK_SKEW_MS\)\)/.test(core), 'merge must raise the causal clock floor (capped)');
+  assert.ok(/var now = Math\.max\(Date\.now\(\), \(state\.clockFloor \|\| 0\) \+ 1\);/.test(core), 'stamps must respect the clock floor');
+  assert.ok(/kind:'line-deleted'/.test(core) && /kind:'properties'/.test(core) && /return \{state: merged, conflicts: conflicts, stats: stats\};/.test(core), 'merge must report deletion/property conflicts and loss stats');
+}
+
+/* --- Version history: text-level diff helper, protection rules, and no plaintext leftovers. */
+{
+  const bk = read('js/06-backup-sync.js');
+  const ctx = sandbox(['tokenizeWords', 'wordDiffParts', 'versionIsProtected', 'versionKind', 'formatBytes'].map((n) => extractFn(bk, n)).join('\n'));
+  const d = ctx.wordDiffParts('the quick brown fox', 'the slow brown dog');
+  assert.strictEqual(JSON.stringify(d.a.filter((x) => x.d && /\S/.test(x.t)).map((x) => x.t)), JSON.stringify(['quick', 'fox']));
+  assert.strictEqual(JSON.stringify(d.b.filter((x) => x.d && /\S/.test(x.t)).map((x) => x.t)), JSON.stringify(['slow', 'dog']));
+  assert.ok(ctx.versionIsProtected({ pinned: true }) && ctx.versionIsProtected({ name: 'x' }) && ctx.versionIsProtected({ nameEnc: {} }) && !ctx.versionIsProtected({}));
+  assert.strictEqual(ctx.versionKind({ reason: 'Daily snapshot' }), 'auto');
+  assert.strictEqual(ctx.versionKind({ kind: 'sync' }), 'sync');
+  assert.strictEqual(ctx.formatBytes(1536), '2 KB');
+  assert.ok(!/MAX_VERSIONS\b/.test(bk) && /MAX_UNPINNED_VERSIONS = 30/.test(bk), 'retention must not be the old fixed five');
+  assert.ok(!/localStorage\.setItem\(CONFLICTS_KEY/.test(bk), 'the conflict log must not be written to plaintext localStorage');
+  assert.ok(/function syncSafetySnapshot\(/.test(bk) && /syncSafetySnapshot\(mergeResult, 'Google Drive'\)/.test(bk) && /syncSafetySnapshot\(result, link\.label\)/.test(read('js/10-lan-sync.js')), 'both sync paths must snapshot before applying a destructive merge');
+  const lock = read('js/09-security-lock.js');
+  assert.ok(/encryptExistingVersions\(\)/.test(lock) && /decryptExistingVersions\(\)/.test(lock) && /clearAllVersions\(\)/.test(lock), 'passcode set/remove/erase must handle snapshots');
+}
+
+/* --- Permanent deletion is recoverable (safety snapshot first); the conflict log loads at startup. */
+{
+  const ed = read('js/02-editor-core.js');
+  assert.ok(/snapshotVersionThrottled\('perm-delete'/.test(ed) && /snapshotVersion\('Before emptying the trash'/.test(ed), 'permanent deletes must take a safety snapshot');
+  assert.ok(/initConflictsStore\(\);/.test(read('js/14-wiring-and-init.js')), 'the conflict log must be loaded when the notebook boots');
+}
+
 /* --- Guard against new accidental duplicate global functions (later files silently shadow earlier ones). */
 {
   const KNOWN = new Set(['renderTasksView', 'tasksSortComparator']); /* legacy copies in 03, superseded by 15 */
@@ -144,4 +234,4 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.deepStrictEqual(dupes, [], 'duplicate global function declarations: ' + dupes.join(', '));
 }
 
-console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, duplicate-function guard.');
+console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, duplicate-function guard.');

@@ -629,7 +629,8 @@ function permanentlyDeletePage(pageId){
   var page = state.pages[pageId];
   if(!page) return;
   if((typeof isPermanentDatabasePage === 'function' && isPermanentDatabasePage(page)) || (typeof isPermanentQueryPage === 'function' && isPermanentQueryPage(page)) || (typeof isPermanentStickyNotesPage === 'function' && isPermanentStickyNotesPage(page))){ toast(isPermanentQueryPage && isPermanentQueryPage(page) ? 'The default Queries workspace is permanent.' : 'The default Database workspace is permanent.'); return; }
-  if(!confirm('Permanently delete "'+page.title+'" and all its lines? This cannot be undone.')) return;
+  if(!confirm('Permanently delete "'+page.title+'" and all its lines? Nexus keeps a safety snapshot first (Version history → page history) so it can still be recovered.')) return;
+  snapshotVersionThrottled('perm-delete', 60*1000, 'Before permanently deleting "'+page.title+'"', {kind:'safety'});
   hardDeletePageBlocks(page);
   if(state.currentPageId === pageId) goToNextLivePageAfterRemoval();
   save();
@@ -640,7 +641,8 @@ function permanentlyDeletePage(pageId){
 function emptyTrash(){
   var trashed = trashedPages();
   if(!trashed.length){ toast('Trash is already empty.'); return; }
-  if(!confirm('Permanently delete all '+trashed.length+' item(s) in Trash? This cannot be undone.')) return;
+  if(!confirm('Permanently delete all '+trashed.length+' item(s) in Trash? Nexus keeps a safety snapshot first (Version history) so it can still be recovered.')) return;
+  snapshotVersion('Before emptying the trash', {kind:'safety'});
   trashed.forEach(hardDeletePageBlocks);
   if(!state.pages[state.currentPageId]) goToNextLivePageAfterRemoval();
   save();
