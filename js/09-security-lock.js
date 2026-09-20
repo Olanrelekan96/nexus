@@ -375,8 +375,8 @@ function clearLockMeta(){
   try{ localStorage.removeItem(LOCK_KEY); }catch(e){}
   clearPasscodeSessionKey();
   clearPersistentPasscodeKey();
-  /* Remove the GDrive sync key session too — without a local passcode
-     there is no encrypted sync, so the session has no further use. */
+  /* Remove the GDrive sync key session and declined flag too — without a
+     local passcode there is no encrypted sync, so both have no further use. */
   if(typeof clearGdriveSyncKeySession === 'function') clearGdriveSyncKeySession();
 }
 function isLockEnabled(){ return !!loadLockMeta(); }

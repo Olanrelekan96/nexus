@@ -646,7 +646,8 @@ function gdriveAuthTtlMs(){
    itself is already the secret that encrypts the sync file, so keeping
    it in sessionStorage is no weaker than keeping a derived key there —
    and sessionStorage is never synced to disk or sent to any server.  */
-var GDRIVE_SYNC_KEY_SESSION_KEY = (typeof STORAGE_KEY !== 'undefined' ? STORAGE_KEY : 'nexus_pkm_v1') + '_gdrive_synckey_session_v1';
+var GDRIVE_SYNC_KEY_SESSION_KEY = STORAGE_KEY + '_gdrive_synckey_session_v1';
+var GDRIVE_SYNC_DECLINED_KEY    = STORAGE_KEY + '_gdrive_sync_declined_v1';
 var GDRIVE_SYNC_KEY_SESSION_DEFAULT = '24';
 var GDRIVE_SYNC_KEY_SESSION_CHOICES = ['1', '6', '12', '24'];
 var gdriveSyncKeyUnlockedAt = 0; /* ms timestamp of when the passcode was last confirmed */
@@ -673,15 +674,37 @@ function persistGdriveSyncKeySession(){
 }
 
 /* Remove the persisted session (called on passcode change, encryption
-   mode switch, or when the deadline has expired). */
+   mode switch, or when the deadline has expired). Also clears the
+   declined flag so the user is asked again if they re-enable a lock. */
 function clearGdriveSyncKeySession(){
   try{ sessionStorage.removeItem(GDRIVE_SYNC_KEY_SESSION_KEY); }catch(e){}
+  try{ localStorage.removeItem(GDRIVE_SYNC_DECLINED_KEY); }catch(e){}
 }
 
-/* Attempt to restore gdriveSyncPasscode from sessionStorage on page
-   load. Returns true if a valid (non-expired) session was found and
-   restored, false otherwise. */
+/* Persist the "I chose plain sync" decision so it survives page reloads.
+   Stored in localStorage (not sessionStorage) because it's a standing
+   preference, not a per-tab secret. Cleared automatically whenever the
+   passcode lock is removed or the user actively chooses encryption. */
+function persistGdriveSyncDeclined(){
+  try{ localStorage.setItem(GDRIVE_SYNC_DECLINED_KEY, '1'); }catch(e){}
+}
+function clearGdriveSyncDeclined(){
+  try{ localStorage.removeItem(GDRIVE_SYNC_DECLINED_KEY); }catch(e){}
+}
+
+/* Attempt to restore gdriveSyncPasscode and gdriveSyncEncryptionDeclined
+   from storage on page load. Returns true if a valid (non-expired)
+   encrypted session was found and restored, false otherwise (which may
+   still mean the declined flag was restored — check gdriveSyncEncryptionDeclined). */
 function restoreGdriveSyncKeySession(){
+  /* Always restore the "declined" flag first — it's a standing preference. */
+  try{
+    if(localStorage.getItem(GDRIVE_SYNC_DECLINED_KEY) === '1'){
+      gdriveSyncEncryptionDeclined = true;
+    }
+  }catch(e){}
+
+  /* Then try to restore the active passcode session. */
   var raw;
   try{ raw = JSON.parse(sessionStorage.getItem(GDRIVE_SYNC_KEY_SESSION_KEY) || 'null'); }catch(e){ raw = null; }
   if(!raw || typeof raw.passcode !== 'string' || !raw.deadlineAt) return false;
@@ -1188,13 +1211,16 @@ function ensureGdriveSyncMode(){
   if(gdriveSyncPasscode) return Promise.resolve('encrypted');
   if(!confirm('This notebook has a passcode lock set up.\n\nEncrypt Google Drive sync data with your passcode too?\n\nOK = encrypted (every device you sync with must use this same passcode).\nCancel = keep sync data as plain, readable JSON, same as before.')){
     gdriveSyncEncryptionDeclined = true;
-    clearGdriveSyncKeySession();
+    clearGdriveSyncKeySession();       /* clears both session + declined flag, then: */
+    persistGdriveSyncDeclined();       /* re-persist the declined choice so it survives reload */
     return Promise.resolve('plain');
   }
   var passcode = promptForPasscode('Enter your passcode:');
   if(passcode === null) return Promise.resolve('cancelled');
   return confirmPasscode(passcode).then(function(ok){
     if(!ok){ toast('Incorrect passcode.'); return 'cancelled'; }
+    gdriveSyncEncryptionDeclined = false;
+    clearGdriveSyncDeclined();         /* user has now chosen encryption, clear the declined flag */
     gdriveSyncPasscode = passcode;
     gdriveSyncKeyUnlockedAt = Date.now();
     persistGdriveSyncKeySession();
