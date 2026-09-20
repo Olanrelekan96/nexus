@@ -196,6 +196,18 @@ titleEl.addEventListener('keydown', function(e){
   }
 });
 
+/* True when the focused element is somewhere the person is typing text (a block, the page
+   title, a search box, a settings field, a flashcard textarea…). Ctrl/Cmd+Z / Y must then be
+   left to the browser's own field-level undo: hijacking them undid the last *notebook* action
+   (and did nothing to the field) whenever someone tried to fix a typo in any plain input. */
+function isTextEntryTarget(el){
+  if(!el) return false;
+  if(el.isContentEditable) return true;
+  var tag = el.tagName || '';
+  if(tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if(tag === 'INPUT') return ['checkbox','radio','button','submit','reset','range','color','file','image'].indexOf((el.type||'text').toLowerCase()) === -1;
+  return false;
+}
 document.addEventListener('keydown', function(e){
   if(appLocked) return; /* notebook shortcuts are inert while the lock screen is up */
   var isMod = e.metaKey || e.ctrlKey;
@@ -223,17 +235,20 @@ document.addEventListener('keydown', function(e){
     /* While actively typing in a contentEditable field, defer to the
        browser's own native undo/redo for that field instead of jumping
        a whole app-level action — our undo is for committed actions. */
-    if(document.activeElement && document.activeElement.isContentEditable) return;
+    if(isTextEntryTarget(document.activeElement)) return;
     e.preventDefault();
     if(e.shiftKey) performRedo(); else performUndo();
   } else if(isMod && !e.shiftKey && (e.key === 'y' || e.key === 'Y')){
-    if(document.activeElement && document.activeElement.isContentEditable) return;
+    if(isTextEntryTarget(document.activeElement)) return;
     e.preventDefault();
     performRedo();
   }
 });
 
 window.addEventListener('beforeunload', flushSaveNow);
+/* pagehide is the reliable last-chance event on iOS/Android and bfcache navigations,
+   where beforeunload frequently never fires. */
+window.addEventListener('pagehide', flushSaveNow);
 document.addEventListener('visibilitychange', function(){
   if(document.hidden){ flushSaveNow(); gdriveFlushPendingSync(); }
   else if(typeof enforcePasscodeReentry === 'function') enforcePasscodeReentry();
@@ -281,29 +296,8 @@ function bootNotebook(){
       });
     }
   }).catch(function(err){
-    try{ console.error('Nexus notebook load failed:', err); }catch(ignore){}
-    var pageView = document.getElementById('page-view');
-    if(pageView){
-      pageView.classList.add('visible');
-      pageView.innerHTML = '<section class="notebook-load-error" role="alert" aria-live="assertive">' +
-        '<div class="notebook-load-error-icon" aria-hidden="true">⚠</div>' +
-        '<h2>Could not load your existing notebook</h2>' +
-        '<p>Nexus stopped before creating replacement data. Your saved notebook was not replaced by a fresh notebook.</p>' +
-        '<p>Close other Nexus tabs, then reload. If this continues, restore a known-good backup before clearing browser site data.</p>' +
-        '<div class="notebook-load-error-actions"><button type="button" id="notebook-reload-btn">Reload Nexus</button><button type="button" id="notebook-diagnostics-btn" class="secondary">Show technical detail</button></div>' +
-        '<pre id="notebook-load-error-detail" hidden></pre>' +
-      '</section>';
-      var reloadBtn = document.getElementById('notebook-reload-btn');
-      if(reloadBtn) reloadBtn.onclick = function(){ location.reload(); };
-      var detailBtn = document.getElementById('notebook-diagnostics-btn');
-      if(detailBtn) detailBtn.onclick = function(){
-        var detail = document.getElementById('notebook-load-error-detail');
-        if(!detail) return;
-        detail.hidden = !detail.hidden;
-        detail.textContent = err && err.message ? err.message : String(err || 'Unknown notebook load failure');
-      };
-    }
-    if(typeof setDataHealthStatus === 'function') setDataHealthStatus('error', 'Existing notebook could not be loaded. No replacement data was created.');
+    if(err && err.nexusHandled) return; /* the load-failure dialog is already showing */
+    toast('Could not load your notebook — try reloading the page.');
   });
 }
 

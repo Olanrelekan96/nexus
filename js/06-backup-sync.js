@@ -429,7 +429,6 @@ function restoreFromDecryptedJsonText(jsonText){
     var attachments = parsed.__attachments || {};
     delete parsed.__attachments;
     state = normalizeState(parsed);
-    if(typeof invalidatePageRefsMapCache === 'function') invalidatePageRefsMapCache();
     save();
     renderAll();
     var attIds = Object.keys(attachments);
@@ -579,9 +578,8 @@ function gdriveCredentialsConfigured(){
 
 /* Returns true (and shows an explanation) if this page can't do Google
    OAuth from where it's currently running — i.e. opened as a local file. */
-function gdriveBlockedByOrigin(silent){
+function gdriveBlockedByOrigin(){
   if(location.protocol === 'file:'){
-    if(silent) return true;
     alert('Google Drive import/export needs Nexus to be opened over http(s), not as a local file.\n\n' +
           'Google\'s sign-in won\'t authorize a page opened directly from disk (a file:// address). ' +
           'Host this file somewhere simple — GitHub Pages, Netlify, Vercel, or even "python3 -m http.server" ' +
@@ -592,44 +590,37 @@ function gdriveBlockedByOrigin(silent){
   return false;
 }
 
-var gdriveGoogleApisPromise = null;
-function gdriveLoadScript(src){
-  return new Promise(function(resolve,reject){
-    var existing = document.querySelector('script[data-nexus-google-src="' + src + '"]');
-    if(existing){
-      if(existing.dataset.loaded === '1'){ resolve(); return; }
-      existing.addEventListener('load', function(){ resolve(); }, {once:true});
-      existing.addEventListener('error', function(){ reject(new Error('Google API failed to load')); }, {once:true});
-      return;
-    }
-    var script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.defer = true;
-    script.dataset.nexusGoogleSrc = src;
-    script.onload = function(){ script.dataset.loaded = '1'; resolve(); };
-    script.onerror = function(){ reject(new Error('Google API failed to load')); };
-    document.head.appendChild(script);
+/* Google's client scripts are loaded on demand, never at startup: a private, offline-first
+   notebook should not contact Google (or fail offline) just because it was opened. Nothing is
+   requested until the person actually starts a Drive import/export or a Drive sync that they
+   previously connected. */
+var googleScriptPromises = {};
+function loadExternalScriptOnce(src){
+  if(googleScriptPromises[src]) return googleScriptPromises[src];
+  googleScriptPromises[src] = new Promise(function(resolve, reject){
+    var s = document.createElement('script');
+    s.src = src; s.async = true;
+    s.onload = function(){ resolve(); };
+    s.onerror = function(){ delete googleScriptPromises[src]; s.parentNode && s.parentNode.removeChild(s); reject(new Error('Could not load ' + src)); };
+    document.head.appendChild(s);
   });
+  return googleScriptPromises[src];
 }
-function ensureGoogleDriveApis(){
-  if(window.google && google.accounts && google.accounts.oauth2 && window.gapi) return Promise.resolve();
-  if(gdriveGoogleApisPromise) return gdriveGoogleApisPromise;
-  gdriveGoogleApisPromise = Promise.all([
-    (window.google && google.accounts && google.accounts.oauth2) ? Promise.resolve() : gdriveLoadScript('https://accounts.google.com/gsi/client'),
-    window.gapi ? Promise.resolve() : gdriveLoadScript('https://apis.google.com/js/api.js')
-  ]).then(function(){
-    if(!window.google || !google.accounts || !google.accounts.oauth2 || !window.gapi) throw new Error('Google Drive APIs unavailable');
-  }).catch(function(err){
-    gdriveGoogleApisPromise = null;
-    throw err;
-  });
-  return gdriveGoogleApisPromise;
+function ensureGoogleIdentity(){
+  if(window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
+  return loadExternalScriptOnce('https://accounts.google.com/gsi/client');
+}
+function ensureGoogleApi(){
+  if(window.gapi) return Promise.resolve();
+  return loadExternalScriptOnce('https://apis.google.com/js/api.js');
 }
 function gdriveEnsurePicker(cb){
   if(gdrivePickerLoaded){ cb(); return; }
-  if(!window.gapi || typeof gapi.load !== 'function'){ toast('Google Drive services are unavailable right now.'); return; }
-  gapi.load('picker', function(){ gdrivePickerLoaded = true; cb(); });
+  ensureGoogleApi().then(function(){
+    gapi.load('picker', function(){ gdrivePickerLoaded = true; cb(); });
+  }, function(){
+    toast('Could not reach Google — check your connection and try again.');
+  });
 }
 
 function gdriveOpenPicker(){
@@ -684,8 +675,12 @@ function gdriveWithToken(onReady){
     alert('Google Drive import/export needs a Client ID and API key from Google Cloud Console first. See the setup notes for this feature.');
     return;
   }
-  ensureGoogleDriveApis().then(function(){
-    var withinWindow = gdriveAuthStillValid();
+  ensureGoogleIdentity().then(function(){ gdriveWithTokenLoaded(onReady); }, function(){
+    toast('Could not reach Google — check your connection and try again.');
+  });
+}
+function gdriveWithTokenLoaded(onReady){
+  var withinWindow = gdriveAuthStillValid();
   if(!withinWindow) clearGdriveAuth();
 
   if(!gdriveTokenClient){
@@ -710,18 +705,15 @@ function gdriveWithToken(onReady){
     gdriveTokenClient.requestAccessToken(gdriveTokenRequestOpts('consent'));
   }
 
-    if(withinWindow){
-      gdriveTokenClient.callback = function(resp){
-        if(!resp.error){ succeed(resp); return; }
-        requestConsent(); /* silent renewal failed — ask properly instead */
-      };
-      gdriveTokenClient.requestAccessToken(gdriveTokenRequestOpts(''));
-    } else {
-      requestConsent();
-    }
-  }, function(){
-    toast('Google Drive services could not be loaded. Your local Nexus data is unaffected.');
-  });
+  if(withinWindow){
+    gdriveTokenClient.callback = function(resp){
+      if(!resp.error){ succeed(resp); return; }
+      requestConsent(); /* silent renewal failed — ask properly instead */
+    };
+    gdriveTokenClient.requestAccessToken(gdriveTokenRequestOpts(''));
+  } else {
+    requestConsent();
+  }
 }
 
 function gdriveStartImport(){
@@ -891,7 +883,11 @@ function setGdriveAuthTtl(hours){
    Only the explicit "On" click (enableGdriveAutoSync) uses the
    interactive version, gdriveWithToken. */
 function gdriveGetTokenSilently(onReady, onFail){
-  ensureGoogleDriveApis().then(function(){
+  /* Never-connected (or lapsed) means: don't load or contact Google at all. */
+  if(!gdriveAuthStillValid()){ onFail && onFail(); return; }
+  ensureGoogleIdentity().then(function(){ gdriveGetTokenSilentlyLoaded(onReady, onFail); }, function(){ onFail && onFail(); });
+}
+function gdriveGetTokenSilentlyLoaded(onReady, onFail){
   /* The whole point of the setting: once the window since the last
      deliberate connection has passed, background renewal stops and the
      caller falls through to its "needs sign-in" status instead. Note
@@ -917,9 +913,8 @@ function gdriveGetTokenSilently(onReady, onFail){
       onReady();
     };
   }
-    try{ gdriveTokenClient.requestAccessToken(gdriveTokenRequestOpts('')); }
-    catch(e){ onFail && onFail(); }
-  }, function(){ onFail && onFail(); });
+  try{ gdriveTokenClient.requestAccessToken(gdriveTokenRequestOpts('')); }
+  catch(e){ onFail && onFail(); }
 }
 
 /* Only called from an interactive click (enableGdriveAutoSync,
@@ -1072,7 +1067,7 @@ var GDRIVE_CYCLE_STALE_MS = 90000; /* a cycle that hasn't finished in this long 
    arrives mid-cycle is remembered and re-run once, right after, so a
    local edit made while a sync was in flight is never left behind. */
 function gdrivePerformSyncCycle(){
-  if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin(true)) return;
+  if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin()) return;
   if(gdriveCycleRunning && (Date.now() - gdriveCycleStartedAt) < GDRIVE_CYCLE_STALE_MS){
     gdriveCycleQueued = true;
     return;
@@ -1272,7 +1267,6 @@ function restoreFromVersion(entry){
   snapshotVersion('before version restore');
   getVersionData(entry).then(function(json){
     state = normalizeState(JSON.parse(json));
-    if(typeof invalidatePageRefsMapCache === 'function') invalidatePageRefsMapCache();
     save();
     renderAll();
     closeVersions();

@@ -1032,6 +1032,7 @@ function renderBlockRow(block){
 
   content.addEventListener('input', function(){
     autoFormatAtCaret(content);
+    if(typeof scheduleEditAutosave === 'function') scheduleEditAutosave();
     var page = state.pages[block.pageId];
     if(page) renderWordCount(page, block.id, content.textContent);
   });

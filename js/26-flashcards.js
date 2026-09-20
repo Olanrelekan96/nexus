@@ -42,7 +42,8 @@ function flashcardDeckName(deckId){
 function flashcardIsDue(card){ return !card.suspended && !card.deletedAt && (!card.dueAt || card.dueAt <= Date.now()); }
 function flashcardStatus(card){
   if(card.suspended) return 'suspended';
-  if(!card.reps) return 'new';
+  /* A card rated "again" on its first review has reps 0 but has been seen: it is learning, not new. */
+  if(!card.reps && !card.lastReviewedAt) return 'new';
   return card.state || 'review';
 }
 function flashcardSearchText(card){
@@ -190,7 +191,7 @@ function createFlashcardDeck(){
 }
 function renderFlashcardSidebar(){
   var ul=document.getElementById('list-flashcards');if(!ul)return;ensureFlashcardState();var needle=(flashcardSidebarFilter||'').trim().toLowerCase();var cards=flashcardCards().filter(function(c){return !needle || flashcardSearchText(c).indexOf(needle)!==-1;});
-  ul.innerHTML='';cards.sort(function(a,b){return flashcardDeckName(a.deckId).localeCompare(flashcardDeckName(b.deckId))||a.front.localeCompare(b.front);}).slice(0,30).forEach(function(card){var li=document.createElement('li');var row=document.createElement('div');row.className='flashcard-sidebar-row';var a=document.createElement('a');a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});a.textContent=card.front||'(empty front)';a.title=flashcardDeckName(card.deckId)+' · '+flashcardStatus(card);a.onclick=function(){showFlashcardsView();flashcardState.selectedId=card.id;editFlashcard(card.id);};row.appendChild(a);var meta=document.createElement('span');meta.className='flashcard-sidebar-meta';meta.textContent=flashcardDeckName(card.deckId);row.appendChild(meta);li.appendChild(row);ul.appendChild(li);});
+  ul.innerHTML='';cards.sort(function(a,b){return flashcardDeckName(a.deckId).localeCompare(flashcardDeckName(b.deckId))||a.front.localeCompare(b.front);}).slice(0,30).forEach(function(card){var li=document.createElement('li');var row=document.createElement('div');row.className='flashcard-sidebar-row';var a=document.createElement('a');a.href='javascript:void(0)';a.textContent=card.front||'(empty front)';a.title=flashcardDeckName(card.deckId)+' · '+flashcardStatus(card);a.onclick=function(){showFlashcardsView();flashcardState.selectedId=card.id;editFlashcard(card.id);};row.appendChild(a);var meta=document.createElement('span');meta.className='flashcard-sidebar-meta';meta.textContent=flashcardDeckName(card.deckId);row.appendChild(meta);li.appendChild(row);ul.appendChild(li);});
   if(!cards.length){var e=document.createElement('li');e.className='flashcard-sidebar-empty';e.textContent=needle?'No flashcards match this filter.':'No flashcards created yet.';ul.appendChild(e);}var c=document.getElementById('flashcard-count');if(c)c.textContent=cards.length?String(cards.length):'';
 }
 
@@ -205,7 +206,7 @@ function wireFlashcards(){
   var status=document.getElementById('flashcards-status');if(status)status.addEventListener('change',function(e){flashcardState.status=e.target.value;renderFlashcardsView();});
   var search=document.getElementById('flashcards-search');if(search)search.addEventListener('input',function(e){flashcardState.query=e.target.value;renderFlashcardsView();});
   var review=document.getElementById('flashcards-start-review');if(review)review.onclick=openFlashcardReview;
-  document.addEventListener('keydown',function(e){if(!flashcardsVisible)return;if((e.key===' '||e.key==='Spacebar') && flashcardState.reviewId && !flashcardState.revealed){e.preventDefault();flashcardState.revealed=true;renderFlashcardReview();}if(flashcardState.reviewId&&flashcardState.revealed&&['1','2','3','4'].indexOf(e.key)!==-1){var r={1:'again',2:'hard',3:'good',4:'easy'}[e.key],c=state.flashcards.cards[flashcardState.reviewId];if(c){scheduleFlashcard(c,r);saveFlashcards();var next=visibleFlashcards().filter(flashcardIsDue);flashcardState.reviewId=next.length?next[0].id:null;flashcardState.revealed=false;renderFlashcardsView();}}});
+  document.addEventListener('keydown',function(e){if(!flashcardsVisible)return;/* Review shortcuts (Space, 1-4) must never fire while typing in the search box, deck/status selects or the card editor: that swallowed spaces and rated cards from stray digits. */var tgt=e.target;if(tgt&&(tgt.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(tgt.tagName||'')))return;if(e.ctrlKey||e.metaKey||e.altKey)return;if((e.key===' '||e.key==='Spacebar') && flashcardState.reviewId && !flashcardState.revealed){e.preventDefault();flashcardState.revealed=true;renderFlashcardReview();}if(flashcardState.reviewId&&flashcardState.revealed&&['1','2','3','4'].indexOf(e.key)!==-1){var r={1:'again',2:'hard',3:'good',4:'easy'}[e.key],c=state.flashcards.cards[flashcardState.reviewId];if(c){scheduleFlashcard(c,r);saveFlashcards();var next=visibleFlashcards().filter(flashcardIsDue);flashcardState.reviewId=next.length?next[0].id:null;flashcardState.revealed=false;renderFlashcardsView();}}});
 }
 
 if(typeof document !== 'undefined' && document.addEventListener) document.addEventListener('DOMContentLoaded',wireFlashcards);

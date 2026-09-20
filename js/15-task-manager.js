@@ -60,8 +60,16 @@ function addInterval(date, rep){
   var d = new Date(date.getTime());
   if(rep.unit === 'd') d.setDate(d.getDate() + rep.n);
   else if(rep.unit === 'w') d.setDate(d.getDate() + rep.n * 7);
-  else if(rep.unit === 'm') d.setMonth(d.getMonth() + rep.n);
-  else d.setFullYear(d.getFullYear() + rep.n);
+  else {
+    /* Months/years: clamp to the target month's last day. A bare setMonth() overflows
+       (Aug 31 + 1 month → Oct 1, Jan 31 + 1 month → Mar 3), silently skipping a cycle. */
+    var months = rep.unit === 'm' ? rep.n : rep.n * 12;
+    var day = d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + months);
+    var lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(day, lastDay));
+  }
   return d;
 }
 /* Which bucket a task falls in — the spine of both the board columns
@@ -501,13 +509,7 @@ function renderTasksView(){
     col.className = 'task-group';
     var head = document.createElement('div');
     head.className = 'task-group-head';
-    var label = document.createElement('span');
-    label.textContent = g.label;
-    var count = document.createElement('span');
-    count.className = 'task-group-count';
-    count.textContent = String(g.items.length);
-    head.appendChild(label);
-    head.appendChild(count);
+    head.innerHTML = '<span>' + g.label + '</span><span class="task-group-count">' + g.items.length + '</span>';
     col.appendChild(head);
     if(!g.items.length){
       var none = document.createElement('div');

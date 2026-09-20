@@ -102,28 +102,17 @@ function extractTableDirectives(qstr){
 function sortPages(pages, sortKey, desc){
   if(!sortKey) return pages;
   var keyLower = sortKey.toLowerCase();
-  /* Precompute each page value once. Property lookup inside Array.sort's
-     comparator becomes surprisingly expensive on large databases because
-     the comparator can run O(n log n) times. Keep the public return shape
-     unchanged while reducing repeated scans of page.properties. */
-  var decorated = pages.map(function(p){
-    var value = '';
-    if(keyLower === 'title') value = p.title || '';
-    else {
-      var props = p.properties || [];
-      for(var i=0;i<props.length;i++){
-        if(String(props[i].key || '').toLowerCase() === keyLower){ value = props[i].value == null ? '' : String(props[i].value); break; }
-      }
-    }
-    return {page:p, value:value};
-  });
-  decorated.sort(function(a,b){
-    var av = a.value, bv = b.value;
+  function valueOf(p){
+    if(keyLower === 'title') return p.title || '';
+    var pp = (p.properties||[]).filter(function(x){ return x.key.toLowerCase() === keyLower; })[0];
+    return pp ? pp.value : '';
+  }
+  return pages.slice().sort(function(a,b){
+    var av = valueOf(a), bv = valueOf(b);
     var an = parseFloat(av), bn = parseFloat(bv);
     var cmp = (av !== '' && bv !== '' && !isNaN(an) && !isNaN(bn)) ? (an - bn) : String(av).localeCompare(String(bv));
     return desc ? -cmp : cmp;
   });
-  return decorated.map(function(x){ return x.page; });
 }
 
 /* Blocks matching every filter — used by {{query: ...}}.
@@ -521,13 +510,6 @@ var qbKind = 'query';
 var qbTargetBlockId = null; /* null => inserting a brand-new block */
 var qbFilters = [];
 var qbView = null; /* {view, sort, sortDesc, group, cols} — only used when qbKind === 'table' */
-var qbSavedViewId = null; /* active saved-view id while the builder is open; null => raw directives */
-
-function cloneDbViewDirs(dirs){
-  if(!dirs || typeof dirs !== 'object') return {view:'table',sort:'',sortDesc:false,group:'',cols:null,agg:{}};
-  try{ return JSON.parse(JSON.stringify(dirs)); }
-  catch(e){ return {view:dirs.view||'table',sort:dirs.sort||'',sortDesc:!!dirs.sortDesc,group:dirs.group||'',cols:Array.isArray(dirs.cols)?dirs.cols.slice():null,agg:dirs.agg&&typeof dirs.agg==='object'?Object.assign({},dirs.agg):{}}; }
-}
 
 function qbQuoteIfNeeded(s){
   s = (s || '').replace(/"/g, '');
@@ -849,17 +831,17 @@ function renderQBViewControls(){
 function openQueryBuilder(kind, targetBlockId, existingQstr){
   qbKind = kind;
   qbTargetBlockId = targetBlockId || null;
-  qbSavedViewId = null;
   if(kind === 'table'){
     var parsed = extractTableDirectives(existingQstr || '');
     var qbBlock = targetBlockId ? state.blocks[targetBlockId] : null;
     if(qbBlock && Array.isArray(qbBlock.dbViews) && qbBlock.dbViews.length){
-      /* This database has saved views (see js/16-advanced-database.js).
-         Work on an isolated copy: Cancel must never mutate the live saved
-         view. The copy is committed only by the Save handler below. */
+      /* This database has saved views (see js/16-advanced-database.js) —
+         edit the active one's own dirs object directly (by reference)
+         rather than the now-vestigial directives in the raw text, so
+         View/Sort/Columns changes made here land where the tab bar
+         actually reads them from. */
       var qbActiveView = qbBlock.dbViews.filter(function(v){ return v.id === qbBlock.dbActiveViewId; })[0] || qbBlock.dbViews[0];
-      qbSavedViewId = qbActiveView.id;
-      qbView = cloneDbViewDirs(qbActiveView.dirs);
+      qbView = qbActiveView.dirs;
     } else {
       qbView = parsed.dirs;
     }
@@ -909,14 +891,10 @@ document.getElementById('qb-save').onclick = function(){
   var filterStr = filtersToQstr(qbFilters);
   var qbBlockOnSave = qbTargetBlockId ? state.blocks[qbTargetBlockId] : null;
   var qbUsesSavedViews = qbKind === 'table' && qbBlockOnSave && Array.isArray(qbBlockOnSave.dbViews) && qbBlockOnSave.dbViews.length;
-  /* Saved-view edits are transactional: commit the isolated qbView only
-     after the user presses Save. Raw table directives still travel in the
-     block text exactly as before. */
-  if(qbUsesSavedViews){
-    var qbViewToSave = qbBlockOnSave.dbViews.filter(function(v){ return v.id === qbSavedViewId; })[0] ||
-      qbBlockOnSave.dbViews.filter(function(v){ return v.id === qbBlockOnSave.dbActiveViewId; })[0] || qbBlockOnSave.dbViews[0];
-    if(qbViewToSave) qbViewToSave.dirs = cloneDbViewDirs(qbView);
-  }
+  /* When a saved view is being edited, qbView already *is* that view's
+     dirs object (see openQueryBuilder above) and every control above
+     mutated it live, so there's nothing left to fold into the text —
+     the text only needs to carry the filters. */
   var qstr = (qbKind === 'table' && !qbUsesSavedViews) ? [buildDirectivesStr(qbView), filterStr].filter(Boolean).join(' ').trim() : filterStr;
   if(qbTargetBlockId) updateQueryBlockFinal(qbTargetBlockId, qbKind, qstr);
   else insertQueryBlockFinal(qbKind, qstr);

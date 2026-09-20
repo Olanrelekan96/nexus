@@ -273,7 +273,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 32;
+var NEXUS_HELP_GUIDE_VERSION = 28;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -358,8 +358,7 @@ var NEXUS_HELP_FEATURE_CATALOG = [
   {id:'help-73', title:'Additional crafted themes'},
   {id:'help-75', title:'Pinned tabs & sidebar drag-and-drop ordering'},
   {id:'help-76', title:'Mobile sidebar always-visible toggle'},
-  {id:'help-77', title:'Launch passcode policy & device auto-unlock'},
-  {id:'help-78', title:'Link, backlink & graph semantics'}
+  {id:'help-77', title:'Launch passcode policy & device auto-unlock'}
 ]
 function getHelpGuideCoverage(pid){
   var page = state.pages[pid];
@@ -444,13 +443,6 @@ function ensureCompleteHelpGuide(pid){
     "Graph nodes are keyboard-focusable: Tab can reach them and Enter or Space opens the focused page."
   ]);
 
-  addMaintainedSection("Link, backlink & graph semantics", [
-    "[[Page Name]] is a page link and participates in backlinks, Graph view and Zettelkasten page connections. A #tag is metadata/topic text, not a page link, even when a page with the same title exists.",
-    "Graph view includes tag pages as visible nodes, but a #tag reference does not create a page-to-page edge. This keeps graph relationships aligned with explicit [[page links]] while still letting tag nodes be explored.",
-    "Backlinks likewise come from explicit [[page links]] (plus relation properties shown as Related pages). A tag with the same text as a page title does not falsely appear as a backlink.",
-    "Trashed source pages are excluded from backlink results so archived content does not appear as a live reference."
-  ]);
-
   addMaintainedSection("Database calendar view", [
     "A database can be displayed as a Calendar view in addition to Table, Board and Gallery. Choose Calendar in the database view controls or add view:calendar to a table directive.",
     "The calendar uses a date property when one is available; when the selected date property is empty, a page's creation date can be used as its fallback date. Use the previous/next month buttons to browse.",
@@ -519,7 +511,7 @@ function ensureCompleteHelpGuide(pid){
     "The sidebar search, Search all notes, command palette, task filters and other search surfaces share the same advanced query language.",
     "Examples: #project finds a tag; [[Meeting Notes]] finds a page link; status:in-progress matches a property; priority:high or priority:1 filters task priority; due:today, before:friday and after:2026-01-01 filter dates; is:done, is:overdue, is:locked and similar flags match state; has:due and has:attachment find lines with those features.",
     "Use >, <, >=, <= or != with property values when appropriate, wrap phrases in quotes, prefix a term with - to exclude it, separate alternatives with |, use OR for separate search groups, and use /regular-expression/flags for regex matching.",
-    "Search understands page titles, tags, line text, task metadata and page properties. Tag filters match #tag references only, while page-link filters match [[Page]] references only. A pasted URL is treated as normal text rather than mistaken for a property expression."
+    "Search understands page titles, tags, line text, task metadata and page properties. A pasted URL is treated as normal text rather than mistaken for a property expression."
   ]);
 
   addMaintainedSection("Search all notes", [
@@ -649,9 +641,8 @@ function ensureCompleteHelpGuide(pid){
 
   addMaintainedSection("PWA / install / offline", [
     "Nexus ships a manifest and app icons and can be installed as a Progressive Web App when the browser supports installation. The Install app button appears when the browser exposes the install prompt.",
-    "The companion sw.js service worker pre-caches the Nexus HTML, CSS, JavaScript, manifest and local icons so the application shell is available for offline startup after the first successful install/cache pass. Install and reliable service-worker behavior require https:// or localhost; opening the HTML through a blob preview does not provide the same guarantees.",
-    "Navigation falls back to the cached index.html when the network is unavailable, while non-navigation requests use their own cached response rather than incorrectly serving HTML for a missing script or stylesheet.",
-    "The Download sw.js button retrieves the current same-origin worker when available and falls back to the matching embedded worker source. Place the downloaded sw.js beside index.html on the same origin, then reload Nexus."
+    "The companion sw.js service worker caches the app shell for offline startup. Install and reliable service-worker behavior require https:// or localhost; opening the HTML through a blob preview does not provide the same guarantees.",
+    "The Download sw.js button is a deployment fallback: place the downloaded sw.js beside index.html on the same origin, then reload Nexus."
   ]);
 
   addMaintainedSection("Settings & personalization", [
@@ -707,7 +698,7 @@ function ensureCompleteHelpGuide(pid){
     "The permanent 🧠 Zettelkasten hub turns ordinary Nexus pages into a connected atomic-note system. Use Fleeting / Inbox for raw ideas, Literature for source-derived notes, Permanent notes for your own durable claims, and MOCs / Indexes to organize a topic without turning every note into a folder.",
     "Each Zettel receives a stable ID such as 20260919094830-a1b2c3. The ID identifies the note even if you later change its title. Write one idea per permanent note, in your own words, then connect it with [[Page links]] so backlinks and Graph view expose the surrounding knowledge web.",
     "Use Process next to work through the oldest inbox/fleeting note. Promote useful fleeting or literature notes to Permanent. Use Topics to maintain a small set of meaningful tags, and use Unconnected to find notes that have no incoming or outgoing page links yet.",
-    "Use MOC / Index for a normal page that acts as a curated entry point to a subject. Use Adopt current page when an existing Nexus page should become part of your Zettelkasten. Related notes are ranked from real page links, backlinks and shared Zettel tags; an unrelated note is not treated as related merely because it is a Zettel. All Zettels remain ordinary Nexus pages, so search, backlinks, graph, transclusion, tasks, database views, backup/restore, version history, locks and sync continue to work.",
+    "Use MOC / Index for a normal page that acts as a curated entry point to a subject. Use Adopt current page when an existing Nexus page should become part of your Zettelkasten. All Zettels remain ordinary Nexus pages, so search, backlinks, graph, transclusion, tasks, database views, backup/restore, version history, locks and sync continue to work.",
     "Zettelkasten maintenance rule: whenever note types, IDs, inbox processing, links, MOCs, filters, connection logic, creation workflow or other user-visible Zettelkasten behavior changes, update this Help section and feature catalog in the same release, bump NEXUS_HELP_GUIDE_VERSION, and run npm test."
   ]);
 
@@ -856,7 +847,105 @@ function initNotebook(){
       });
     }
     lastSnapshotJson = afterBootNormalization; /* baseline so the very first edit is undoable */
+  }, function(err){
+    clearTimeout(warnTimer);
+    state = null;
+    handleNotebookLoadFailure(err);
+    var handled = new Error('notebook-load-failed');
+    handled.nexusHandled = true;
+    throw handled;
   });
+}
+
+/* ---- Load-failure protection ------------------------------------------------
+   If a notebook IS stored but cannot be read (IndexedDB error, corrupt JSON,
+   encrypted record with no key, unrecognised shape) Nexus must not quietly
+   start a blank notebook — the first autosave would overwrite the real data.
+   Instead writes are blocked and the person chooses what to do. */
+function readRawNotebookRecord(){
+  return openAttachmentDb().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(NB_STORE, 'readonly');
+      var req = tx.objectStore(NB_STORE).get('state');
+      req.onsuccess = function(){ resolve(req.result == null ? null : req.result); };
+      req.onerror = function(){ reject(req.error); };
+    });
+  });
+}
+function downloadTextFile(name, text, mime){
+  var blob = new Blob([text], {type: mime || 'application/json'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+}
+function rawRecordToText(raw){ return typeof raw === 'string' ? raw : JSON.stringify(raw); }
+function handleNotebookLoadFailure(err){
+  notebookWriteBlocked = true;
+  try{ console.error('Nexus could not load the stored notebook:', err); }catch(ignore){}
+  var old = document.getElementById('load-failure-overlay');
+  if(old && old.parentNode) old.parentNode.removeChild(old);
+  var reason = (err && err.message) ? String(err.message) : 'unknown error';
+  var explain = reason === 'locked'
+    ? 'Your notebook is encrypted, but this browser no longer has the passcode information needed to open it (site data may have been cleared).'
+    : 'Nexus found your stored notebook but could not read it (' + reason + ').';
+
+  var overlay = document.createElement('div');
+  overlay.id = 'load-failure-overlay';
+  overlay.setAttribute('role', 'alertdialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'load-failure-title');
+  var card = document.createElement('div');
+  card.className = 'load-failure-card';
+  function add(tag, text, cls){ var el = document.createElement(tag); if(cls) el.className = cls; el.textContent = text; card.appendChild(el); return el; }
+  add('h2', 'Your notebook could not be opened', 'load-failure-title').id = 'load-failure-title';
+  add('p', explain);
+  add('p', 'Nothing has been changed or deleted, and Nexus has paused saving so it cannot overwrite what is stored. Try again first — most problems are temporary. If it keeps failing, save a copy of the unreadable data, then either restore a backup or start a fresh notebook.');
+  var msg = add('p', '', 'load-failure-msg');
+  var row = document.createElement('div');
+  row.className = 'load-failure-actions';
+  function button(label, primary, onClick){
+    var b = document.createElement('button');
+    b.type = 'button'; b.textContent = label;
+    if(primary) b.className = 'primary';
+    b.addEventListener('click', onClick);
+    row.appendChild(b);
+    return b;
+  }
+  button('Try again', true, function(){ location.reload(); });
+  button('Save a copy of the stored data', false, function(){
+    readRawNotebookRecord().then(function(raw){
+      if(raw == null){ msg.textContent = 'There is no stored notebook record to copy.'; return; }
+      downloadTextFile('nexus-unreadable-notebook-' + Date.now() + '.json', rawRecordToText(raw));
+      msg.textContent = 'A copy was downloaded. Encrypted notebooks stay encrypted in that file.';
+    }).catch(function(e){ msg.textContent = 'Could not read the stored data: ' + (e && e.message ? e.message : e); });
+  });
+  button('Start a fresh notebook', false, function(){
+    if(!confirm('Start a fresh, empty notebook?\n\nThe unreadable data is first copied to a file and kept inside this browser\'s storage, but it will no longer be what Nexus opens. You can restore a backup afterwards from Settings.')) return;
+    readRawNotebookRecord().catch(function(){ return null; }).then(function(raw){
+      if(raw == null) return null;
+      downloadTextFile('nexus-unreadable-notebook-' + Date.now() + '.json', rawRecordToText(raw));
+      return openAttachmentDb().then(function(db){
+        return new Promise(function(resolve, reject){
+          var tx = db.transaction(NB_STORE, 'readwrite');
+          tx.objectStore(NB_STORE).put(raw, 'state_quarantine_' + Date.now());
+          tx.oncomplete = function(){ resolve(); };
+          tx.onerror = tx.onabort = function(){ reject(tx.error || new Error('quarantine write failed')); };
+        });
+      });
+    }).then(function(){
+      notebookWriteBlocked = false;
+      forceFreshNotebook = true;
+      if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      bootNotebook();
+    }).catch(function(e){
+      msg.textContent = 'Could not keep a copy of the unreadable data, so nothing was changed: ' + (e && e.message ? e.message : e);
+    });
+  });
+  card.appendChild(row);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
 }
 
 /* Guarantees every page/block has updatedAt/updatedBy timestamps and that
@@ -1021,24 +1110,16 @@ function normalizeState(parsed){
   return parsed;
 }
 
+/* Strict: throws if the stored record cannot be turned into a notebook.
+   It must NEVER fall back to seedState() for a record that exists — a
+   fresh seed would be persisted straight over the person's real (merely
+   unreadable) data. Only "nothing stored at all" may seed; see loadAsync(). */
 function parseLoadedState(raw){
-  try{
-    return normalizeState(JSON.parse(raw));
-  }catch(e){ return seedState(); }
-}
-
-/* Parse persisted notebook data without ever converting a storage/read
-   failure or malformed on-disk record into a brand-new notebook. A fresh
-   notebook is only created by loadAsync() when both persistent stores are
-   genuinely empty. This boundary is deliberately separate from
-   parseLoadedState(), which remains lenient for older non-persistence paths. */
-function parsePersistedState(raw){
-  if(typeof raw !== 'string' || !raw.trim()) throw new Error('Stored notebook data is empty or unavailable.');
-  var parsed;
-  try{ parsed = JSON.parse(raw); }
-  catch(e){ throw new Error('Stored notebook data is corrupted and could not be parsed.'); }
+  var parsed = (typeof raw === 'string') ? JSON.parse(raw) : raw;
   if(!parsed || typeof parsed !== 'object' || !parsed.pages || typeof parsed.pages !== 'object' ||
-     !parsed.blocks || typeof parsed.blocks !== 'object') throw new Error('Stored notebook data has an invalid structure.');
+     !parsed.blocks || typeof parsed.blocks !== 'object'){
+    throw new Error('The stored notebook is not in a recognisable format.');
+  }
   return normalizeState(parsed);
 }
 
@@ -1048,25 +1129,24 @@ function parsePersistedState(raw){
    before this migration — if so, that copy is imported into IndexedDB
    once and then cleared out of localStorage. New/empty notebooks fall
    through to seedState(). Returns a Promise<state object>. */
+var forceFreshNotebook = false; /* set only by the explicit "Start a fresh notebook" choice after a load failure */
 function loadAsync(){
+  if(forceFreshNotebook){ forceFreshNotebook = false; return Promise.resolve(seedState()); }
   return getNotebookState().then(function(raw){
-    if(raw !== null && raw !== undefined) return parsePersistedState(raw);
-    var legacy;
-    try{ legacy = localStorage.getItem(STORAGE_KEY); }catch(e){
-      throw new Error('Nexus could not read its legacy local storage notebook: ' + (e && e.message ? e.message : 'storage access failed'));
-    }
-    if(!legacy) return seedState();
+    /* A literal "null" record is what an older build wrote when it flushed before the
+       notebook had loaded; there is nothing recoverable in it, so treat it as empty. */
+    if(raw && !(typeof raw === 'string' && raw.trim() === 'null')) return parseLoadedState(raw);
+    var legacy = null;
+    try{ legacy = localStorage.getItem(STORAGE_KEY); }catch(e){}
+    if(!legacy) return seedState(); /* genuinely nothing stored: a brand-new notebook */
+    var legacyState = parseLoadedState(legacy); /* throws (and keeps the localStorage copy) if unreadable */
     return putNotebookState(legacy).then(function(){
       try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
-      return parsePersistedState(legacy);
-    }).catch(function(){
-      /* A legacy copy is still safe to use for this session when the IDB
-         migration write fails, but do not erase the legacy source. Surface
-         the persistence failure so the user knows edits may not be durable. */
-      try{ window.NEXUS_PERSISTENCE_MIGRATION_WARNING = true; }catch(ignore){}
-      return parsePersistedState(legacy);
-    });
+      return legacyState;
+    }).catch(function(){ return legacyState; }); /* keep the localStorage copy if the IndexedDB write failed */
   });
+  /* No .catch here on purpose: a read/decrypt/parse failure is reported by
+     initNotebook() -> handleNotebookLoadFailure(), never turned into a blank notebook. */
 }
 
 function rebuildTitleIndex(s){
@@ -1083,21 +1163,63 @@ function rebuildTitleIndex(s){
 var saveTimer = null;
 var persistQueue = Promise.resolve();
 var suppressBroadcast = false; /* true while applying a state we just received from a peer, so we don't echo it straight back out */
+var notebookWriteBlocked = false; /* true while a stored notebook exists but could not be read: nothing may overwrite it */
+function looksLikeNotebookJson(json){
+  return typeof json === 'string' && json.charAt(0) === '{' && json.indexOf('"pages"') !== -1 && json.indexOf('"blocks"') !== -1;
+}
 function enqueueNotebookPersist(json, keyOverride){
+  if(notebookWriteBlocked){
+    return Promise.reject(new Error('Saving is paused: the stored notebook could not be read, so Nexus will not overwrite it.'));
+  }
+  if(!looksLikeNotebookJson(json)){
+    return Promise.reject(new Error('Refusing to save an empty or invalid notebook.'));
+  }
   /* Serialize all IndexedDB writes. Encryption is async, so without a queue
      an older save can finish after a newer one and overwrite it on disk.
      keyOverride lets a lock-boundary flush keep using the pre-lock DEK. */
   persistQueue = persistQueue.catch(function(){}).then(function(){ return putNotebookState(json, keyOverride); });
   return persistQueue;
 }
+/* A line being typed lives only in its contenteditable DOM until it is
+   committed (blur / Enter / indent...). Anything that snapshots `state`
+   (autosave, flush on hide/unload, sync merge, lock) must first pull that
+   text in, without leaving edit mode or disturbing the caret. Returns true
+   if state changed. */
+function syncEditingBlockToState(){
+  if(!state || !state.blocks) return false;
+  var el = document.querySelector('.block-content.editing');
+  if(!el || el.contentEditable !== 'true') return false;
+  var row = el.closest ? el.closest('.block-row') : null;
+  var b = row && state.blocks[row.dataset.id];
+  if(!b) return false;
+  var text;
+  try{ text = serializeInline(el); }catch(e){ return false; }
+  if(typeof text !== 'string' || text === b.text) return false;
+  b.text = text;
+  return true;
+}
+/* Debounced autosave while typing: keeps the newest text in state and on
+   disk within ~0.7s of the last keystroke. It deliberately records no undo
+   checkpoint (the commit that follows does) and does not broadcast. */
+var editAutosaveTimer = null;
+var EDIT_AUTOSAVE_MS = 700;
+function scheduleEditAutosave(){
+  clearTimeout(editAutosaveTimer);
+  editAutosaveTimer = setTimeout(function(){
+    editAutosaveTimer = null;
+    if(typeof appLocked !== 'undefined' && appLocked) return;
+    if(syncEditingBlockToState()) save({recordUndo:false, broadcast:false});
+  }, EDIT_AUTOSAVE_MS);
+}
 function save(options){
   options = options || {};
-  if(typeof invalidatePageRefsMapCache === 'function') invalidatePageRefsMapCache();
+  syncEditingBlockToState();
   if(options.touchEntities !== false) touchChangedEntities();
   if(options.recordUndo !== false) recordUndoCheckpoint();
   var doBroadcast = !suppressBroadcast && options.broadcast !== false;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(function(){
+    if(!state) return;
     var json = JSON.stringify(state);
     enqueueNotebookPersist(json).then(function(){
       updateStorageHint();
@@ -1120,6 +1242,10 @@ function save(options){
    debounce above is only 150ms anyway. */
 function flushSaveNow(){
   clearTimeout(saveTimer);
+  /* Never persist a notebook that has not loaded (or failed to load): JSON.stringify(null)
+     is "null", which would replace the person's whole notebook. */
+  if(!state || typeof state !== 'object' || !state.pages) return Promise.resolve(false);
+  if(syncEditingBlockToState()){ try{ touchChangedEntities(); }catch(e){} }
   var json;
   try{ json = JSON.stringify(state); }catch(e){ return Promise.resolve(false); }
   var capturedKey = (typeof lockCryptoKey !== 'undefined') ? lockCryptoKey : null;
@@ -1256,7 +1382,6 @@ function recordUndoCheckpoint(){
 function applyHistoryState(json){
   try{
     state = normalizeState(JSON.parse(json));
-    if(typeof invalidatePageRefsMapCache === 'function') invalidatePageRefsMapCache();
   }catch(e){ toast('That history entry could not be read.'); return; }
   /* Undo/redo is itself a real local mutation. Restamp changed entities so
      the resulting state participates in LWW sync instead of losing to a
@@ -1392,6 +1517,7 @@ function pickWinner(a, b){
    log and surface, kept separate from the synced state itself so the
    conflict record stays local to this device instead of propagating. */
 function mergeStates(local, remote, sinceTs){
+  if(local === state && syncEditingBlockToState()){ try{ touchChangedEntities(); }catch(e){} }
   deriveOrder(local);
   deriveOrder(remote);
   var merged = {
@@ -1525,16 +1651,24 @@ function applyIncomingMerge(merged){
   if(state.pages[state.currentPageId] && merged.pages[state.currentPageId]){
     merged.currentPageId = state.currentPageId; /* stay on whatever page the user is looking at */
   }
+  var resumeId = editingBlockId, resumeOffset = 0;
+  try{
+    var liveEl = document.querySelector('.block-content.editing');
+    if(resumeId && liveEl && typeof getCaretOffset === 'function') resumeOffset = getCaretOffset(liveEl);
+  }catch(e){ resumeOffset = 0; }
   editingBlockId = null;
   dockBlockId = null;
   state = merged;
-  if(typeof invalidatePageRefsMapCache === 'function') invalidatePageRefsMapCache();
   suppressBroadcast = true;
   /* Remote entities already carry their authoritative updatedAt/updatedBy.
      Persist the merge without pretending those changes were made locally. */
   save({touchEntities:false});
   suppressBroadcast = false;
   renderAll();
+  /* A background sync must not throw the person out of the line they are typing in. */
+  if(resumeId && state.blocks[resumeId] && typeof focusBlock === 'function'){
+    try{ focusBlock(resumeId, resumeOffset); }catch(e){}
+  }
 }
 
 /* ============================================================
@@ -1568,6 +1702,8 @@ function usableViewport(){
    below, so a stray " or ' in user text must not be able to break out
    of an attribute and inject markup/attributes of its own. */
 function escapeHtml(str){
+  /* Total function: numbers (footnote labels, counts), null and undefined must never throw. */
+  str = (str === null || str === undefined) ? '' : String(str);
   return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
     .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
@@ -1816,6 +1952,8 @@ function serializeInline(node){
         out += (n.dataset.transclusionRaw || '');
       } else if(n.classList && n.classList.contains('blockref')){
         out += '((' + (n.dataset.refid || '') + '))';
+      } else if(n.classList && n.classList.contains('footnote-ref')){
+        out += '[^' + (n.dataset.footnoteId || '') + ']';
       } else if(n.classList && n.classList.contains('att-img')){
         out += '{{img:' + (n.dataset.attId || '') + '|' + (n.dataset.attName || '') + '}}';
       } else if(n.classList && n.classList.contains('att-file')){

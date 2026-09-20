@@ -173,7 +173,7 @@ function renderFolderPageRow(container,page,depth){
   var row=document.createElement('div'); row.className='trash-row'; row.dataset.pageId=page.id; row.draggable=!page.locked;
   row.addEventListener('dragstart',function(e){try{e.dataTransfer.setData('text/plain',page.id);e.dataTransfer.setData('application/x-nexus-page',page.id);}catch(ignore){} row.classList.add('dragging');});
   row.addEventListener('dragend',function(){row.classList.remove('dragging');});
-  var a=document.createElement('a'); a.href='#'; a.addEventListener('click',function(e){e.preventDefault();}); a.className=page.id===state.currentPageId?'active':''; a.title='Open '+page.title; a.onclick=function(){openPage(page.id);};
+  var a=document.createElement('a'); a.href='javascript:void(0)'; a.className=page.id===state.currentPageId?'active':''; a.title='Open '+page.title; a.onclick=function(){openPage(page.id);};
   var icon=document.createElement('span'); icon.className='page-list-icon'; icon.textContent=typeof pageIconFor==='function'?pageIconFor(page):(page.icon||defaultPageIcon(page.type)); icon.setAttribute('aria-hidden','true'); a.appendChild(icon);
   var label=document.createElement('span'); label.textContent=page.title+(page.locked?' 🔒':''); a.appendChild(label); row.appendChild(a);
   var pin=document.createElement('button'); pin.type='button'; pin.className='pin-btn'+(page.pinned?' pinned':''); pin.textContent=page.pinned?'★':'☆'; pin.title=page.pinned?'Unpin':'Pin'; pin.setAttribute('aria-label',(page.pinned?'Unpin ':'Pin ')+page.title); pin.onclick=function(e){e.stopPropagation();togglePinPage(page.id);}; row.appendChild(pin);

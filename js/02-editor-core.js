@@ -396,7 +396,8 @@ function renameCascade(oldTitle, newTitle){
     var testPattern = new RegExp("\\[\\[" + escapedOld + "\\]\\]", "i");
     if(testPattern.test(blk.text)){
       var replacePattern = new RegExp("\\[\\[" + escapedOld + "\\]\\]", "gi");
-      blk.text = blk.text.replace(replacePattern, "[["+newTitle+"]]");
+      /* function replacer: a title containing "$$" or "$&" must be inserted literally */
+      blk.text = blk.text.replace(replacePattern, function(){ return "[["+newTitle+"]]"; });
     }
   });
 }
@@ -417,6 +418,9 @@ var dailyViewMode = (function(){
   try{ return localStorage.getItem(DAILY_VIEW_KEY) || 'list'; }catch(e){ return 'list'; }
 })();
 var dailyCalCursor = new Date();
+/* Anchor to the 1st: setMonth() on the 29th–31st overflows into the following month
+   (Mar 31 − 1 month = "Feb 31" = Mar 3), which made ‹ / › skip or stick. */
+dailyCalCursor.setDate(1);
 function isoLocal(d){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }

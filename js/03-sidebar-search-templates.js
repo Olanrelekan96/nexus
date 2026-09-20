@@ -176,7 +176,7 @@ function renderTrashSection(){
     row.className = 'trash-row';
     row.dataset.pageId = p.id; /* lets the right-click handler identify which page this row is */
     var a = document.createElement('a');
-    a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});
+    a.href = "javascript:void(0)";
     a.textContent = p.type === 'tag' ? '#'+p.title : p.title;
     a.title = 'Deleted ' + new Date(p.trashedAt).toLocaleDateString();
     if(p.id === state.currentPageId) a.className = 'active';
@@ -213,7 +213,7 @@ function renderTemplatesSection(){
     row.className = 'trash-row';
     row.dataset.templateId = t.id; /* lets the right-click handler identify which template this row is */
     var a = document.createElement('a');
-    a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});
+    a.href = "javascript:void(0)";
     a.textContent = t.name;
     a.title = 'Insert "' + t.name + '" into the current page';
     a.onclick = function(){ insertTemplateIntoPage(t.id); };
@@ -393,7 +393,7 @@ function renderAttachmentsSection(){
       row.className = 'trash-row';
 
       var a = document.createElement('a');
-      a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});
+      a.href = "javascript:void(0)";
       a.textContent = (kind === 'img' ? '🖼 ' : '📎 ') + name;
       if(refs.length){
         var page = state.pages[refs[0].pageId];
@@ -528,7 +528,7 @@ function renderBlockMatches(filter){
   hits.forEach(function(hit){
     var li = document.createElement('li');
     var a = document.createElement('a');
-    a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});
+    a.href = "javascript:void(0)";
     a.className = 'block-match-link';
     var pageLabel = hit.page.type === 'tag' ? '#'+hit.page.title : hit.page.title;
     a.innerHTML = '<div class="bm-snippet">'+buildSnippetHtml(hit.block.text, filter)+'</div>'+
@@ -780,7 +780,7 @@ function fillList(elId, list, forceTag, dragField){
     row.className = 'trash-row' + (isTag ? ' tagitem' : '');
     row.dataset.pageId = p.id; /* lets the right-click handler identify which page this row is */
     var a = document.createElement('a');
-    a.href='#'; a.addEventListener('click',function(e){e.preventDefault();});
+    a.href = "javascript:void(0)";
     a.innerHTML = '';
     var icon = document.createElement('span');
     icon.className = 'page-list-icon';

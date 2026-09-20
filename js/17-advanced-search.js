@@ -124,27 +124,20 @@ function parseAdvancedQuery(qstr){
    page, a task). Each gets normalized into the same small record
    so one matcher can serve all of them.
 
-   Note: tagsLower and pagesLower are deliberately kept separate.
-   #tag references are tags; [[Page]] references are page links. The
-   advanced search layer must preserve that distinction so tag filters
-   never match page links and page-link filters never match tags.
+   Note: tagsLower and pagesLower are deliberately the SAME combined
+   list of referenced titles — that mirrors how #tag and [[Page]]
+   filters already behave in the existing {{query:}} engine (see
+   runBlockQuery/runTableQuery below), so a filter written either way
+   keeps meaning the same thing everywhere.
    ============================================================ */
-function extractSearchRefLists(text){
-  var refs = extractRefs(text || '') || [];
-  return {
-    tagsLower: refs.filter(function(r){ return r.type === 'tag'; }).map(function(r){ return r.title.toLowerCase(); }),
-    pagesLower: refs.filter(function(r){ return r.type === 'page'; }).map(function(r){ return r.title.toLowerCase(); })
-  };
-}
-
 function searchRecordForBlock(block, page){
-  var refLists = extractSearchRefLists(block.text || '');
+  var refTitlesLower = extractRefs(block.text || '').map(function(r){ return r.title.toLowerCase(); });
   var todo = todoInfo(block.text || '');
   var rest = todo ? todo.rest : '';
   return {
     text: block.text || '',
-    tagsLower: refLists.tagsLower,
-    pagesLower: refLists.pagesLower,
+    tagsLower: refTitlesLower,
+    pagesLower: refTitlesLower,
     page: page,
     block: block,
     isTask: !!todo,
@@ -156,12 +149,12 @@ function searchRecordForBlock(block, page){
   };
 }
 
-function searchRecordForPage(page, refLists){
-  refLists = refLists || {tagsLower:[],pagesLower:[]};
+function searchRecordForPage(page, refTitlesLower){
+  refTitlesLower = refTitlesLower || [];
   return {
     text: page.title || '',
-    tagsLower: refLists.tagsLower || [],
-    pagesLower: refLists.pagesLower || [],
+    tagsLower: refTitlesLower,
+    pagesLower: refTitlesLower,
     page: page,
     block: null,
     isTask: false, done:false, due:null, pri:0, rep:null,
@@ -171,13 +164,14 @@ function searchRecordForPage(page, refLists){
 
 function searchRecordForTask(t){
   var block = state.blocks[t.id];
-  var refLists = block ? extractSearchRefLists(block.text || '') : {tagsLower:(t.tags || []).map(function(x){ return x.toLowerCase(); }),pagesLower:[]};
+  var refTitlesLower = block ? extractRefs(block.text || '').map(function(r){ return r.title.toLowerCase(); })
+                              : (t.tags || []).map(function(x){ return x.toLowerCase(); });
   return {
     /* Free-text matching should still find a task by the page it's
        on, same as the old plain-substring task filter did. */
     text: (t.text || '') + ' ' + (t.pageTitle || ''),
-    tagsLower: refLists.tagsLower,
-    pagesLower: refLists.pagesLower,
+    tagsLower: refTitlesLower,
+    pagesLower: refTitlesLower,
     page: state.pages[t.pageId],
     block: block,
     isTask: true,
@@ -192,29 +186,14 @@ function searchRecordForTask(t){
 /* Every page a block or ((tag)) reference points at, across the
    whole notebook, keyed by the referencing block's pageId — the same
    map runTableQuery already built inline; pulled out here so the
-   sidebar/palette page search can use it too.
-
-   This is a derived index, so repeated advanced searches during one
-   render should not re-parse every block. The cache is explicitly
-   invalidated at mutation/state-replacement boundaries (save, history,
-   restore, and sync). It never becomes authoritative notebook data. */
-var pageRefsMapCache = {state:null, map:null};
-function invalidatePageRefsMapCache(){
-  pageRefsMapCache.state = null;
-  pageRefsMapCache.map = null;
-}
+   sidebar/palette page search can use it too. */
 function computePageRefsMap(){
-  if(pageRefsMapCache.state === state && pageRefsMapCache.map) return pageRefsMapCache.map;
   var map = {};
   Object.keys(state.blocks).forEach(function(id){
     var blk = state.blocks[id];
-    var refs = extractSearchRefLists(blk.text || '');
-    var entry = map[blk.pageId] || {tagsLower:[],pagesLower:[]};
-    entry.tagsLower = entry.tagsLower.concat(refs.tagsLower);
-    entry.pagesLower = entry.pagesLower.concat(refs.pagesLower);
-    map[blk.pageId] = entry;
+    var refs = extractRefs(blk.text || '').map(function(r){ return r.title.toLowerCase(); });
+    if(refs.length) map[blk.pageId] = (map[blk.pageId] || []).concat(refs);
   });
-  pageRefsMapCache = {state:state, map:map};
   return map;
 }
 
@@ -448,7 +427,7 @@ function rankPages(pages, filter, keyFn){
   var scored = pages.map(function(p){
     var score;
     if(parsed.isAdvanced){
-      var res = matchAdvancedQuery(parsed, searchRecordForPage(p, pageRefs[p.id] || {tagsLower:[],pagesLower:[]}));
+      var res = matchAdvancedQuery(parsed, searchRecordForPage(p, pageRefs[p.id] || []));
       score = res.match ? res.score : 0;
     } else {
       score = fuzzyMatchScore(filter, keyFn(p));

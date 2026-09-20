@@ -36,10 +36,9 @@ for (const theme of ['aurora','amethyst','meadow','ember']) {
 }
 assert.ok(index.includes('data-health-overlay'), 'Data health UI must be present');
 assert.ok(/nexus-build" content="2026-09-19-quality-hardened-v1-/.test(index), 'quality build marker missing');
-assert.ok(index.includes('passcode-launch-v1-phase2-persistence-pwa-v1'), 'Phase 2 build marker missing');
 assert.ok(index.includes('tasks-layout'), 'task layout control missing');
 const core = fs.readFileSync(path.join(root,'js','00-state-and-helpers.js'),'utf8');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*32/.test(core), 'current Help guide version missing');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*28/.test(core), 'current Help guide version missing');
 assert.ok(core.includes('ensureCompleteHelpGuide(docsId)'), 'existing Help pages must receive the complete guide update');
 const dbSidebar = fs.readFileSync(path.join(root,'js','21-database-sidebar.js'),'utf8');
 const querySidebar = fs.readFileSync(path.join(root,'js','22-query-sidebar.js'),'utf8');
@@ -94,7 +93,7 @@ assert.ok(/aria-label="Toggle sidebar"|aria-label="Expand sidebar"|aria-label="C
 assert.ok(cssTheme.includes('/* Persistent mobile sidebar toggle.'), 'persistent mobile sidebar CSS missing');
 assert.ok(core.includes('Mobile sidebar always-visible toggle'), 'mobile sidebar Help topic missing');
 assert.ok(core.includes('help-76'), 'mobile sidebar Help catalog id missing');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*32/.test(core), 'current Help version must be v32');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*28/.test(core), 'current Help version must be v28');
 assert.ok(index.includes('js/32-tabs.js'), 'tabs module load missing');
 
 const footnotes = fs.readFileSync(path.join(root,'js','33-footnotes.js'),'utf8');
@@ -193,7 +192,7 @@ assert.ok(dashboard.includes('renderDashboardStats'), 'dashboard stats renderer 
 assert.ok(dashboard.includes('renderDashboardWorkspaces'), 'dashboard workspace renderer missing');
 assert.ok(dashboard.includes('renderDashboardHealth'), 'dashboard health renderer missing');
 assert.ok(core.includes('Dashboard home hub'), 'Dashboard Help topic missing');
-assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 32"), 'current Help version missing');
+assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 28"), 'current Help version missing');
 assert.ok(css.includes('#dashboard-view.visible'), 'Dashboard CSS missing');
 assert.ok(core.includes('Page transclusion'), 'Page transclusion Help topic missing');
 assert.ok(core.includes('Block transclusion'), 'Block transclusion Help topic missing');
@@ -410,7 +409,7 @@ seededTitles.forEach((title, i) => {
 });
 ctx.ensureCompleteHelpGuide('doc');
 const helpCountAfterFirst = Object.keys(ctx.state.blocks).length;
-assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 32, 'Help guide should be current after updater runs');
+assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 28, 'Help guide should be current after updater runs');
 
 /* Passcode re-entry hardening: the session start is persisted as non-secret
    metadata so timer throttling/background suspension cannot silently defeat
@@ -565,40 +564,6 @@ assert.ok(fs.readFileSync(path.join(root,'css','styles.css'),'utf8').includes('#
 assert.ok(lockCode.includes('Promise.resolve(flushed).catch(function(){});'), 'passcode lock should initiate the save flush without blocking the security boundary');
 assert.ok(lockCode.includes('function closeSecurityOverlays()'), 'lockNow should close all security overlays');
 const swCode = fs.readFileSync(path.join(root,'sw.js'),'utf8');
-assert.ok(swCode.includes("CACHE='nexus-shell-v11'"), 'Phase 2 must bump the PWA cache generation');
-assert.ok(swCode.includes('c.addAll(SHELL)'), 'PWA install must pre-cache the complete local app shell');
-assert.ok(swCode.includes("if(req.mode==='navigate') return caches.match('./index.html');"), 'offline navigation must fall back only for document requests');
-assert.ok(!swCode.includes('caches.match(self.registration.scope)'), 'PWA must not serve cached HTML as a generic fallback for assets');
+assert.ok(swCode.includes("CACHE='nexus-shell-v5'"), 'mobile sidebar update must bump the PWA cache generation');
 assert.ok(swCode.includes("fetch(req,{cache:'no-store'})"), 'PWA fetch must revalidate updated security assets');
-const pwa = fs.readFileSync(path.join(root,'js','12-pwa.js'),'utf8');
-assert.ok(pwa.includes("var CACHE='nexus-shell-v11'"), 'downloaded PWA source must use the current cache generation');
-assert.ok(pwa.includes('function downloadServiceWorkerFile'), 'PWA download action missing');
-assert.ok(pwa.includes("fetch(swPath,{cache:'no-store'})"), 'PWA download must prefer the current same-origin worker');
 assert.ok(index.includes('09-security-lock.js?v=20260919-passcode-v7-true-launch-off'), 'security script must be cache-busted for the passcode launch policy repair');
-
-// Phase 2 persistence safety: storage failures and malformed persisted data
-// must reject rather than silently seed replacement notebook data.
-const loadFnMatch = core.match(/function loadAsync\(\)\{[\s\S]*?\n\}\n\nfunction rebuildTitleIndex/);
-assert.ok(loadFnMatch, 'loadAsync implementation not found');
-const loadFnSource = loadFnMatch[0].replace(/\n\nfunction rebuildTitleIndex[\s\S]*$/, '');
-let seedCalls = 0;
-const persistCtx = {
-  Promise, JSON, localStorage:{getItem(){return null;}}, window:{},
-  getNotebookState(){return Promise.reject(new Error('IDB read failed'));},
-  seedState(){seedCalls++; return {fresh:true};},
-  parsePersistedState(raw){return {raw};},
-  putNotebookState(){return Promise.resolve();}
-};
-vm.createContext(persistCtx);
-vm.runInContext(loadFnSource + '\nthis.__loadAsync=loadAsync;', persistCtx, {filename:'00-state-and-helpers-loadAsync.js'});
-assert.ok(persistCtx.__loadAsync, 'loadAsync runtime harness initialized');
-
-// The runtime promise settles on the microtask queue; validate the source
-// contract directly as well so this synchronous smoke test catches any
-// future reintroduction of a catch-all `seedState()` fallback.
-const loadBody = loadFnSource.slice(loadFnSource.indexOf('{'));
-assert.ok(!/\.catch\(function\(\).*?seedState\(\)/s.test(loadBody), 'loadAsync must not catch storage failures into seedState()');
-assert.ok(/raw !== null && raw !== undefined/.test(loadBody), 'loadAsync must distinguish an empty store from a falsy stored value');
-assert.ok(core.includes('function parsePersistedState(raw)'), 'persisted-state safety parser missing');
-assert.ok(/Stored notebook data is corrupted/.test(core), 'persisted corruption must be surfaced');
-

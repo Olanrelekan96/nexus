@@ -48,6 +48,10 @@ function nexusTabsMeta(tab){
   return m?{label:m.label,icon:m.icon,type:'workspace',target:tab.target}:null;
 }
 function nexusTabsClean(){
+  /* Until the notebook has loaded, page tabs cannot be resolved (their pages are not in memory
+     yet). Pruning at that point discarded every saved page tab on each launch, and the next
+     persist then wrote that loss back to storage. Wait for state; then prune for real. */
+  if(!(typeof state !== 'undefined' && state && state.pages)) return;
   var clean=[];
   nexusTabsState.tabs.forEach(function(t){ if(nexusTabsMeta(t)) clean.push(t); });
   nexusTabsState.tabs=clean.map(function(t,i){t.pinned=!!t.pinned;if(typeof t._nexusOrder!=='number')t._nexusOrder=i;return t;});

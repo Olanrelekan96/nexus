@@ -54,19 +54,23 @@ function applyFindReplace(){
   if(!confirm('Replace ' + total + ' occurrence' + (total===1?'':'s') + ' of "' + find + '" with "' + replace + '" across your whole notebook? A snapshot will be saved first.')) return;
   snapshotVersion('before find & replace');
   var re = new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), cs ? 'g' : 'gi');
+  var replaced = 0;
   Object.keys(state.blocks).forEach(function(id){
     var b = state.blocks[id];
     if(blockIsLocked(b)) return; /* a lock has to hold here too, not just in the editor */
     re.lastIndex = 0;
     if(b.text && re.test(b.text)){
       re.lastIndex = 0;
-      b.text = b.text.replace(re, replace);
+      /* A function replacer inserts the text literally. Passing the string itself made JS
+         interpret "$$", "$&", "$'" and "$`" in what the person typed ("$$100" became "$100"). */
+      b.text = b.text.replace(re, function(){ replaced++; return replace; });
     }
   });
   save();
   renderAll();
   closeFindReplace();
-  toast('Replaced ' + total + ' occurrence' + (total===1?'':'s') + '.');
+  var skipped = total - replaced;
+  toast('Replaced ' + replaced + ' occurrence' + (replaced===1?'':'s') + '.' + (skipped > 0 ? ' ' + skipped + ' in locked blocks left unchanged.' : ''));
 }
 
 function isNarrowViewport(){ return window.matchMedia('(max-width:860px)').matches; }
@@ -357,9 +361,11 @@ document.getElementById('pc-submit').onclick = function(){
         : pcMode === 'reset' ? "Passcode set. You're back in."
         : pcMode === 'regen-recovery' ? 'Recovery key regenerated.' : 'Passcode removed.');
     }
-  }).catch(function(){
+  }).catch(function(err){
     btn.disabled = false;
-    errEl.textContent = 'Something went wrong — try again.';
+    /* Our own safety messages ("Could not store…", "Could not verify…") explain what was left untouched. */
+    errEl.textContent = (err && typeof err.message === 'string' && err.message.indexOf('Could not') === 0)
+      ? err.message : 'Something went wrong — try again.';
   });
 };
 document.getElementById('lock-forgot').onclick = function(){

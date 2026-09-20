@@ -359,9 +359,18 @@ function setPasscodeReentry(hours){
 function loadLockMeta(){
   try{ return JSON.parse(localStorage.getItem(LOCK_KEY)); }catch(e){ return null; }
 }
+/* Returns true only if the metadata is really persisted. Callers that are
+   about to (re-)encrypt data or show a recovery key must check it: encrypting
+   under a key whose wrapped copy never reached storage would lock the
+   notebook away for good. */
 function saveLockMeta(meta){
-  try{ localStorage.setItem(LOCK_KEY, JSON.stringify(meta)); }catch(e){}
+  try{
+    var text = JSON.stringify(meta);
+    localStorage.setItem(LOCK_KEY, text);
+    return localStorage.getItem(LOCK_KEY) === text;
+  }catch(e){ return false; }
 }
+var LOCK_META_SAVE_ERROR = 'Could not store the passcode settings on this device (browser storage may be full or blocked). Nothing was changed.';
 function clearLockMeta(){
   try{ localStorage.removeItem(LOCK_KEY); }catch(e){}
   clearPasscodeSessionKey();
@@ -524,12 +533,16 @@ function setPasscode(passcode){
       return crypto.subtle.importKey('raw', dekRaw, {name:'AES-GCM'}, true, ['encrypt','decrypt']).then(function(dek){
         return encryptWithKey(dek, LOCK_VERIFIER_TEXT).then(function(verifier){
           return getNotebookState().then(function(currentJson){
-            lockCryptoKey = dek;
-            saveLockMeta({
+            var previousMeta = loadLockMeta();
+            if(!saveLockMeta({
               version: 2,
               salt: pcSalt, iterations: PBKDF2_ITERATIONS, wrappedDEK: wrapped[0], verifier: verifier,
               recoverySalt: recSalt, recoveryIterations: PBKDF2_ITERATIONS, wrappedDEKRecovery: wrapped[1]
-            });
+            })){
+              if(previousMeta) saveLockMeta(previousMeta);
+              throw new Error(LOCK_META_SAVE_ERROR);
+            }
+            lockCryptoKey = dek; /* only after the wrapped key is safely stored */
             if(currentJson) return putNotebookState(currentJson);
           });
         });
@@ -568,7 +581,7 @@ function rewrapPasscodeOnly(newPasscode){
       return wrapDEK(kek, dekRaw).then(function(wrapped){
         meta.version = 2;
         meta.salt = newSalt; meta.iterations = PBKDF2_ITERATIONS; meta.wrappedDEK = wrapped;
-        saveLockMeta(meta);
+        if(!saveLockMeta(meta)) throw new Error(LOCK_META_SAVE_ERROR);
       });
     });
   });
@@ -586,7 +599,7 @@ function regenerateRecoveryCode(){
       return wrapDEK(kek, dekRaw).then(function(wrapped){
         meta.version = 2;
         meta.recoverySalt = recSalt; meta.recoveryIterations = PBKDF2_ITERATIONS; meta.wrappedDEKRecovery = wrapped;
-        saveLockMeta(meta);
+        if(!saveLockMeta(meta)) throw new Error(LOCK_META_SAVE_ERROR);
         return rc.display;
       });
     });
@@ -656,12 +669,40 @@ function changePasscode(oldPasscode, newPasscode){
    drops the lock metadata (and recovery key) entirely. Attachments
    must be decrypted *before* the DEK is discarded — otherwise their
    ciphertext would be left on disk with no key left able to open it. */
+/* Low-level plaintext writes used only by removePasscode(): they bypass the
+   encrypt-on-write layer so the plain copy can be written and verified while
+   the key and lock metadata still exist. */
+function idbPutRaw(store, value, key){
+  return openAttachmentDb().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(store, 'readwrite');
+      if(key === undefined) tx.objectStore(store).put(value); else tx.objectStore(store).put(value, key);
+      tx.oncomplete = function(){ resolve(); };
+      tx.onerror = function(){ reject(tx.error || new Error('IndexedDB write failed.')); };
+      tx.onabort = function(){ reject(tx.error || new Error('IndexedDB transaction aborted.')); };
+    });
+  });
+}
 function removePasscode(){
   return getNotebookState().then(function(currentJson){
     return listAllAttachments().then(function(records){
       var encRecords = records.filter(function(r){ return r.enc; });
       return Promise.all(encRecords.map(function(r){ return getAttachment(r.id); }));
     }).then(function(decrypted){
+      /* 1) Write + verify the plaintext copies while the key and lock metadata
+            still exist. If anything here fails, nothing has been discarded:
+            encrypted and plain records are both readable with the lock still on. */
+      var attWrites = decrypted.filter(Boolean).map(function(rec){ return idbPutRaw(ATT_STORE, rec); });
+      return Promise.all(attWrites).then(function(){
+        if(!currentJson) return;
+        return idbPutRaw(NB_STORE, currentJson, 'state').then(function(){
+          return readRawNotebookRecord();
+        }).then(function(back){
+          if(back !== currentJson) throw new Error('Could not verify the decrypted notebook, so the passcode was kept.');
+        });
+      });
+    }).then(function(){
+      /* 2) Only now is it safe to forget the key. */
       clearPasscodeReentryTimer();
       passcodeUnlockedAt = 0;
       persistPasscodeReentryStartedAt(0);
@@ -669,10 +710,6 @@ function removePasscode(){
       clearPersistentPasscodeKey();
       lockCryptoKey = null;
       clearLockMeta();
-      var writes = [];
-      if(currentJson) writes.push(putNotebookState(currentJson));
-      decrypted.filter(Boolean).forEach(function(rec){ writes.push(putAttachment(rec)); });
-      return Promise.all(writes);
     });
   });
 }
@@ -784,6 +821,9 @@ function getNotebookState(){
   });
 }
 function putNotebookState(json, keyOverride){
+  if(typeof notebookWriteBlocked !== 'undefined' && notebookWriteBlocked){
+    return Promise.reject(new Error('Saving is paused: the stored notebook could not be read, so Nexus will not overwrite it.'));
+  }
   /* Never downgrade a locked notebook to plaintext. A background save,
      sync callback, or unload handler may run after the UI has locked.
      keyOverride is used only for a save that captured the DEK before locking. */

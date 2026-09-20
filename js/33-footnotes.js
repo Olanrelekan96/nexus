@@ -87,7 +87,7 @@ function renderFootnoteRefHtml(id, depth, modelOverride){
   var page = state.pages[state.currentPageId];
   var model = modelOverride || getPageFootnoteModel(page);
   var n = model.numberById[id];
-  var label = n || '?';
+  var label = String(n || '?');
   var exists = !!model.definitions[id];
   return '<sup class="footnote-ref-wrap">' +
     '<span class="footnote-ref' + (exists ? '' : ' footnote-ref-missing') + '"' +
@@ -154,39 +154,12 @@ if(typeof buildInlineNodes === 'function' && !buildInlineNodes.__nexusFootnotesW
   buildInlineNodes = wrappedBuildInlineNodesFootnotes;
 }
 
-if(typeof serializeInline === 'function' && !serializeInline.__nexusFootnotesWrapped){
-  var nexusOriginalSerializeInline = serializeInline;
-  var wrappedSerializeInlineFootnotes = function(node){
-    var out = '';
-    node.childNodes.forEach(function(n){
-      if(n.nodeType === 1 && n.classList && n.classList.contains('footnote-ref')){
-        out += '[^' + (n.dataset.footnoteId || '') + ']';
-      } else {
-        out += nexusOriginalSerializeInline(n.parentNode === node ? n : n);
-      }
-    });
-    return out;
-  };
-  /* The original serializer expects a node and recursively walks children.
-     For ordinary children we can delegate one child at a time; text nodes are
-     not accepted by the old API as a root, so handle text directly here. */
-  wrappedSerializeInlineFootnotes = function(node){
-    var out = '';
-    node.childNodes.forEach(function(n){
-      if(n.nodeType === 3){
-        out += n.nodeValue;
-      } else if(n.nodeType === 1 && n.classList && n.classList.contains('footnote-ref')){
-        out += '[^' + (n.dataset.footnoteId || '') + ']';
-      } else {
-        out += nexusOriginalSerializeInline(n);
-      }
-    });
-    return out;
-  };
-  wrappedSerializeInlineFootnotes.__nexusFootnotesWrapped = true;
-  serializeInline = wrappedSerializeInlineFootnotes;
-}
-
+/* [^id] serialisation lives in serializeInline() itself (00-state-and-helpers.js).
+   It used to be a wrapper here that handed each child *element* to the original as if it were
+   the parent; the original serialises an element's children, not the element, so every <strong>,
+   <em>, <del>, <code>, highlight/colour span, link and attachment widget in an editing block was
+   flattened to bare text on save (typed **bold**, toolbar formatting and attached images were
+   silently lost). */
 
 function footnoteSelectorEscape(value){
   value = String(value || '');

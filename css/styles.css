@@ -3107,6 +3107,9 @@ button, input, textarea, select{touch-action:manipulation;}
   #app.sidebar-collapsed #expand-btn{
     left:10px;
   }
+  /* The fixed 44px toggle sits over the top-left corner: start the tab strip to its right so
+     it never covers the first tab's icon/title. */
+  #nexus-tabs-shell{ padding-left:64px; }
   #expand-btn:focus-visible{outline:2px solid var(--focus); outline-offset:2px;}
   #expand-btn:active{transform:scale(.97);}
   /* The floating control replaces the in-drawer collapse affordance on
@@ -3114,63 +3117,13 @@ button, input, textarea, select{touch-action:manipulation;}
   #collapse-btn{display:none !important;}
 }
 
-/* Notebook load failure is a safety boundary: keep the page readable and
-   explicitly state that Nexus did not replace the existing notebook. */
-.notebook-load-error{
-  max-width:720px; margin:10vh auto; padding:32px; border:1px solid var(--border);
-  border-radius:18px; background:var(--surface); box-shadow:var(--shadow); text-align:center;
-}
-.notebook-load-error-icon{font-size:42px; line-height:1; margin-bottom:14px;}
-.notebook-load-error h2{margin:0 0 12px;}
-.notebook-load-error p{margin:8px 0; color:var(--muted); line-height:1.55;}
-.notebook-load-error-actions{display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:22px;}
-.notebook-load-error pre{margin:18px 0 0; padding:12px; text-align:left; overflow:auto; white-space:pre-wrap;
-  border-radius:12px; background:var(--canvas); border:1px solid var(--border); color:var(--muted);}
 
-/* Phase 4 quality layer: keep overlays usable at narrow heights and make the active editor
-   visibly focusable without changing the established visual language. */
-
-#page-title[contenteditable="true"]:focus-visible,
-.block-content[contenteditable="true"]:focus-visible{
-  outline:3px solid color-mix(in srgb,var(--focus) 24%,transparent);
-  outline-offset:3px;
-  border-radius:5px;
-}
-
-#palette, #gs-modal, #settings-modal,
-#versions-overlay > div, #diff-overlay > div, #conflicts-overlay > div,
-#passcode-overlay > div, #recovery-unlock-overlay > div, #recovery-show-overlay > div,
-#sync-overlay > div, #findreplace-overlay > div, #querybuilder-overlay > div{
-  overscroll-behavior:contain;
-}
-
-@media (max-width:860px){
-  #palette, #gs-modal, #settings-modal,
-  #versions-overlay > div, #diff-overlay > div, #conflicts-overlay > div,
-  #passcode-overlay > div, #recovery-unlock-overlay > div, #recovery-show-overlay > div,
-  #sync-overlay > div, #findreplace-overlay > div, #querybuilder-overlay > div{
-    max-height:calc(100dvh - max(20px, env(safe-area-inset-top)) - max(20px, env(safe-area-inset-bottom))) !important;
-    overflow-y:auto !important;
-    -webkit-overflow-scrolling:touch;
-  }
-  #palette-overlay, #gs-overlay, #settings-overlay, #versions-overlay, #diff-overlay,
-  #conflicts-overlay, #passcode-overlay, #recovery-unlock-overlay, #recovery-show-overlay,
-  #sync-overlay, #findreplace-overlay, #querybuilder-overlay{
-    padding-top:max(12px, env(safe-area-inset-top));
-    padding-bottom:max(12px, env(safe-area-inset-bottom));
-    align-items:flex-start;
-  }
-}
-
-@media (max-width:480px){
-  #gs-modal{width:100%;max-width:none;height:min(88dvh,760px);border-radius:12px;}
-  #palette{width:calc(100vw - 16px);max-width:none;}
-  .settings-body{padding:14px 15px;gap:16px;}
-  .settings-head{padding:13px 15px;}
-  .settings-foot{padding:10px 15px;}
-  .settings-row{gap:6px;}
-  .settings-opt{min-height:40px;padding:8px 11px;}
-  .sync-choice-btn{min-height:52px;}
-}
-
-
+/* ---------- Notebook load-failure dialog (see handleNotebookLoadFailure) ---------- */
+#load-failure-overlay{position:fixed; inset:0; z-index:10001; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(20,24,20,.55);}
+.load-failure-card{width:100%; max-width:520px; max-height:90vh; overflow:auto; background:var(--paper-raised,#fff); color:var(--ink,#17211c); border:1px solid var(--border,#e1e6e2); border-radius:var(--radius-md,12px); padding:22px; box-shadow:var(--shadow-md,0 12px 32px rgba(20,35,28,.2)); font-family:var(--sans);}
+.load-failure-title{font-family:var(--serif); font-size:1.25rem; margin:0 0 10px;}
+.load-failure-card p{font-size:.875rem; line-height:1.5; margin:0 0 10px;}
+.load-failure-msg{color:var(--ink-soft,#68756e); min-height:1.2em;}
+.load-failure-actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;}
+.load-failure-actions button{border:1px solid var(--border,#e1e6e2); background:var(--paper,#f7f8f6); color:var(--ink,#17211c); border-radius:6px; padding:9px 14px; font-size:.875rem; cursor:pointer; font-family:var(--sans); min-height:40px;}
+.load-failure-actions button.primary{background:var(--focus,#176044); border-color:var(--focus,#176044); color:var(--paper-raised,#fff);}
