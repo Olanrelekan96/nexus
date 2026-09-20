@@ -47,7 +47,7 @@ function seedState(){
     folders: {}
   };
   state.pages[welcomeId] = {
-    id: welcomeId, title:"Welcome to Nexus", type:"page", createdAt:Date.now(), icon:'👋', banner:'paper',
+    id: welcomeId, title:"Welcome to Nexus", type:"page", systemKey:'welcome', createdAt:Date.now(), icon:'👋', banner:'paper',
     properties:[{key:"status", value:"start here"}], rootBlocks:[b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11]
   };
   state.blocks[b1] = mkBlock(b1, welcomeId, null, "Nexus is your own offline knowledge base — pages, an outliner, and #backlinks in one file.");
@@ -92,7 +92,7 @@ function ensureDocsPage(){
 
   var pid = uid();
   state.pages[pid] = {
-    id: pid, title: DOCS_TITLE, type: 'page', createdAt: Date.now(), icon:'📖', banner:'violet',
+    id: pid, title: DOCS_TITLE, type: 'page', systemKey:'help', createdAt: Date.now(), icon:'📖', banner:'violet',
     properties: [{key:"status", value:"reference"}], rootBlocks: []
   };
   state.titleIndex[DOCS_TITLE.toLowerCase()] = pid;
@@ -972,6 +972,330 @@ function ensureSyncMeta(){
   });
 }
 
+/* ============================================================
+   KNOWN SYSTEM-PAGE DEDUPLICATION
+   Google Drive sync merges entities by stable id. Older Nexus releases
+   generated the built-in pages independently on each device, so the same
+   logical workspace could arrive with different ids and become two visible
+   pages after the first sync. The five built-in pages below are singletons.
+   New builds stamp a stable systemKey; legacy notebooks are recognized by
+   their exact built-in titles so an upgrade can repair an already-duplicated
+   notebook as well.
+
+   This repair is deliberately narrow: ordinary user-created pages are NOT
+   deduplicated merely because their titles match. User edits in duplicate
+   system pages are preserved wherever possible: identical starter blocks are
+   merged, newer metadata wins, and unique/differently edited blocks remain.
+   Removed duplicate ids are tombstoned so an older peer cannot resurrect them.
+   ============================================================ */
+var NEXUS_SYSTEM_PAGE_TITLES = {
+  welcome: 'welcome to nexus',
+  help: 'help & tutorial',
+  database: 'database',
+  queries: 'queries',
+  'sticky-notes': 'sticky notes'
+};
+
+function legacySystemPageKey(page){
+  if(!page || typeof page !== 'object') return '';
+  var title = String(page.title || '').trim().toLowerCase();
+  var props = Array.isArray(page.properties) ? page.properties : [];
+  function prop(key, value){
+    return props.some(function(p){ return p && p.key === key && (value == null || String(p.value || '').toLowerCase() === String(value).toLowerCase()); });
+  }
+  var roots = Array.isArray(page.rootBlocks) ? page.rootBlocks : [];
+  /* Legacy builds did not always have systemKey, so use multiple stable
+     built-in fingerprints rather than title alone. This prevents a person
+     who creates an ordinary page called "Database" or "Welcome to Nexus"
+     from having that page silently absorbed by the singleton repair. */
+  if(title === NEXUS_SYSTEM_PAGE_TITLES.database &&
+     (page.systemPage || page.permanentSidebar || prop('type','database hub'))) return 'database';
+  if(title === NEXUS_SYSTEM_PAGE_TITLES.queries &&
+     (page.systemQueryPage || page.permanentSidebarQuery || prop('type','query hub'))) return 'queries';
+  if(title === NEXUS_SYSTEM_PAGE_TITLES['sticky-notes'] &&
+     (page.systemStickyNotesPage || page.permanentSidebarStickyNotes || prop('type','sticky note hub'))) return 'sticky-notes';
+  if(title === NEXUS_SYSTEM_PAGE_TITLES.help && prop('status','reference')) return 'help';
+  if(title === NEXUS_SYSTEM_PAGE_TITLES.welcome && prop('status','start here')) return 'welcome';
+  return '';
+}
+
+function knownSystemPageKey(page){
+  if(!page || typeof page !== 'object') return '';
+  if(typeof page.systemKey === 'string' && NEXUS_SYSTEM_PAGE_TITLES[page.systemKey]) return page.systemKey;
+  return legacySystemPageKey(page);
+}
+
+function markKnownSystemPage(page, key){
+  if(!page || !key) return;
+  page.systemKey = key;
+  if(key === 'database'){
+    page.systemPage = true;
+    page.permanentSidebar = true;
+  }else if(key === 'queries'){
+    page.systemQueryPage = true;
+    page.permanentSidebarQuery = true;
+  }else if(key === 'sticky-notes'){
+    page.systemStickyNotesPage = true;
+    page.permanentSidebarStickyNotes = true;
+  }
+}
+
+function rewriteKnownBlockRefs(text, sourceToTarget){
+  var out = String(text == null ? '' : text);
+  if(!sourceToTarget) return out;
+  Object.keys(sourceToTarget).forEach(function(oldId){
+    var newId = sourceToTarget[oldId];
+    if(!newId || oldId === newId) return;
+    out = out.split('((' + oldId + '))').join('((' + newId + '))');
+  });
+  return out;
+}
+
+function systemBlockComparableText(text, sourceToTarget){
+  var out = rewriteKnownBlockRefs(text, sourceToTarget);
+  /* For comparison only, block references are identity metadata rather than
+     user-visible prose. Any still-unmapped reference is normalized to a
+     placeholder so separately seeded copies can still match. */
+  return out.replace(/\(\([^)]+\)\)/g, '((BLOCK))');
+}
+
+function systemBlocksEquivalent(a, b, sourceToTarget){
+  if(!a || !b) return false;
+  if(a.dbName !== b.dbName) return false;
+  if(a.queryName !== b.queryName) return false;
+  return systemBlockComparableText(a.text, sourceToTarget) === systemBlockComparableText(b.text, null);
+}
+
+function systemPageCanonicalId(parsed, ids){
+  var ranked = ids.slice().sort(function(a,b){
+    var pa = parsed.pages[a], pb = parsed.pages[b];
+    var ka = pa && pa.systemKey ? 0 : 1;
+    var kb = pb && pb.systemKey ? 0 : 1;
+    if(ka !== kb) return ka - kb;
+    var ca = pa && pa.createdAt || 0, cb = pb && pb.createdAt || 0;
+    if(ca !== cb) return ca - cb;
+    return String(a).localeCompare(String(b));
+  });
+  return ranked[0];
+}
+
+function mergeKnownSystemPageGroup(parsed, key, ids, changedRef){
+  var canonicalId = systemPageCanonicalId(parsed, ids);
+  var canonical = parsed.pages[canonicalId];
+  if(!canonical) return canonicalId;
+
+  /* Preserve the newest page-level metadata but keep one stable identity and
+     one canonical title. */
+  var metaWinner = canonical;
+  ids.forEach(function(id){
+    var candidate = parsed.pages[id];
+    if(candidate && pickWinner(candidate, metaWinner) === candidate) metaWinner = candidate;
+  });
+  var mergedPage = JSON.parse(JSON.stringify(metaWinner));
+  mergedPage.id = canonicalId;
+  mergedPage.title = NEXUS_SYSTEM_PAGE_TITLES[key].replace(/^(.)/, function(m){ return m.toUpperCase(); });
+  if(key === 'help') mergedPage.title = 'Help & Tutorial';
+  if(key === 'welcome') mergedPage.title = 'Welcome to Nexus';
+  if(key === 'database') mergedPage.title = 'Database';
+  if(key === 'queries') mergedPage.title = 'Queries';
+  if(key === 'sticky-notes') mergedPage.title = 'Sticky Notes';
+  markKnownSystemPage(mergedPage, key);
+  mergedPage.rootBlocks = Array.isArray(canonical.rootBlocks) ? canonical.rootBlocks.slice() : [];
+  parsed.pages[canonicalId] = mergedPage;
+  if(ids.length > 1) changedRef.changed = true;
+
+  var blockIdsByPage = {};
+  ids.forEach(function(pid){
+    blockIdsByPage[pid] = Object.keys(parsed.blocks).filter(function(bid){
+      return parsed.blocks[bid] && parsed.blocks[bid].pageId === pid;
+    });
+  });
+
+  /* Canonical blocks are the destination. Work through each duplicate page
+     in deterministic order, matching identical sibling content first. */
+  var sourcePages = ids.filter(function(id){ return id !== canonicalId; }).sort(function(a,b){
+    return String(a).localeCompare(String(b));
+  });
+  var sourceToTarget = {};
+  var removedBlockToTarget = {};
+
+  function findCurrentSibling(parentId, src){
+    var best = null;
+    Object.keys(parsed.blocks).forEach(function(bid){
+      var b = parsed.blocks[bid];
+      if(!b || b.pageId !== canonicalId || (b.parent || null) !== (parentId || null)) return;
+      if(systemBlocksEquivalent(src, b, sourceToTarget)){
+        if(!best || pickWinner(b, best) === b) best = b;
+      }
+    });
+    return best;
+  }
+
+  function appendToContainer(targetId, parentId){
+    var t = parsed.blocks[targetId];
+    if(!t) return;
+    if(parentId){
+      var parent = parsed.blocks[parentId];
+      if(parent && parent.children.indexOf(targetId) === -1) parent.children.push(targetId);
+    }else if(mergedPage.rootBlocks.indexOf(targetId) === -1){
+      mergedPage.rootBlocks.push(targetId);
+    }
+  }
+
+  function mergeTree(sourceId, targetParentId, sourceMap){
+    var src = sourceMap[sourceId];
+    if(!src) return null;
+    var comparable = Object.assign({}, src, {
+      text: systemBlockComparableText(src.text, sourceToTarget)
+    });
+    var existing = findCurrentSibling(targetParentId, comparable);
+    var targetId;
+    if(existing){
+      targetId = existing.id;
+      var winner = pickWinner(existing, src) === src ? src : existing;
+      var mergedBlock = JSON.parse(JSON.stringify(winner));
+      mergedBlock.id = targetId;
+      mergedBlock.pageId = canonicalId;
+      mergedBlock.parent = targetParentId || null;
+      mergedBlock.text = rewriteKnownBlockRefs(mergedBlock.text, sourceToTarget);
+      parsed.blocks[targetId] = mergedBlock;
+      appendToContainer(targetId, targetParentId);
+      if(src.id !== targetId){
+        sourceToTarget[src.id] = targetId;
+        removedBlockToTarget[src.id] = targetId;
+        if(parsed.tombstones && parsed.tombstones.blocks) parsed.tombstones.blocks[src.id] = Math.max(parsed.tombstones.blocks[src.id] || 0, Date.now());
+        delete parsed.blocks[src.id];
+        changedRef.changed = true;
+      }
+    }else{
+      targetId = src.id;
+      if(parsed.blocks[targetId] && targetId !== src.id) targetId = uid();
+      var copy = JSON.parse(JSON.stringify(src));
+      copy.id = targetId;
+      copy.pageId = canonicalId;
+      copy.parent = targetParentId || null;
+      copy.text = rewriteKnownBlockRefs(copy.text, sourceToTarget);
+      copy.children = [];
+      parsed.blocks[targetId] = copy;
+      appendToContainer(targetId, targetParentId);
+      if(targetId !== src.id) sourceToTarget[src.id] = targetId;
+      changedRef.changed = true;
+    }
+    sourceToTarget[src.id] = targetId;
+
+    (src.children || []).forEach(function(childId){
+      mergeTree(childId, targetId, sourceMap);
+    });
+    return targetId;
+  }
+
+  sourcePages.forEach(function(pid){
+    var idsForPage = blockIdsByPage[pid] || [];
+    var sourceMap = {};
+    idsForPage.forEach(function(bid){
+      if(parsed.blocks[bid]) sourceMap[bid] = JSON.parse(JSON.stringify(parsed.blocks[bid]));
+    });
+    var roots = (parsed.pages[pid] && Array.isArray(parsed.pages[pid].rootBlocks)) ? parsed.pages[pid].rootBlocks.slice() : [];
+    var seen = {};
+    roots.forEach(function(bid){ if(sourceMap[bid]){ seen[bid]=1; mergeTree(bid, null, sourceMap); } });
+    idsForPage.forEach(function(bid){
+      if(!seen[bid] && sourceMap[bid]){
+        if(sourceMap[bid].parent && sourceMap[sourceMap[bid].parent]) mergeTree(bid, sourceToTarget[sourceMap[bid].parent] || null, sourceMap);
+        else mergeTree(bid, null, sourceMap);
+      }
+    });
+    /* Anything still left from the duplicate source page is now unreachable.
+       Its id is safe to tombstone after its content has been represented by
+       either a matched canonical block or a preserved unique block. */
+    idsForPage.forEach(function(bid){
+      if(parsed.blocks[bid] && parsed.blocks[bid].pageId === pid){
+        if(sourceToTarget[bid]){
+          if(parsed.tombstones && parsed.tombstones.blocks) parsed.tombstones.blocks[bid] = Math.max(parsed.tombstones.blocks[bid] || 0, Date.now());
+          delete parsed.blocks[bid];
+          changedRef.changed = true;
+        }else{
+          parsed.blocks[bid].pageId = canonicalId;
+          parsed.blocks[bid].parent = parsed.blocks[bid].parent && sourceToTarget[parsed.blocks[bid].parent] || null;
+          appendToContainer(bid, parsed.blocks[bid].parent);
+          changedRef.changed = true;
+        }
+      }
+    });
+
+    /* The duplicate page id is itself a deletion from the logical singleton. */
+    delete parsed.pages[pid];
+    if(parsed.tombstones && parsed.tombstones.pages){
+      parsed.tombstones.pages[pid] = Math.max(parsed.tombstones.pages[pid] || 0, Date.now());
+    }
+    if(parsed.currentPageId === pid) parsed.currentPageId = canonicalId;
+    changedRef.changed = true;
+  });
+
+  /* Rewrite references to removed duplicate ids in persisted data. */
+  Object.keys(removedBlockToTarget).forEach(function(oldId){
+    var newId = removedBlockToTarget[oldId];
+    Object.keys(parsed.blocks).forEach(function(bid){
+      var b = parsed.blocks[bid];
+      if(!b || typeof b.text !== 'string') return;
+      b.text = rewriteKnownBlockRefs(b.text, {[oldId]: newId});
+    });
+    var groups = [parsed.flashcards && parsed.flashcards.cards, parsed.stickyNotes && parsed.stickyNotes.cards];
+    groups.forEach(function(map){ Object.keys(map || {}).forEach(function(id){
+      if(map[id] && map[id].sourceBlockId === oldId) map[id].sourceBlockId = newId;
+    }); });
+  });
+
+  return canonicalId;
+}
+
+function dedupeKnownSystemPages(parsed){
+  var groups = {};
+  Object.keys(parsed.pages || {}).forEach(function(id){
+    var key = knownSystemPageKey(parsed.pages[id]);
+    if(!key || (parsed.pages[id] && parsed.pages[id].trashedAt)) return;
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(id);
+  });
+  var changedRef = {changed:false};
+  Object.keys(groups).forEach(function(key){
+    var ids = groups[key];
+    var canonicalId = systemPageCanonicalId(parsed, ids);
+    if(ids.length === 1){ markKnownSystemPage(parsed.pages[canonicalId], key); return; }
+    mergeKnownSystemPageGroup(parsed, key, ids, changedRef);
+  });
+  if(changedRef.changed){
+    /* A duplicate block/page is a migration, not a user edit. Keep the
+       current notebook coherent; the normal boot migration persists it. */
+    parsed.titleIndex = rebuildTitleIndex(parsed);
+  }
+  return changedRef.changed;
+}
+
+/* ============================================================
+   SELF-HEALING SYSTEM-PAGE GUARD
+   The repair above is intentionally idempotent. This wrapper makes that
+   guarantee an explicit part of the sync contract: every load/restore and
+   every peer merge can call it without needing to know whether the duplicate
+   came from Google Drive, another Nexus device, an old backup, or a legacy
+   notebook. It never deduplicates ordinary user pages.
+   ============================================================ */
+var NEXUS_SELF_HEAL_VERSION = 1;
+function selfHealKnownSystemPages(target, reason){
+  if(!target || typeof target !== 'object' || !target.pages || !target.blocks) return false;
+  if(!target.tombstones || typeof target.tombstones !== 'object') target.tombstones = {pages:{},blocks:{}};
+  if(!target.tombstones.pages || typeof target.tombstones.pages !== 'object') target.tombstones.pages = {};
+  if(!target.tombstones.blocks || typeof target.tombstones.blocks !== 'object') target.tombstones.blocks = {};
+  var changed = dedupeKnownSystemPages(target);
+  /* A repair marker is diagnostic metadata only. Do not timestamp or touch
+     page/block entities, because the repair must never look like a user edit. */
+  if(changed){
+    target.selfHeal = target.selfHeal || {};
+    target.selfHeal.systemPages = NEXUS_SELF_HEAL_VERSION;
+    target.selfHeal.lastRepair = String(reason || 'unknown');
+  }
+  return changed;
+}
+
 function normalizeState(parsed){
   if(!parsed || typeof parsed !== 'object' || !parsed.pages || typeof parsed.pages !== 'object' ||
      !parsed.blocks || typeof parsed.blocks !== 'object') return seedState();
@@ -1048,6 +1372,8 @@ function normalizeState(parsed){
     if(block.parent === undefined) block.parent = null;
     if(block.collapsed === undefined) block.collapsed = false;
   });
+
+  selfHealKnownSystemPages(parsed, 'normalize');
 
   /* Never trust a persisted title index: renames/restores from older builds
      can leave it stale. Rebuilding is cheap compared with a broken link. */
@@ -1729,6 +2055,10 @@ function mergeStates(local, remote, sinceTs){
     merged.currentPageId = Object.keys(merged.pages)[0];
   }
   merged = normalizeState(merged);
+  /* Final post-merge guard: if a future merge-path changes normalization
+     order, the singleton repair still runs immediately before the merged
+     state can be applied or pushed back to Drive. */
+  selfHealKnownSystemPages(merged, 'post-merge');
   return {state: merged, conflicts: conflicts, stats: stats};
 }
 
