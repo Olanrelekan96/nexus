@@ -280,7 +280,16 @@ function bootNotebook(){
     setGdriveAutoSyncToggleUI();
     setGdriveAuthTtlUI();
     updateGdriveAuthTtlStatus();
-    if(gdriveAutoSyncEnabled()){
+    /* Restore the Drive sync passcode (sessionStorage, then the durable
+       IndexedDB copy — see restoreGdriveSyncKeySession in
+       06-backup-sync.js) before deciding whether a silent background
+       sync can proceed. Without waiting here, a real relaunch could
+       reach scheduleGdriveAutoPush/runGdriveSyncCycle before the
+       IndexedDB read resolves, and those quietly skip encrypted sync
+       until gdriveSyncPasscode is set — indistinguishable from being
+       asked to re-enter the key on every launch. */
+    (typeof restoreGdriveSyncKeySession === 'function' ? restoreGdriveSyncKeySession() : Promise.resolve()).then(function(){
+      if(!gdriveAutoSyncEnabled()) return;
       /* Reconnecting after a reload can only ever be silent (prompt:'') —
          there's no server here to hold a refresh token — so if Google's
          session has lapsed, or the reconnect window from Settings has
@@ -294,7 +303,7 @@ function bootNotebook(){
           ? 'Drive connection expired after ' + gdriveAuthTtlHours() + 'h — click "Sync now" to reconnect.'
           : 'Needs sign-in — click "Sync now" to reconnect.');
       });
-    }
+    });
   }).catch(function(err){
     if(err && err.nexusHandled) return; /* the load-failure dialog is already showing */
     toast('Could not load your notebook — try reloading the page.');

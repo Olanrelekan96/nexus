@@ -137,10 +137,14 @@ function openAttachmentDb(){
       if(!db.objectStoreNames.contains(ATT_STORE)) db.createObjectStore(ATT_STORE, {keyPath:'id'});
       if(!db.objectStoreNames.contains(VERS_STORE)) db.createObjectStore(VERS_STORE, {keyPath:'ts'});
       if(!db.objectStoreNames.contains(NB_STORE)) db.createObjectStore(NB_STORE);
-      /* v4 adds the device-local security store used when
-         "Request passcode on launch" is turned off. The stored value is a
-         non-exportable CryptoKey, never part of backups/sync, and is valid
-         only until the normal re-entry deadline. */
+      /* v4 adds the device-local security store, used for two things,
+         neither ever part of backups/sync and each valid only until its
+         own re-entry deadline:
+         - the local passcode lock's device-local DEK, kept here when
+           "Request passcode on launch" is turned off (09-security-lock.js);
+         - the Google Drive sync encryption passcode, kept here so the
+           "remember for…" interval survives a real relaunch and not just
+           a same-tab reload (06-backup-sync.js). */
       if(!db.objectStoreNames.contains('security')) db.createObjectStore('security');
     };
     // Fires if another tab still has an older DB version open — the

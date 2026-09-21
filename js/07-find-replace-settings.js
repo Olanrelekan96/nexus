@@ -222,6 +222,7 @@ function openSettings(){
   applySettings(currentSettings);
   refreshLockSettingsUI();
   updateAutoBackupStatusUI();
+  if(typeof updateGdriveSyncKeySessionStatus === 'function') updateGdriveSyncKeySessionStatus();
   document.getElementById('settings-overlay').style.display = 'flex';
 }
 function closeSettings(){
