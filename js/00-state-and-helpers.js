@@ -1992,6 +1992,77 @@ function mergeStates(local, remote, sinceTs){
     };
   }
 
+  /* ---- PRE-MERGE SYSTEM PAGE CANONICALIZATION --------------------------------
+     The per-UUID loop below merges pages by their UUID key. When two devices
+     each independently seeded the same logical system page (Database, Queries,
+     etc.) they produced different UUIDs, so the loop keeps both. The
+     selfHealKnownSystemPages call at the end of mergeStates collapses them
+     afterwards — but that runs TOO LATE: the duplicate has already been saved
+     to the merged state and pushed to Drive, and on any future fresh-seed load
+     (new device, cleared cache) the cycle repeats because the new seed UUID
+     is never in the Drive tombstone list.
+
+     Fix: before the UUID loop runs, group ALL live pages from both local and
+     remote by systemKey. For each group that has more than one distinct UUID,
+     elect one canonical UUID (prefer local, then oldest createdAt) and inject
+     tombstone entries for all the loser UUIDs directly into merged.tombstones.
+     The per-UUID loop's existing tombstone check then suppresses the losers
+     as if they had been explicitly deleted, so they never enter merged.pages.
+     The canonical UUID flows through normally and gets selfHealKnownSystemPages
+     as before. Tombstones are propagated to both peers on the next push, so the
+     loser IDs are permanently suppressed across the entire sync graph.         */
+  (function preCanonicalizeSystemPages(){
+    var byKey = {}; /* systemKey -> [{id, page, side}] */
+    function collect(pagesMap, side){
+      Object.keys(pagesMap || {}).forEach(function(id){
+        var page = pagesMap[id];
+        if(!page || page.trashedAt) return;
+        var key = knownSystemPageKey(page);
+        if(!key) return;
+        if(!byKey[key]) byKey[key] = [];
+        /* Avoid recording the same id twice when local and remote share it. */
+        if(!byKey[key].some(function(e){ return e.id === id; }))
+          byKey[key].push({id:id, page:page, side:side});
+      });
+    }
+    collect(local.pages, 'local');
+    collect(remote.pages, 'remote');
+
+    Object.keys(byKey).forEach(function(key){
+      var entries = byKey[key];
+      if(entries.length < 2) return; /* no conflict — nothing to do */
+
+      /* Elect the canonical entry: prefer local side (stable for this device),
+         then oldest createdAt, then lexicographic id as final tiebreaker. */
+      entries.sort(function(a, b){
+        var aLocal = a.side === 'local' ? 0 : 1;
+        var bLocal = b.side === 'local' ? 0 : 1;
+        if(aLocal !== bLocal) return aLocal - bLocal;
+        var aAge = a.page.createdAt || 0, bAge = b.page.createdAt || 0;
+        if(aAge !== bAge) return aAge - bAge;
+        return String(a.id).localeCompare(String(b.id));
+      });
+
+      var canonicalId = entries[0].id;
+      var now = Date.now();
+      entries.slice(1).forEach(function(e){
+        /* Inject a tombstone for each loser id. Use a timestamp well in
+           the past (1 ms after the page was created) so any genuine
+           user edit on that page (updatedAt > createdAt) still wins if
+           the user really did work on what turned out to be the duplicate.
+           In practice seeded system pages are never edited before their
+           first sync, so this is safe. */
+        var loserUpdatedAt = e.page.updatedAt || e.page.createdAt || 0;
+        var tombTs = Math.max(loserUpdatedAt + 1, now);
+        merged.tombstones.pages[e.id] = Math.max(
+          merged.tombstones.pages[e.id] || 0,
+          tombTs
+        );
+      });
+    });
+  })();
+  /* ---- END PRE-MERGE SYSTEM PAGE CANONICALIZATION ------------------------- */
+
   var pageWinner = {}, blockWinner = {};
   var pageIds = Object.keys(local.pages).concat(Object.keys(remote.pages)).filter(function(id,i,arr){ return arr.indexOf(id)===i; });
   pageIds.forEach(function(id){
