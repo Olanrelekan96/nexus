@@ -221,17 +221,32 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.ok(/initConflictsStore\(\);/.test(read('js/14-wiring-and-init.js')), 'the conflict log must be loaded when the notebook boots');
 }
 
-/* --- Guard against new accidental duplicate global functions (later files silently shadow earlier ones). */
+/* --- Guard against new accidental duplicate global declarations. All 34 js/ files load as
+   plain <script> tags into one shared global scope (no modules, no bundler — see README), so a
+   `function` or top-level `var` name reused in a later-loading file silently shadows the earlier
+   one with no error at runtime. Both declaration forms bind the same global namespace, so they
+   are tracked together: a `var x` in one file colliding with a `function x(){}` in another is
+   just as real a collision as two of the same kind. */
 {
-  const KNOWN = new Set(['renderTasksView', 'tasksSortComparator']); /* legacy copies in 03, superseded by 15 */
+  const KNOWN = new Set([
+    'renderTasksView', 'tasksSortComparator', /* legacy functions in 03, superseded by 15 */
+    'tasksViewState' /* legacy var in 03, superseded by 15 — 15 deliberately reuses the hoisted
+                         value (`var tasksViewState = (typeof tasksViewState !== 'undefined' &&
+                         tasksViewState) || {}`) rather than blindly overwriting it, so this one
+                         is a safe, intentional re-declaration, not a silent shadow. */
+  ]);
   const seen = {};
+  const record = (name, file) => { (seen[name] = seen[name] || []).push(file); };
   fs.readdirSync(path.join(root, 'js')).filter((f) => f.endsWith('.js')).sort().forEach((f) => {
-    const re = /^function ([A-Za-z0-9_$]+)\(/gm;
-    let m; const src = read('js/' + f);
-    while ((m = re.exec(src))) (seen[m[1]] = seen[m[1]] || []).push(f);
+    const src = read('js/' + f);
+    let m;
+    const fnRe = /^function ([A-Za-z0-9_$]+)\(/gm;
+    while ((m = fnRe.exec(src))) record(m[1], f);
+    const varRe = /^var ([A-Za-z0-9_$]+)\b/gm;
+    while ((m = varRe.exec(src))) record(m[1], f);
   });
   const dupes = Object.keys(seen).filter((n) => seen[n].length > 1 && !KNOWN.has(n));
-  assert.deepStrictEqual(dupes, [], 'duplicate global function declarations: ' + dupes.join(', '));
+  assert.deepStrictEqual(dupes, [], 'duplicate global declarations (function and/or top-level var share one scope): ' + dupes.join(', '));
 }
 
 /* --- Google Drive: independently seeded copies of Nexus's five built-in singleton pages must

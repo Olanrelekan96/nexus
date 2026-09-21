@@ -276,7 +276,7 @@ function ensureDocsPage(){
    Existing Help content is preserved; the guide is appended once and stamped
    with a version and feature catalog so future releases can extend it again
    without duplicating existing sections on every load. */
-var NEXUS_HELP_GUIDE_VERSION = 30;
+var NEXUS_HELP_GUIDE_VERSION = 31;
 /* Maintenance contract:
    Whenever a user-visible feature is added or materially changed, update
    NEXUS_HELP_GUIDE_VERSION and add/update its title in the maintained
@@ -361,7 +361,8 @@ var NEXUS_HELP_FEATURE_CATALOG = [
   {id:'help-73', title:'Additional crafted themes'},
   {id:'help-75', title:'Pinned tabs & sidebar drag-and-drop ordering'},
   {id:'help-76', title:'Mobile sidebar always-visible toggle'},
-  {id:'help-77', title:'Launch passcode policy & device auto-unlock'}
+  {id:'help-77', title:'Launch passcode policy & device auto-unlock'},
+  {id:'help-78', title:'Google Drive sync encryption key'}
 ]
 function getHelpGuideCoverage(pid){
   var page = state.pages[pid];
@@ -629,6 +630,13 @@ function ensureCompleteHelpGuide(pid){
     "Google's sign-in scripts are not loaded when Nexus starts. They are requested only when you use a Drive action (or when a Drive connection you already made needs quiet renewal), so simply opening Nexus never contacts Google and works fully offline.",
     "The Google Drive connection lifetime setting controls how long Nexus may quietly maintain the connection before requiring another sign-in. Google's access-token lifetime is separate and can still require reauthentication.",
     "Credentials can be cleared from this device at any time. Treat exported backup files as sensitive because the app passcode does not encrypt exported JSON files."
+  ]);
+
+  addMaintainedSection("Google Drive sync encryption key", [
+    "If a passcode lock is set up, the first time you sync to Google Drive that session Nexus asks whether to encrypt the sync file with that same passcode. OK encrypts it (every device you sync with must enter the same passcode); Cancel keeps the sync file as plain, readable JSON.",
+    "Once you enter the passcode correctly, Settings → Google Drive connection shows 'Sync encryption key remembered — re-entry in about …' for the remember-for interval you've chosen (1, 6, 12 or 24 hours; 24 by default). Before that passcode is entered, or once it expires, the status reads 'not yet entered this session — you will be prompted on the next Sync.'",
+    "The remembered passcode now survives closing and reopening the browser/app, not just a reload in the same tab: Nexus keeps a device-local copy in the same encrypted IndexedDB security store used by the passcode lock's own launch persistence, and restores it automatically before deciding whether background sync can proceed silently.",
+    "Like the passcode lock's device-local unlock key, this remembered copy is never included in Backup/Restore, the Google Drive sync file itself, LAN sync or notebook exports. It is cleared when the remember-for interval expires, when you change or remove the passcode lock, or if you decline encryption for this notebook."
   ]);
 
   addMaintainedSection("LAN device sync", [

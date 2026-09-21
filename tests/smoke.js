@@ -38,7 +38,8 @@ assert.ok(index.includes('data-health-overlay'), 'Data health UI must be present
 assert.ok(/nexus-build" content="2026-09-19-quality-hardened-v1-/.test(index), 'quality build marker missing');
 assert.ok(index.includes('tasks-layout'), 'task layout control missing');
 const core = fs.readFileSync(path.join(root,'js','00-state-and-helpers.js'),'utf8');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*30/.test(core), 'current Help guide version missing');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*31/.test(core), 'current Help guide version missing');
+assert.ok(core.includes('Google Drive sync encryption key'), 'Google Drive sync encryption key Help topic missing');
 assert.ok(core.includes('ensureCompleteHelpGuide(docsId)'), 'existing Help pages must receive the complete guide update');
 const dbSidebar = fs.readFileSync(path.join(root,'js','21-database-sidebar.js'),'utf8');
 const querySidebar = fs.readFileSync(path.join(root,'js','22-query-sidebar.js'),'utf8');
@@ -93,7 +94,7 @@ assert.ok(/aria-label="Toggle sidebar"|aria-label="Expand sidebar"|aria-label="C
 assert.ok(cssTheme.includes('/* Persistent mobile sidebar toggle.'), 'persistent mobile sidebar CSS missing');
 assert.ok(core.includes('Mobile sidebar always-visible toggle'), 'mobile sidebar Help topic missing');
 assert.ok(core.includes('help-76'), 'mobile sidebar Help catalog id missing');
-assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*30/.test(core), 'current Help version must be v30');
+assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*31/.test(core), 'current Help version must be v31');
 assert.ok(index.includes('js/32-tabs.js'), 'tabs module load missing');
 
 const footnotes = fs.readFileSync(path.join(root,'js','33-footnotes.js'),'utf8');
@@ -192,7 +193,7 @@ assert.ok(dashboard.includes('renderDashboardStats'), 'dashboard stats renderer 
 assert.ok(dashboard.includes('renderDashboardWorkspaces'), 'dashboard workspace renderer missing');
 assert.ok(dashboard.includes('renderDashboardHealth'), 'dashboard health renderer missing');
 assert.ok(core.includes('Dashboard home hub'), 'Dashboard Help topic missing');
-assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 30"), 'current Help version missing');
+assert.ok(core.includes("NEXUS_HELP_GUIDE_VERSION = 31"), 'current Help version missing');
 assert.ok(css.includes('#dashboard-view.visible'), 'Dashboard CSS missing');
 assert.ok(core.includes('Page transclusion'), 'Page transclusion Help topic missing');
 assert.ok(core.includes('Block transclusion'), 'Block transclusion Help topic missing');
@@ -409,7 +410,7 @@ seededTitles.forEach((title, i) => {
 });
 ctx.ensureCompleteHelpGuide('doc');
 const helpCountAfterFirst = Object.keys(ctx.state.blocks).length;
-assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 30, 'Help guide should be current after updater runs');
+assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 31, 'Help guide should be current after updater runs');
 
 /* Passcode re-entry hardening: the session start is persisted as non-secret
    metadata so timer throttling/background suspension cannot silently defeat
