@@ -628,29 +628,22 @@ function gdriveAuthTtlMs(){
 }
 
 /* ---- Google Drive sync encryption key session -------------------------
-   When the sync file is encrypted, the user must enter the passcode
-   once to unlock it. By default this was cleared on every page reload
-   (gdriveSyncPasscode is a plain in-memory variable). This block adds
-   sessionStorage persistence with a configurable expiry (1/6/12/24 h),
-   matching the shape of the local passcode re-entry interval setting.
+   gdriveSyncPasscode and gdriveSyncEncryptionDeclined are plain in-memory
+   variables — both reset to their defaults on every page reload, causing
+   the confirm()/prompt() dialogs to re-appear on launch.
 
-   Key is stored in sessionStorage (tab-scoped, never on disk) as a
-   JSON envelope: { passcode, unlockedAt, deadlineAt }. On page load
-   the envelope is read back and restored if the deadline hasn't passed,
-   so the user doesn't have to re-enter the key on every reload. When
-   the deadline expires the entry is cleared and the next sync cycle
-   shows the prompt again.
+   This block persists both across reloads:
+   - The passcode is written to sessionStorage (tab-scoped, never on disk)
+     with a configurable deadline (1/6/12/24 h). Restored silently on load.
+   - The "I chose plain sync" decision is written to localStorage as a
+     standing preference and restored on every load.
 
-   The raw passcode is stored here rather than the derived CryptoKey
-   object because CryptoKey objects can't be serialised. The passcode
-   itself is already the secret that encrypts the sync file, so keeping
-   it in sessionStorage is no weaker than keeping a derived key there —
-   and sessionStorage is never synced to disk or sent to any server.  */
+   Both are cleared whenever the local passcode lock is removed.          */
 var GDRIVE_SYNC_KEY_SESSION_KEY = STORAGE_KEY + '_gdrive_synckey_session_v1';
 var GDRIVE_SYNC_DECLINED_KEY    = STORAGE_KEY + '_gdrive_sync_declined_v1';
 var GDRIVE_SYNC_KEY_SESSION_DEFAULT = '24';
 var GDRIVE_SYNC_KEY_SESSION_CHOICES = ['1', '6', '12', '24'];
-var gdriveSyncKeyUnlockedAt = 0; /* ms timestamp of when the passcode was last confirmed */
+var gdriveSyncKeyUnlockedAt = 0;
 
 function gdriveSyncKeySessionHours(){
   var v = (typeof currentSettings !== 'undefined' && currentSettings.gdriveSyncKeySessionHours) || GDRIVE_SYNC_KEY_SESSION_DEFAULT;
@@ -659,8 +652,6 @@ function gdriveSyncKeySessionHours(){
 function gdriveSyncKeySessionMs(){
   return parseInt(gdriveSyncKeySessionHours(), 10) * 60 * 60 * 1000;
 }
-
-/* Write the current passcode and deadline to sessionStorage. */
 function persistGdriveSyncKeySession(){
   if(!gdriveSyncPasscode) return;
   try{
@@ -672,56 +663,35 @@ function persistGdriveSyncKeySession(){
     }));
   }catch(e){}
 }
-
-/* Remove the persisted session (called on passcode change, encryption
-   mode switch, or when the deadline has expired). Also clears the
-   declined flag so the user is asked again if they re-enable a lock. */
 function clearGdriveSyncKeySession(){
   try{ sessionStorage.removeItem(GDRIVE_SYNC_KEY_SESSION_KEY); }catch(e){}
   try{ localStorage.removeItem(GDRIVE_SYNC_DECLINED_KEY); }catch(e){}
 }
-
-/* Persist the "I chose plain sync" decision so it survives page reloads.
-   Stored in localStorage (not sessionStorage) because it's a standing
-   preference, not a per-tab secret. Cleared automatically whenever the
-   passcode lock is removed or the user actively chooses encryption. */
 function persistGdriveSyncDeclined(){
   try{ localStorage.setItem(GDRIVE_SYNC_DECLINED_KEY, '1'); }catch(e){}
 }
 function clearGdriveSyncDeclined(){
   try{ localStorage.removeItem(GDRIVE_SYNC_DECLINED_KEY); }catch(e){}
 }
-
-/* Attempt to restore gdriveSyncPasscode and gdriveSyncEncryptionDeclined
-   from storage on page load. Returns true if a valid (non-expired)
-   encrypted session was found and restored, false otherwise (which may
-   still mean the declined flag was restored — check gdriveSyncEncryptionDeclined). */
+/* Restores both flags from storage on page load. Must be called from
+   DOMContentLoaded (after currentSettings is available) and before any
+   sync cycle fires its first ensureGdriveSyncMode() check.             */
 function restoreGdriveSyncKeySession(){
-  /* Always restore the "declined" flag first — it's a standing preference. */
   try{
     if(localStorage.getItem(GDRIVE_SYNC_DECLINED_KEY) === '1'){
       gdriveSyncEncryptionDeclined = true;
     }
   }catch(e){}
-
-  /* Then try to restore the active passcode session. */
   var raw;
   try{ raw = JSON.parse(sessionStorage.getItem(GDRIVE_SYNC_KEY_SESSION_KEY) || 'null'); }catch(e){ raw = null; }
   if(!raw || typeof raw.passcode !== 'string' || !raw.deadlineAt) return false;
-  /* Enforce the *current* interval setting, not the one that was in
-     effect when the session was saved — so shortening the interval
-     takes effect on the next page load. */
-  var deadline = Math.min(Number(raw.deadlineAt), Number(raw.unlockedAt || 0) + gdriveSyncKeySessionMs());
-  if(Date.now() >= deadline){
-    clearGdriveSyncKeySession();
-    return false;
-  }
+  var deadline = Math.min(Number(raw.deadlineAt), Number(raw.unlockedAt||0) + gdriveSyncKeySessionMs());
+  if(Date.now() >= deadline){ clearGdriveSyncKeySession(); return false; }
   gdriveSyncPasscode = raw.passcode;
   gdriveSyncKeyUnlockedAt = Number(raw.unlockedAt) || Date.now();
   return true;
 }
-
-/* ---- Settings UI for the sync key session interval ------------------- */
+/* ---- Settings UI ---- */
 function setGdriveSyncKeySessionUI(){
   var row = document.getElementById('settings-gdrivesynckeysession-row');
   if(!row) return;
@@ -734,22 +704,19 @@ function updateGdriveSyncKeySessionStatus(){
   var el = document.getElementById('gdrive-synckeysession-status');
   if(!el) return;
   if(!gdriveSyncPasscode){
-    el.textContent = 'Sync encryption key not yet entered this session. It will be requested on the next \"Sync now\" click.';
+    el.textContent = 'Sync encryption key not yet entered this session — you will be prompted on the next Sync.';
     return;
   }
   var deadline;
   try{
-    var raw = JSON.parse(sessionStorage.getItem(GDRIVE_SYNC_KEY_SESSION_KEY) || 'null');
+    var raw = JSON.parse(sessionStorage.getItem(GDRIVE_SYNC_KEY_SESSION_KEY)||'null');
     deadline = raw && raw.deadlineAt ? Math.min(Number(raw.deadlineAt), gdriveSyncKeyUnlockedAt + gdriveSyncKeySessionMs()) : (gdriveSyncKeyUnlockedAt + gdriveSyncKeySessionMs());
   }catch(e){ deadline = gdriveSyncKeyUnlockedAt + gdriveSyncKeySessionMs(); }
   var remaining = deadline - Date.now();
-  if(remaining <= 0){
-    el.textContent = 'Session expired — you will be asked to re-enter your sync encryption key on the next launch.';
-    return;
-  }
+  if(remaining <= 0){ el.textContent = 'Session expired — re-entry needed on next launch.'; return; }
   var mins = Math.round(remaining / 60000);
-  var left = mins >= 60 ? (Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm') : (mins + 'm');
-  el.textContent = 'Sync encryption key active for this session — re-entry needed in about ' + left + '.';
+  var left = mins >= 60 ? (Math.floor(mins/60) + 'h ' + (mins%60) + 'm') : (mins + 'm');
+  el.textContent = 'Sync encryption key remembered — re-entry in about ' + left + '.';
 }
 function setGdriveSyncKeySession(hours){
   hours = String(hours);
@@ -757,10 +724,9 @@ function setGdriveSyncKeySession(hours){
   currentSettings.gdriveSyncKeySessionHours = hours;
   saveSettings(currentSettings);
   setGdriveSyncKeySessionUI();
-  /* If a session is active, rewrite it with the new deadline. */
   if(gdriveSyncPasscode) persistGdriveSyncKeySession();
   updateGdriveSyncKeySessionStatus();
-  toast('Sync encryption key will be remembered for ' + hours + ' hour' + (hours === '1' ? '' : 's') + ' after each unlock.');
+  toast('Sync key remembered for ' + hours + ' hour' + (hours==='1'?'':'s') + ' after each unlock.');
 }
 (function wireGdriveSyncKeySessionRow(){
   function wire(){
@@ -775,7 +741,7 @@ function setGdriveSyncKeySession(hours){
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
   else wire();
 })();
-/* ---- End sync key session --------------------------------------------- */
+/* ---- End sync key session -------------------------------------------- */
 function gdriveAuthAt(){
   var raw = localStorage.getItem(GDRIVE_AUTH_AT_KEY);
   var ts = raw ? parseInt(raw, 10) : 0;
@@ -1150,11 +1116,11 @@ function setGdriveAuthTtl(hours){
     });
     setGdriveAuthTtlUI();
     updateGdriveAuthTtlStatus();
-    /* Restore the sync encryption key from sessionStorage so the user
-       isn't asked for their passcode on every page reload. Must run after
-       currentSettings is loaded (settings load before DOMContentLoaded
-       because they fire during the same sync script load pass) so that
-       gdriveSyncKeySessionHours() reads the correct interval. */
+    /* Restore persisted sync key and declined-encryption flag so the
+       prompt doesn't fire on every page reload. Runs here because this
+       is the earliest DOMContentLoaded handler in 06-backup-sync.js,
+       by which point currentSettings (from 07-find-replace-settings.js)
+       is already populated and gdriveSyncKeySessionHours() is reliable. */
     restoreGdriveSyncKeySession();
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
@@ -1211,8 +1177,8 @@ function ensureGdriveSyncMode(){
   if(gdriveSyncPasscode) return Promise.resolve('encrypted');
   if(!confirm('This notebook has a passcode lock set up.\n\nEncrypt Google Drive sync data with your passcode too?\n\nOK = encrypted (every device you sync with must use this same passcode).\nCancel = keep sync data as plain, readable JSON, same as before.')){
     gdriveSyncEncryptionDeclined = true;
-    clearGdriveSyncKeySession();       /* clears both session + declined flag, then: */
-    persistGdriveSyncDeclined();       /* re-persist the declined choice so it survives reload */
+    clearGdriveSyncKeySession();
+    persistGdriveSyncDeclined();
     return Promise.resolve('plain');
   }
   var passcode = promptForPasscode('Enter your passcode:');
@@ -1220,7 +1186,7 @@ function ensureGdriveSyncMode(){
   return confirmPasscode(passcode).then(function(ok){
     if(!ok){ toast('Incorrect passcode.'); return 'cancelled'; }
     gdriveSyncEncryptionDeclined = false;
-    clearGdriveSyncDeclined();         /* user has now chosen encryption, clear the declined flag */
+    clearGdriveSyncDeclined();
     gdriveSyncPasscode = passcode;
     gdriveSyncKeyUnlockedAt = Date.now();
     persistGdriveSyncKeySession();

@@ -47,7 +47,7 @@ function seedState(){
     folders: {}
   };
   state.pages[welcomeId] = {
-    id: welcomeId, title:"Welcome to Nexus", type:"page", createdAt:Date.now(), icon:'👋', banner:'paper',
+    id: welcomeId, title:"Welcome to Nexus", type:"page", systemKey:'welcome', createdAt:Date.now(), icon:'👋', banner:'paper',
     properties:[{key:"status", value:"start here"}], rootBlocks:[b1,b2,b3,b4,b5,b6,b7,b8,b9,b10,b11]
   };
   state.blocks[b1] = mkBlock(b1, welcomeId, null, "Nexus is your own offline knowledge base — pages, an outliner, and #backlinks in one file.");
@@ -92,7 +92,7 @@ function ensureDocsPage(){
 
   var pid = uid();
   state.pages[pid] = {
-    id: pid, title: DOCS_TITLE, type: 'page', createdAt: Date.now(), icon:'📖', banner:'violet',
+    id: pid, title: DOCS_TITLE, type: 'page', systemKey:'help', createdAt: Date.now(), icon:'📖', banner:'violet',
     properties: [{key:"status", value:"reference"}], rootBlocks: []
   };
   state.titleIndex[DOCS_TITLE.toLowerCase()] = pid;
@@ -818,114 +818,6 @@ var redoStack = [];
 var UNDO_MAX = 100;
 var lastSnapshotJson = null;
 
-/* ============================================================
-   ONE-TIME DEDUPLICATION MIGRATION
-   Collapses duplicate-titled pages and duplicate-named templates that
-   accumulated in the local database from earlier cross-device syncs.
-   Runs once per database (guarded by state.deduplicationVersion) and
-   is idempotent: running it on an already-clean notebook is a no-op
-   because no title-group will have more than one member.
-
-   Must be called BEFORE the boot-time ensureXxx() functions so that
-   the seeder guards (titleIndex checks) see the already-deduplicated
-   state rather than orphaned duplicates.
-
-   Counterpart to the real-time fix in mergeStates() above; together
-   they cover both the existing data and all future syncs.
-   ============================================================ */
-var DEDUP_MIGRATION_VERSION = 1;
-
-function deduplicateStateInPlace(s){
-  if(!s || !s.pages || !s.blocks) return false;
-  if((s.deduplicationVersion||0) >= DEDUP_MIGRATION_VERSION) return false;
-
-  var changed = false;
-
-  /* --- 1. Deduplicate pages by title ------------------------------------ */
-  if(!s.tombstones) s.tombstones = {pages:{}, blocks:{}};
-  if(!s.tombstones.pages) s.tombstones.pages = {};
-
-  /* Build title → [pageId, ...] groups (live pages only). */
-  var pageGroups = {};
-  Object.keys(s.pages).forEach(function(pid){
-    var p = s.pages[pid];
-    if(!p || p.trashedAt) return;
-    var key = (p.title||'').toLowerCase();
-    if(!key) return;
-    if(!pageGroups[key]) pageGroups[key] = [];
-    pageGroups[key].push(pid);
-  });
-
-  Object.keys(pageGroups).forEach(function(key){
-    var ids = pageGroups[key];
-    if(ids.length < 2) return;
-
-    /* Keep the page with the smallest createdAt (the original seed).
-       Secondary sort on id for determinism. */
-    ids.sort(function(a, b){
-      var aAge = s.pages[a].createdAt||0;
-      var bAge = s.pages[b].createdAt||0;
-      return aAge - bAge || (a < b ? -1 : 1);
-    });
-
-    var winnerId = ids[0];
-    var loserIds = ids.slice(1);
-
-    loserIds.forEach(function(loserId){
-      /* Reassign all blocks from loser to winner. */
-      Object.keys(s.blocks).forEach(function(bid){
-        var b = s.blocks[bid];
-        if(b && b.pageId === loserId){
-          b.pageId = winnerId;
-          changed = true;
-        }
-      });
-
-      /* Tombstone the loser. */
-      var loserPage = s.pages[loserId];
-      var tombTs = (loserPage && (loserPage.updatedAt||loserPage.createdAt))||Date.now();
-      s.tombstones.pages[loserId] = Math.max(tombTs, s.tombstones.pages[loserId]||0);
-
-      delete s.pages[loserId];
-      changed = true;
-    });
-  });
-
-  /* --- 2. Deduplicate templates by name --------------------------------- */
-  if(s.templates && typeof s.templates === 'object'){
-    var tmplGroups = {};
-    Object.keys(s.templates).forEach(function(k){
-      var t = s.templates[k];
-      if(!t || typeof t.name !== 'string') return;
-      var key = t.name.toLowerCase();
-      if(!tmplGroups[key]) tmplGroups[key] = [];
-      tmplGroups[key].push(k);
-    });
-
-    Object.keys(tmplGroups).forEach(function(key){
-      var ids = tmplGroups[key];
-      if(ids.length < 2) return;
-
-      /* Keep the oldest (earliest createdAt). */
-      ids.sort(function(a, b){
-        var aAge = s.templates[a] ? (s.templates[a].createdAt||0) : 0;
-        var bAge = s.templates[b] ? (s.templates[b].createdAt||0) : 0;
-        return aAge - bAge || (a < b ? -1 : 1);
-      });
-
-      /* Delete all but the first (oldest). */
-      ids.slice(1).forEach(function(k){
-        delete s.templates[k];
-        changed = true;
-      });
-    });
-  }
-
-  /* --- 3. Stamp the migration version so this never runs again ---------- */
-  s.deduplicationVersion = DEDUP_MIGRATION_VERSION;
-  return changed; /* caller decides whether to persist immediately */
-}
-
 var state = null; /* populated asynchronously by initNotebook(), called at the bottom of this
                       file, before renderAll() and anything else that reads state runs */
 function initNotebook(){
@@ -939,11 +831,6 @@ function initNotebook(){
   return loadAsync().then(function(loaded){
     clearTimeout(warnTimer);
     state = loaded;
-    /* Run the one-time deduplication migration FIRST — before any ensureXxx()
-       boot seeder — so that title-index guards in ensureDocsPage() etc. see
-       the already-deduplicated state and do not create a third copy of a page
-       that still has two live entries from a previous sync. */
-    deduplicateStateInPlace(state);
     var beforeBootNormalization = JSON.stringify(state);
     ensureDocsPage();
     if(typeof ensureDatabaseWorkspace === 'function') ensureDatabaseWorkspace();
@@ -1085,6 +972,363 @@ function ensureSyncMeta(){
   });
 }
 
+/* ============================================================
+   KNOWN SYSTEM-PAGE DEDUPLICATION
+   Google Drive sync merges entities by stable id. Older Nexus releases
+   generated the built-in pages independently on each device, so the same
+   logical workspace could arrive with different ids and become two visible
+   pages after the first sync. The five built-in pages below are singletons.
+   New builds stamp a stable systemKey; legacy notebooks are recognized by
+   their exact built-in titles so an upgrade can repair an already-duplicated
+   notebook as well.
+
+   This repair is deliberately narrow: ordinary user-created pages are NOT
+   deduplicated merely because their titles match. User edits in duplicate
+   system pages are preserved wherever possible: identical starter blocks are
+   merged, newer metadata wins, and unique/differently edited blocks remain.
+   Removed duplicate ids are tombstoned so an older peer cannot resurrect them.
+   ============================================================ */
+var NEXUS_SYSTEM_PAGE_TITLES = {
+  welcome: 'welcome to nexus',
+  help: 'help & tutorial',
+  database: 'database',
+  queries: 'queries',
+  'sticky-notes': 'sticky notes'
+};
+
+function legacySystemPageKey(page){
+  if(!page || typeof page !== 'object') return '';
+  var title = String(page.title || '').trim().toLowerCase();
+  var props = Array.isArray(page.properties) ? page.properties : [];
+  function prop(key, value){
+    return props.some(function(p){ return p && p.key === key && (value == null || String(p.value || '').toLowerCase() === String(value).toLowerCase()); });
+  }
+  var roots = Array.isArray(page.rootBlocks) ? page.rootBlocks : [];
+  /* Legacy builds did not always have systemKey, so use multiple stable
+     built-in fingerprints rather than title alone. This prevents a person
+     who creates an ordinary page called "Database" or "Welcome to Nexus"
+     from having that page silently absorbed by the singleton repair. */
+  if(title === NEXUS_SYSTEM_PAGE_TITLES.database &&
+     (page.systemPage || page.permanentSidebar || prop('type','database hub'))) return 'database';
+  if(title === NEXUS_SYSTEM_PAGE_TITLES.queries &&
+     (page.systemQueryPage || page.permanentSidebarQuery || prop('type','query hub'))) return 'queries';
+  if(title === NEXUS_SYSTEM_PAGE_TITLES['sticky-notes'] &&
+     (page.systemStickyNotesPage || page.permanentSidebarStickyNotes || prop('type','sticky note hub'))) return 'sticky-notes';
+  if(title === NEXUS_SYSTEM_PAGE_TITLES.help && prop('status','reference')) return 'help';
+  if(title === NEXUS_SYSTEM_PAGE_TITLES.welcome && prop('status','start here')) return 'welcome';
+  return '';
+}
+
+function knownSystemPageKey(page){
+  if(!page || typeof page !== 'object') return '';
+  if(typeof page.systemKey === 'string' && NEXUS_SYSTEM_PAGE_TITLES[page.systemKey]) return page.systemKey;
+  return legacySystemPageKey(page);
+}
+
+function markKnownSystemPage(page, key){
+  if(!page || !key) return;
+  page.systemKey = key;
+  if(key === 'database'){
+    page.systemPage = true;
+    page.permanentSidebar = true;
+  }else if(key === 'queries'){
+    page.systemQueryPage = true;
+    page.permanentSidebarQuery = true;
+  }else if(key === 'sticky-notes'){
+    page.systemStickyNotesPage = true;
+    page.permanentSidebarStickyNotes = true;
+  }
+}
+
+function rewriteKnownBlockRefs(text, sourceToTarget){
+  var out = String(text == null ? '' : text);
+  if(!sourceToTarget) return out;
+  Object.keys(sourceToTarget).forEach(function(oldId){
+    var newId = sourceToTarget[oldId];
+    if(!newId || oldId === newId) return;
+    out = out.split('((' + oldId + '))').join('((' + newId + '))');
+  });
+  return out;
+}
+
+function systemBlockComparableText(text, sourceToTarget){
+  var out = rewriteKnownBlockRefs(text, sourceToTarget);
+  /* For comparison only, block references are identity metadata rather than
+     user-visible prose. Any still-unmapped reference is normalized to a
+     placeholder so separately seeded copies can still match. */
+  return out.replace(/\(\([^)]+\)\)/g, '((BLOCK))');
+}
+
+function systemBlocksEquivalent(a, b, sourceToTarget){
+  if(!a || !b) return false;
+  if(a.dbName !== b.dbName) return false;
+  if(a.queryName !== b.queryName) return false;
+  return systemBlockComparableText(a.text, sourceToTarget) === systemBlockComparableText(b.text, null);
+}
+
+function systemPageCanonicalId(parsed, ids){
+  var ranked = ids.slice().sort(function(a,b){
+    var pa = parsed.pages[a], pb = parsed.pages[b];
+    var ka = pa && pa.systemKey ? 0 : 1;
+    var kb = pb && pb.systemKey ? 0 : 1;
+    if(ka !== kb) return ka - kb;
+    var ca = pa && pa.createdAt || 0, cb = pb && pb.createdAt || 0;
+    if(ca !== cb) return ca - cb;
+    return String(a).localeCompare(String(b));
+  });
+  return ranked[0];
+}
+
+function mergeKnownSystemPageGroup(parsed, key, ids, changedRef){
+  var canonicalId = systemPageCanonicalId(parsed, ids);
+  var canonical = parsed.pages[canonicalId];
+  if(!canonical) return canonicalId;
+
+  /* Preserve the newest page-level metadata but keep one stable identity and
+     one canonical title. */
+  var metaWinner = canonical;
+  ids.forEach(function(id){
+    var candidate = parsed.pages[id];
+    if(candidate && pickWinner(candidate, metaWinner) === candidate) metaWinner = candidate;
+  });
+  var mergedPage = JSON.parse(JSON.stringify(metaWinner));
+  mergedPage.id = canonicalId;
+  mergedPage.title = NEXUS_SYSTEM_PAGE_TITLES[key].replace(/^(.)/, function(m){ return m.toUpperCase(); });
+  if(key === 'help') mergedPage.title = 'Help & Tutorial';
+  if(key === 'welcome') mergedPage.title = 'Welcome to Nexus';
+  if(key === 'database') mergedPage.title = 'Database';
+  if(key === 'queries') mergedPage.title = 'Queries';
+  if(key === 'sticky-notes') mergedPage.title = 'Sticky Notes';
+  markKnownSystemPage(mergedPage, key);
+  mergedPage.rootBlocks = Array.isArray(canonical.rootBlocks) ? canonical.rootBlocks.slice() : [];
+  parsed.pages[canonicalId] = mergedPage;
+  if(ids.length > 1) changedRef.changed = true;
+
+  var blockIdsByPage = {};
+  ids.forEach(function(pid){
+    blockIdsByPage[pid] = Object.keys(parsed.blocks).filter(function(bid){
+      return parsed.blocks[bid] && parsed.blocks[bid].pageId === pid;
+    });
+  });
+
+  /* Canonical blocks are the destination. Work through each duplicate page
+     in deterministic order, matching identical sibling content first. */
+  var sourcePages = ids.filter(function(id){ return id !== canonicalId; }).sort(function(a,b){
+    return String(a).localeCompare(String(b));
+  });
+  var sourceToTarget = {};
+  var removedBlockToTarget = {};
+
+  function findCurrentSibling(parentId, src){
+    var best = null;
+    Object.keys(parsed.blocks).forEach(function(bid){
+      var b = parsed.blocks[bid];
+      if(!b || b.pageId !== canonicalId || (b.parent || null) !== (parentId || null)) return;
+      if(systemBlocksEquivalent(src, b, sourceToTarget)){
+        if(!best || pickWinner(b, best) === b) best = b;
+      }
+    });
+    return best;
+  }
+
+  function appendToContainer(targetId, parentId){
+    var t = parsed.blocks[targetId];
+    if(!t) return;
+    if(parentId){
+      var parent = parsed.blocks[parentId];
+      if(parent && parent.children.indexOf(targetId) === -1) parent.children.push(targetId);
+    }else if(mergedPage.rootBlocks.indexOf(targetId) === -1){
+      mergedPage.rootBlocks.push(targetId);
+    }
+  }
+
+  function mergeTree(sourceId, targetParentId, sourceMap){
+    var src = sourceMap[sourceId];
+    if(!src) return null;
+    var comparable = Object.assign({}, src, {
+      text: systemBlockComparableText(src.text, sourceToTarget)
+    });
+    var existing = findCurrentSibling(targetParentId, comparable);
+    var targetId;
+    if(existing){
+      targetId = existing.id;
+      var winner = pickWinner(existing, src) === src ? src : existing;
+      var mergedBlock = JSON.parse(JSON.stringify(winner));
+      mergedBlock.id = targetId;
+      mergedBlock.pageId = canonicalId;
+      mergedBlock.parent = targetParentId || null;
+      mergedBlock.text = rewriteKnownBlockRefs(mergedBlock.text, sourceToTarget);
+      parsed.blocks[targetId] = mergedBlock;
+      appendToContainer(targetId, targetParentId);
+      if(src.id !== targetId){
+        sourceToTarget[src.id] = targetId;
+        removedBlockToTarget[src.id] = targetId;
+        if(parsed.tombstones && parsed.tombstones.blocks) parsed.tombstones.blocks[src.id] = Math.max(parsed.tombstones.blocks[src.id] || 0, Date.now());
+        delete parsed.blocks[src.id];
+        changedRef.changed = true;
+      }
+    }else{
+      targetId = src.id;
+      if(parsed.blocks[targetId] && targetId !== src.id) targetId = uid();
+      var copy = JSON.parse(JSON.stringify(src));
+      copy.id = targetId;
+      copy.pageId = canonicalId;
+      copy.parent = targetParentId || null;
+      copy.text = rewriteKnownBlockRefs(copy.text, sourceToTarget);
+      copy.children = [];
+      parsed.blocks[targetId] = copy;
+      appendToContainer(targetId, targetParentId);
+      if(targetId !== src.id) sourceToTarget[src.id] = targetId;
+      changedRef.changed = true;
+    }
+    sourceToTarget[src.id] = targetId;
+
+    (src.children || []).forEach(function(childId){
+      mergeTree(childId, targetId, sourceMap);
+    });
+    return targetId;
+  }
+
+  sourcePages.forEach(function(pid){
+    var idsForPage = blockIdsByPage[pid] || [];
+    var sourceMap = {};
+    idsForPage.forEach(function(bid){
+      if(parsed.blocks[bid]) sourceMap[bid] = JSON.parse(JSON.stringify(parsed.blocks[bid]));
+    });
+    var roots = (parsed.pages[pid] && Array.isArray(parsed.pages[pid].rootBlocks)) ? parsed.pages[pid].rootBlocks.slice() : [];
+    var seen = {};
+    roots.forEach(function(bid){ if(sourceMap[bid]){ seen[bid]=1; mergeTree(bid, null, sourceMap); } });
+    idsForPage.forEach(function(bid){
+      if(!seen[bid] && sourceMap[bid]){
+        if(sourceMap[bid].parent && sourceMap[sourceMap[bid].parent]) mergeTree(bid, sourceToTarget[sourceMap[bid].parent] || null, sourceMap);
+        else mergeTree(bid, null, sourceMap);
+      }
+    });
+    /* Anything still left from the duplicate source page is now unreachable.
+       Its id is safe to tombstone after its content has been represented by
+       either a matched canonical block or a preserved unique block. */
+    idsForPage.forEach(function(bid){
+      if(parsed.blocks[bid] && parsed.blocks[bid].pageId === pid){
+        if(sourceToTarget[bid]){
+          if(parsed.tombstones && parsed.tombstones.blocks) parsed.tombstones.blocks[bid] = Math.max(parsed.tombstones.blocks[bid] || 0, Date.now());
+          delete parsed.blocks[bid];
+          changedRef.changed = true;
+        }else{
+          parsed.blocks[bid].pageId = canonicalId;
+          parsed.blocks[bid].parent = parsed.blocks[bid].parent && sourceToTarget[parsed.blocks[bid].parent] || null;
+          appendToContainer(bid, parsed.blocks[bid].parent);
+          changedRef.changed = true;
+        }
+      }
+    });
+
+    /* The duplicate page id is itself a deletion from the logical singleton. */
+    delete parsed.pages[pid];
+    if(parsed.tombstones && parsed.tombstones.pages){
+      parsed.tombstones.pages[pid] = Math.max(parsed.tombstones.pages[pid] || 0, Date.now());
+    }
+    if(parsed.currentPageId === pid) parsed.currentPageId = canonicalId;
+    changedRef.changed = true;
+  });
+
+  /* Rewrite references to removed duplicate ids in persisted data. */
+  Object.keys(removedBlockToTarget).forEach(function(oldId){
+    var newId = removedBlockToTarget[oldId];
+    Object.keys(parsed.blocks).forEach(function(bid){
+      var b = parsed.blocks[bid];
+      if(!b || typeof b.text !== 'string') return;
+      b.text = rewriteKnownBlockRefs(b.text, {[oldId]: newId});
+    });
+    var groups = [parsed.flashcards && parsed.flashcards.cards, parsed.stickyNotes && parsed.stickyNotes.cards];
+    groups.forEach(function(map){ Object.keys(map || {}).forEach(function(id){
+      if(map[id] && map[id].sourceBlockId === oldId) map[id].sourceBlockId = newId;
+    }); });
+  });
+
+  return canonicalId;
+}
+
+function dedupeKnownSystemPages(parsed){
+  var groups = {};
+  Object.keys(parsed.pages || {}).forEach(function(id){
+    var key = knownSystemPageKey(parsed.pages[id]);
+    if(!key || (parsed.pages[id] && parsed.pages[id].trashedAt)) return;
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(id);
+  });
+  var changedRef = {changed:false};
+  Object.keys(groups).forEach(function(key){
+    var ids = groups[key];
+    var canonicalId = systemPageCanonicalId(parsed, ids);
+    if(ids.length === 1){ markKnownSystemPage(parsed.pages[canonicalId], key); return; }
+    mergeKnownSystemPageGroup(parsed, key, ids, changedRef);
+  });
+  if(changedRef.changed){
+    /* A duplicate block/page is a migration, not a user edit. Keep the
+       current notebook coherent; the normal boot migration persists it. */
+    parsed.titleIndex = rebuildTitleIndex(parsed);
+  }
+  return changedRef.changed;
+}
+
+/* ============================================================
+   SELF-HEALING SYSTEM-PAGE GUARD
+   The repair above is intentionally idempotent. This wrapper makes that
+   guarantee an explicit part of the sync contract: every load/restore and
+   every peer merge can call it without needing to know whether the duplicate
+   came from Google Drive, another Nexus device, an old backup, or a legacy
+   notebook. It never deduplicates ordinary user pages.
+   ============================================================ */
+var NEXUS_SELF_HEAL_VERSION = 1;
+
+/* Collapses duplicate-named templates that accumulate when two devices each
+   run ensureDefaultTemplates() independently and produce different UUIDs for
+   "Meeting notes" / "Daily journal". Mirrors the name-dedup pass in
+   mergeTemplateMaps so that notebooks polluted before this fix shipped are
+   also repaired. Idempotent: a clean notebook with unique-named templates is
+   a no-op. Only touches the templates map — never pages or blocks. */
+function selfHealTemplates(target){
+  if(!target || !target.templates || typeof target.templates !== 'object') return false;
+  var byName = {};
+  var changed = false;
+  Object.keys(target.templates).forEach(function(k){
+    var t = target.templates[k];
+    if(!t || typeof t.name !== 'string') return;
+    var key = t.name.toLowerCase();
+    if(!byName[key]){
+      byName[key] = k;
+    } else {
+      var survivor = byName[key];
+      var survivorAge = target.templates[survivor] ? (target.templates[survivor].createdAt||0) : 0;
+      var candidateAge = t.createdAt||0;
+      if(candidateAge < survivorAge){
+        delete target.templates[survivor];
+        byName[key] = k;
+      } else {
+        delete target.templates[k];
+      }
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+function selfHealKnownSystemPages(target, reason){
+  if(!target || typeof target !== 'object' || !target.pages || !target.blocks) return false;
+  if(!target.tombstones || typeof target.tombstones !== 'object') target.tombstones = {pages:{},blocks:{}};
+  if(!target.tombstones.pages || typeof target.tombstones.pages !== 'object') target.tombstones.pages = {};
+  if(!target.tombstones.blocks || typeof target.tombstones.blocks !== 'object') target.tombstones.blocks = {};
+  var changed = dedupeKnownSystemPages(target);
+  /* A repair marker is diagnostic metadata only. Do not timestamp or touch
+     page/block entities, because the repair must never look like a user edit. */
+  if(changed){
+    target.selfHeal = target.selfHeal || {};
+    target.selfHeal.systemPages = NEXUS_SELF_HEAL_VERSION;
+    target.selfHeal.lastRepair = String(reason || 'unknown');
+  }
+  return changed;
+}
+
 function normalizeState(parsed){
   if(!parsed || typeof parsed !== 'object' || !parsed.pages || typeof parsed.pages !== 'object' ||
      !parsed.blocks || typeof parsed.blocks !== 'object') return seedState();
@@ -1127,9 +1371,6 @@ function normalizeState(parsed){
   });
   if(!parsed.syncPeers || typeof parsed.syncPeers !== 'object' || Array.isArray(parsed.syncPeers)) parsed.syncPeers = {};
   if(!parsed.deviceId) parsed.deviceId = uid();
-  /* Preserve the deduplication migration stamp so re-normalisation (restore,
-     merge) never resets it and triggers the migration a second time. */
-  if(typeof parsed.deduplicationVersion !== 'number') parsed.deduplicationVersion = 0;
 
   Object.keys(parsed.pages).forEach(function(id){
     var page = parsed.pages[id];
@@ -1164,6 +1405,9 @@ function normalizeState(parsed){
     if(block.parent === undefined) block.parent = null;
     if(block.collapsed === undefined) block.collapsed = false;
   });
+
+  selfHealKnownSystemPages(parsed, 'normalize');
+  selfHealTemplates(parsed);
 
   /* Never trust a persisted title index: renames/restores from older builds
      can leave it stale. Rebuilding is cheap compared with a broken link. */
@@ -1627,22 +1871,17 @@ function mergeTombstoneMaps(a, b){
    with. Trade-off: a template deleted on one device while it still
    exists on the other will reappear after a sync. That mirrors the
    existing behavior for templates in general (no delete-tracking), it's
-   just now visible across devices too instead of only within one.
-
-   DEDUP FIX: After the UUID union, collapse same-named templates into a
-   single canonical entry. When two devices each seed "Meeting notes" /
-   "Daily journal" independently they get different UUIDs; the union
-   would otherwise produce duplicate sidebar entries. We keep the entry
-   with the earlier createdAt (preserving the "original" seed timestamp)
-   and discard the other. User-created templates with unique names are
-   unaffected. */
+   just now visible across devices too instead of only within one. */
 function mergeTemplateMaps(a, b){
   var out = {};
   Object.keys(a||{}).forEach(function(k){ out[k] = a[k]; });
   Object.keys(b||{}).forEach(function(k){ if(!out[k]) out[k] = b[k]; });
 
-  /* Collapse duplicates by (lower-cased) name: keep the one with the
-     earlier createdAt so the "original" seed is the survivor. */
+  /* Collapse same-named templates that arise when two devices each run
+     ensureDefaultTemplates() independently and produce different UUIDs
+     for "Meeting notes" / "Daily journal". Keep the oldest (smallest
+     createdAt) so the original seed survives; user-created templates
+     with unique names are completely unaffected. */
   var byName = {};
   Object.keys(out).forEach(function(k){
     var t = out[k];
@@ -1651,15 +1890,13 @@ function mergeTemplateMaps(a, b){
     if(!byName[key]){
       byName[key] = k;
     } else {
-      var existingT = out[byName[key]];
-      var existingAge = existingT ? (existingT.createdAt||0) : 0;
+      var survivor = byName[key];
+      var survivorAge = out[survivor] ? (out[survivor].createdAt||0) : 0;
       var candidateAge = t.createdAt||0;
-      if(candidateAge < existingAge){
-        /* candidate is older — it becomes the survivor, drop existing */
-        delete out[byName[key]];
+      if(candidateAge < survivorAge){
+        delete out[survivor];
         byName[key] = k;
       } else {
-        /* existing is older or equal — drop candidate */
         delete out[k];
       }
     }
@@ -1707,10 +1944,6 @@ function mergeStates(local, remote, sinceTs){
     },
     templates: JSON.parse(JSON.stringify(mergeTemplateMaps(local.templates, remote.templates))),
     templatesSeeded: !!(local.templatesSeeded || remote.templatesSeeded),
-    /* Carry the dedup migration stamp forward: take the higher of the two so
-       a device that already ran the migration stays migrated after syncing
-       with a device that hasn't yet. */
-    deduplicationVersion: Math.max(local.deduplicationVersion||0, remote.deduplicationVersion||0),
     flashcards: {decks:{}, cards:{}},
     stickyNotes: {cards:{}},
     folders: {},
@@ -1835,88 +2068,6 @@ function mergeStates(local, remote, sinceTs){
     }
   });
 
-  /* ---- TITLE-BASED PAGE DEDUPLICATION ----------------------------------------
-     After the UUID-keyed merge, two live pages with the same title can exist when
-     two devices independently seeded the same logical entity (e.g. "Database",
-     "Queries", "Help & Tutorial", "Welcome to Nexus") and each produced a
-     different UUID. Neither UUID appears in the other device's page map, so the
-     per-UUID loop above keeps both. This pass collapses them into one canonical
-     record before the sibling arrays are rebuilt.
-
-     Algorithm:
-       1. Group all non-trashed merged pages by lower-cased title.
-       2. For each group with more than one member, pick the canonical winner:
-            a. Prefer the page already known to local state (stable local UUID).
-            b. Otherwise prefer the page with the earlier createdAt (original seed).
-       3. Re-assign every block belonging to a loser page to the winner's pageId.
-       4. Tombstone the loser page so future syncs never re-introduce it.
-       5. Remove the loser from merged.pages.
-
-     Safety constraints:
-       - Only collapses pages whose titles are identical after lower-casing.
-       - Never collapses trashed pages.
-       - Never removes content: all blocks from the loser are adopted by the winner.
-       - Only runs on the freshly merged state, not on the persisted local state
-         directly — so a user-deleted duplicate is not recreated.
-  --------------------------------------------------------------------------- */
-  (function deduplicatePagesByTitle(){
-    /* Group live (non-trashed) pages by lower-cased title. */
-    var groups = {}; /* titleKey -> [pageId, ...] */
-    Object.keys(merged.pages).forEach(function(pid){
-      var p = merged.pages[pid];
-      if(!p || p.trashedAt) return;
-      var key = (p.title||'').toLowerCase();
-      if(!key) return;
-      if(!groups[key]) groups[key] = [];
-      groups[key].push(pid);
-    });
-
-    Object.keys(groups).forEach(function(key){
-      var ids = groups[key];
-      if(ids.length < 2) return; /* no duplicate — nothing to do */
-
-      /* Pick canonical winner: prefer a page already present in local.pages
-         (stable local UUID over newly-arrived remote UUID). Break ties by
-         createdAt ascending (keep the oldest / original seed). */
-      ids.sort(function(a, b){
-        var aLocal = !!(local.pages && local.pages[a]);
-        var bLocal = !!(local.pages && local.pages[b]);
-        if(aLocal !== bLocal) return aLocal ? -1 : 1; /* local first */
-        var aAge = merged.pages[a].createdAt||0;
-        var bAge = merged.pages[b].createdAt||0;
-        return aAge - bAge; /* older first */
-      });
-
-      var winnerId = ids[0];
-      var loserIds = ids.slice(1);
-
-      loserIds.forEach(function(loserId){
-        /* Re-parent every block that was on the loser page to the winner page. */
-        Object.keys(merged.blocks).forEach(function(bid){
-          var b = merged.blocks[bid];
-          if(b && b.pageId === loserId){
-            b.pageId = winnerId;
-          }
-        });
-
-        /* Tombstone the loser so it is never re-introduced by future syncs.
-           Use the loser's own updatedAt (or now) as the tombstone timestamp,
-           which is >= any of its blocks' updatedAt values. */
-        var loserPage = merged.pages[loserId];
-        var tombTs = (loserPage && loserPage.updatedAt) || Date.now();
-        merged.tombstones.pages[loserId] = Math.max(tombTs, merged.tombstones.pages[loserId]||0);
-
-        /* Remove the loser page from the merged state. */
-        delete merged.pages[loserId];
-
-        /* Keep pageWinner map consistent so the sibling-rebuild below
-           picks up blocks from the right container. */
-        delete pageWinner[loserId];
-      });
-    });
-  })();
-  /* ---- END TITLE-BASED PAGE DEDUPLICATION --------------------------------- */
-
   /* Rebuild sibling arrays using the winning copy of each container first.
      This preserves ordinary reorder operations much better than sorting every
      merged block by one scalar order value (which could come from a different
@@ -1963,6 +2114,11 @@ function mergeStates(local, remote, sinceTs){
     merged.currentPageId = Object.keys(merged.pages)[0];
   }
   merged = normalizeState(merged);
+  /* Final post-merge guard: if a future merge-path changes normalization
+     order, the singleton repair still runs immediately before the merged
+     state can be applied or pushed back to Drive. */
+  selfHealKnownSystemPages(merged, 'post-merge');
+  selfHealTemplates(merged);
   return {state: merged, conflicts: conflicts, stats: stats};
 }
 
