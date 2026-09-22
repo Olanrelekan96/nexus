@@ -1339,7 +1339,7 @@ function selfHealKnownSystemPages(target, reason){
 
 function normalizeState(parsed){
   if(!parsed || typeof parsed !== 'object' || !parsed.pages || typeof parsed.pages !== 'object' ||
-     !parsed.blocks || typeof parsed.blocks !== 'object') return seedState();
+     !parsed.blocks || typeof parsed.blocks !== 'object') return runSchemaMigrations(seedState());
 
   /* Backups and older versions can legitimately omit newer fields. Normalize
      them here so every load/restore/history path receives the same shape. */
@@ -1479,6 +1479,57 @@ function normalizeState(parsed){
   if(!parsed.currentPageId || !parsed.pages[parsed.currentPageId]){
     parsed.currentPageId = pageIds.length ? pageIds[0] : null;
   }
+  return runSchemaMigrations(parsed);
+}
+
+/* --- Notebook schema version & migrations --------------------------------
+   Everything above this point in normalizeState is an unconditional, run-
+   every-time field-shape fix — necessary, but with no record of what has
+   already been applied to a given notebook. That has been fine so far
+   because those fixes are all cheap and idempotent, but it means a future
+   change that needs to run exactly once, in a specific order, relative to
+   other changes, has nowhere to register that fact — each such change has
+   instead been added ad hoc, near the feature it belongs to, across several
+   files (search for "migrat" in js/*.js to see them).
+
+   From here on, register that kind of change below instead: push a
+   {version, describe, migrate(parsed)} entry onto NEXUS_SCHEMA_MIGRATIONS
+   with the next integer version. migrate() receives the same `parsed`
+   object normalizeState is about to return and mutates it in place; it
+   must be safe to run more than once and safe to run on a notebook that
+   already has later fields set (a migration is retried from the last
+   successful version if an earlier load threw partway through, so it may
+   see its own partial effects from that attempt).
+
+   This does not replace the existing ad hoc fixes above, or the several
+   older migrations already scattered across other files by feature (Drive
+   conflict-log relocation, passcode version-history re-encryption, etc.) —
+   rewriting those into this format was judged too risky to do blind in one
+   pass. It establishes the pattern going forward: notebooks are stamped
+   with the schema version they've reached, and there is now one ordered,
+   inspectable list of what runs on every load rather than an ever-growing
+   set of scattered one-off checks. */
+var NEXUS_SCHEMA_MIGRATIONS = [
+  /* {version: 2, describe: 'short reason', migrate: function(parsed){ ... }} */
+];
+var NEXUS_BASELINE_SCHEMA_VERSION = 1; /* stamped once schema versioning applies, even before migration 2 exists */
+function runSchemaMigrations(parsed){
+  var from = typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : 0;
+  var ordered = NEXUS_SCHEMA_MIGRATIONS.slice().sort(function(a, b){ return a.version - b.version; });
+  var reached = from;
+  for(var i = 0; i < ordered.length; i++){
+    var m = ordered[i];
+    if(m.version <= reached) continue;
+    try{
+      m.migrate(parsed);
+      reached = m.version;
+    }catch(e){
+      try{ console.error('Nexus schema migration v' + m.version + ' failed; notebook left at v' + reached + ' and will retry next load:', e); }catch(ignore){}
+      parsed.schemaVersion = reached;
+      return parsed;
+    }
+  }
+  parsed.schemaVersion = Math.max(reached, NEXUS_BASELINE_SCHEMA_VERSION);
   return parsed;
 }
 

@@ -329,4 +329,69 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   });
 }
 
-console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard.');
+/* --- Notebook schema versioning: registered migrations run in ascending version order
+   regardless of array order, are skipped once already applied (idempotent boot — no
+   re-running work on every load), and if one throws partway, progress up to the last
+   successful migration is preserved and the rest retry on the next load (migrate()
+   functions are documented as required to be safe to re-run from that partial state).
+   Every notebook — fresh via seedState() or restored from before this existed — ends up
+   stamped, so a future migration always has an accurate "already applied" record. */
+{
+  const core = read('js/00-state-and-helpers.js');
+  const runnerSrc = extractFn(core, 'runSchemaMigrations');
+
+  /* Fresh/legacy notebook with no migrations registered yet still gets the baseline stamp. */
+  {
+    const ctx = sandbox(runnerSrc, { console, NEXUS_BASELINE_SCHEMA_VERSION: 1, NEXUS_SCHEMA_MIGRATIONS: [] });
+    const parsed = {};
+    ctx.runSchemaMigrations(parsed);
+    assert.strictEqual(parsed.schemaVersion, 1, 'notebook with no schemaVersion and no migrations must be stamped at the baseline');
+  }
+
+  /* Migrations registered out of order still run in ascending version order, and a second
+     run on an already-current notebook must not re-invoke any of them. */
+  {
+    const applied = [];
+    const migrations = [
+      {version: 3, migrate: (p) => { applied.push(3); p.applied = applied.slice(); }},
+      {version: 1, migrate: (p) => { applied.push(1); p.applied = applied.slice(); }},
+      {version: 2, migrate: (p) => { applied.push(2); p.applied = applied.slice(); }}
+    ];
+    const ctx = sandbox(runnerSrc, { console, NEXUS_BASELINE_SCHEMA_VERSION: 1, NEXUS_SCHEMA_MIGRATIONS: migrations });
+    const parsed = {};
+    ctx.runSchemaMigrations(parsed);
+    assert.deepStrictEqual(applied, [1, 2, 3], 'migrations must run in ascending version order regardless of registration order');
+    assert.strictEqual(parsed.schemaVersion, 3);
+    ctx.runSchemaMigrations(parsed); /* simulate the next boot on an already-migrated notebook */
+    assert.deepStrictEqual(applied, [1, 2, 3], 'an already-current notebook must not re-run any migration');
+    assert.strictEqual(parsed.schemaVersion, 3);
+  }
+
+  /* A migration that throws must not stop earlier ones from having taken effect, must not
+     advance schemaVersion past the last success, and must be retried (not skipped) once
+     whatever caused it to throw is no longer true on the next load. */
+  {
+    const applied = [];
+    let v2Attempts = 0;
+    const migrations = [
+      {version: 1, migrate: (p) => { applied.push(1); }},
+      {version: 3, migrate: (p) => { applied.push(3); }},
+      {version: 2, migrate: (p) => { v2Attempts++; if (v2Attempts === 1) throw new Error('simulated failure'); applied.push(2); }}
+    ];
+    const ctx = sandbox(runnerSrc, { console, NEXUS_BASELINE_SCHEMA_VERSION: 1, NEXUS_SCHEMA_MIGRATIONS: migrations });
+    const parsed = {};
+    ctx.runSchemaMigrations(parsed);
+    assert.deepStrictEqual(applied, [1], 'migration 3 must not run before migration 2 succeeds');
+    assert.strictEqual(parsed.schemaVersion, 1, 'schemaVersion must stay at the last successful migration, not advance past a failure');
+    ctx.runSchemaMigrations(parsed); /* next load: whatever made v2 throw has cleared */
+    assert.deepStrictEqual(applied, [1, 2, 3], 'the failed migration must retry (not be skipped) and later ones must then proceed');
+    assert.strictEqual(parsed.schemaVersion, 3);
+  }
+
+  assert.ok(/return runSchemaMigrations\(parsed\);\s*\n}/.test(core),
+    'normalizeState must run schema migrations before returning on every load/restore/merge path');
+  assert.ok(/return runSchemaMigrations\(seedState\(\)\);/.test(core),
+    'a brand-new notebook (invalid/empty input) must also be stamped immediately, not left at schemaVersion 0 for one load cycle');
+}
+
+console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard, notebook schema versioning.');
