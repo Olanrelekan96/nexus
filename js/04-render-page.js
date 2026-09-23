@@ -17,6 +17,117 @@ var editingBlockId = null;
 var dragBlockId = null; /* set while a block is being dragged via its ⠿ handle */
 var dockBlockId = null; /* last block the edit-dock toolbar (WYSIWYG + indent) targets */
 var zoomedBlockId = null; /* when set, the outline shows just this block's subtree — reset per page */
+var blockRefIndexForRender = null; /* {blockId: referencingBlockCount}, rebuilt once per renderOutline() call — see renderOutline and renderBlockRow */
+var selectedBlockIds = []; /* multi-select via Shift/Ctrl/Cmd+click on a bullet — see toggleBlockSelection */
+var selectionAnchorId = null; /* the block a Shift+click range extends from; last-clicked block otherwise */
+
+function clearBlockSelectionVisuals(){
+  selectedBlockIds.forEach(function(id){
+    var row = document.querySelector('.block-row[data-id="' + id + '"]');
+    if(row) row.classList.remove('selected');
+  });
+  selectedBlockIds = [];
+}
+function clearBlockSelection(){
+  if(!selectedBlockIds.length && !selectionAnchorId) return;
+  clearBlockSelectionVisuals();
+  selectionAnchorId = null;
+}
+function setBlockSelection(ids){
+  clearBlockSelectionVisuals();
+  selectedBlockIds = ids.slice();
+  selectedBlockIds.forEach(function(id){
+    var row = document.querySelector('.block-row[data-id="' + id + '"]');
+    if(row) row.classList.add('selected');
+  });
+}
+/* Shift+click on a bullet extends/shrinks the selection from the current anchor
+   to the clicked block, using the same visible (collapse-aware) order as
+   keyboard Up/Down (flattenVisible). Ctrl/Cmd+click toggles just that one block
+   and moves the anchor there, so a later Shift+click extends from it. */
+function toggleBlockSelection(id, rangeFromAnchor){
+  var b = state.blocks[id];
+  if(!b) return;
+  if(rangeFromAnchor && selectionAnchorId && state.blocks[selectionAnchorId] &&
+     state.blocks[selectionAnchorId].pageId === b.pageId){
+    var flat = flattenVisible(b.pageId).map(function(fb){ return fb.id; });
+    var i1 = flat.indexOf(selectionAnchorId), i2 = flat.indexOf(id);
+    if(i1 > -1 && i2 > -1){
+      setBlockSelection(flat.slice(Math.min(i1, i2), Math.max(i1, i2) + 1));
+      return;
+    }
+  }
+  var idx = selectedBlockIds.indexOf(id);
+  if(idx > -1){
+    setBlockSelection(selectedBlockIds.slice(0, idx).concat(selectedBlockIds.slice(idx + 1)));
+    selectionAnchorId = selectedBlockIds.length ? selectedBlockIds[selectedBlockIds.length - 1] : null;
+  } else {
+    setBlockSelection(selectedBlockIds.concat([id]));
+    selectionAnchorId = id;
+  }
+}
+/* Deletes every top-level selected block's whole subtree in one undo step
+   (save() records a single checkpoint per call — see 00-state-and-helpers.js).
+   A selected block nested under another selected block is skipped on its own
+   (its ancestor's deletion already removes it); a locked selected block is
+   skipped and reported, same as the single-block Delete menu item refusing a
+   locked line. */
+function bulkDeleteSelectedBlocks(){
+  if(!selectedBlockIds.length) return;
+  var ids = selectedBlockIds.slice();
+  var topLevel = ids.filter(function(id){
+    return !ids.some(function(otherId){ return otherId !== id && isDescendantOrSelf(otherId, id); });
+  });
+  var deletable = [], skippedLocked = 0;
+  topLevel.forEach(function(id){
+    var b = state.blocks[id];
+    if(!b) return;
+    if(blockIsLocked(b)){ skippedLocked++; return; }
+    deletable.push(b);
+  });
+  if(!deletable.length){
+    if(skippedLocked) toast('Nothing deleted — ' + skippedLocked + (skippedLocked === 1 ? ' selected line is locked.' : ' selected lines are locked.'));
+    clearBlockSelection();
+    return;
+  }
+  var msg = deletable.length === 1
+    ? 'Delete this line and everything nested under it? Use Undo (Ctrl+Z) right after if you change your mind.'
+    : 'Delete these ' + deletable.length + ' selected lines (and everything nested under them)? Use Undo (Ctrl+Z) right after if you change your mind.';
+  if(!confirm(msg)) return;
+  var landAfter = null;
+  deletable.forEach(function(b){ var res = removeBlockSubtree(b); if(res) landAfter = res; });
+  clearBlockSelection();
+  save(); renderPage();
+  if(landAfter) focusBlock(landAfter.focusId, landAfter.offset);
+  var note = skippedLocked ? (' (' + skippedLocked + (skippedLocked === 1 ? ' locked line left in place)' : ' locked lines left in place)')) : '';
+  toast((deletable.length === 1 ? 'Block deleted.' : deletable.length + ' blocks deleted.') + note);
+}
+/* Right-click menu shown when 2+ blocks are selected — reuses the generic
+   openCtxMenu (13-slash-and-context-menus.js), same as the page/template/folder
+   menus, rather than the single-block dropdown openBlockMenu builds itself. */
+function bulkBlockMenuItems(ids){
+  return [
+    {header: ids.length + ' lines selected'},
+    {icon:'C', label:'Copy ' + ids.length + ' lines', onClick:function(){
+      var texts = ids.map(function(id){
+        var b = state.blocks[id];
+        return b ? blockClipboardToText(cloneBlockSubtree(b)) : '';
+      }).filter(function(t){ return t; });
+      copyToClipboard(texts.join('\n'));
+      toast('Copied ' + ids.length + ' lines.');
+    }},
+    {icon:'🗑', label:'Delete ' + ids.length + ' lines', danger:true, onClick:bulkDeleteSelectedBlocks},
+    {icon:'✕', label:'Clear selection', onClick:clearBlockSelection}
+  ];
+}
+/* Clicking anywhere that isn't a bullet (which manages selection itself) or an
+   open menu (whose own item clicks stop propagation before reaching here)
+   drops an active multi-selection — sidebar, page title, blank margins, etc. */
+document.addEventListener('click', function(e){
+  if(!selectedBlockIds.length) return;
+  if(e.target.closest && e.target.closest('.bullet-wrap, .ctx-menu, .block-menu-dropdown')) return;
+  clearBlockSelection();
+});
 var blockClipboard = null; /* set by a block row's Cut/Copy action — a detached {text, children:[...]} snapshot, independent of any block id, ready for Paste to re-materialize with fresh ids (in memory only; resets on reload) */
 
 function renderAll(){
@@ -537,7 +648,18 @@ function renderOutline(page){
   }
   renderZoomBreadcrumb(page);
   var rootIds = (zoomedBlockId && state.blocks[zoomedBlockId]) ? [zoomedBlockId] : page.rootBlocks;
-  renderBlockList(rootIds, container);
+  /* Computed once per render pass instead of once per block (see renderBlockRow) —
+     on a large notebook, findBlockRefsTo's full scan repeated per rendered block is
+     the dominant cost of opening a big page, worse than DOM creation itself. */
+  blockRefIndexForRender = buildBlockRefIndex();
+  /* Build into a detached fragment and attach once, instead of appending each
+     top-level row/child-wrapper straight into the live, already-attached #outline —
+     avoids per-append layout work scaling with block count. Nested children were
+     already effectively batched this way (each block's own child wrapper is built
+     while still detached); this closes the same gap at the root level. */
+  var fragment = document.createDocumentFragment();
+  renderBlockList(rootIds, fragment);
+  container.appendChild(fragment);
 }
 
 /* ============================================================
@@ -776,8 +898,14 @@ function renderBlockRow(block){
   }
   var dot = document.createElement('span');
   dot.className = 'bullet' + (block.children.length ? ' has-children' : '');
-  dot.title = 'Click to zoom in on this line';
-  dot.onclick = function(e){ e.stopPropagation(); zoomToBlock(block.id); };
+  dot.title = 'Click to zoom in on this line — Shift/Ctrl-click to select multiple lines';
+  dot.onclick = function(e){
+    e.stopPropagation();
+    if(e.shiftKey){ toggleBlockSelection(block.id, true); return; }
+    if(e.metaKey || e.ctrlKey){ toggleBlockSelection(block.id, false); return; }
+    if(selectedBlockIds.length){ clearBlockSelection(); return; }
+    zoomToBlock(block.id);
+  };
   bulletWrap.appendChild(dot);
   row.appendChild(bulletWrap);
 
@@ -794,7 +922,7 @@ function renderBlockRow(block){
     row.appendChild(lockFlag);
   }
 
-  var syncCount = findBlockRefsTo(block.id).length;
+  var syncCount = (blockRefIndexForRender || buildBlockRefIndex())[block.id] || 0;
   if(syncCount > 0){
     var badge = document.createElement('span');
     badge.className = 'blockref-badge';
@@ -940,6 +1068,7 @@ function renderBlockRow(block){
 
   content.addEventListener('click', function(e){
     if(content.contentEditable === 'true') return;
+    if(selectedBlockIds.length) clearBlockSelection(); /* clicking a line to work with it normally exits multi-select mode */
     var t = e.target;
     if(t.classList && t.classList.contains('link')){
       openPageByTitle(t.dataset.target, 'page');
@@ -1295,6 +1424,20 @@ function openBlockMenu(anchorEl, blockId, coords){
     var pasted = insertSubtreeAfter(blockClipboard, cb);
     save(); renderPage();
     focusBlock(pasted.id, (pasted.text || '').length);
+  });
+  addItem('⬆', 'Add block above', locked, function(){
+    var cb = state.blocks[blockId];
+    if(!cb) return;
+    var nb = createBlockBefore(cb, '');
+    save(); renderPage();
+    focusBlock(nb.id, 0);
+  });
+  addItem('⬇', 'Add block below', locked, function(){
+    var cb = state.blocks[blockId];
+    if(!cb) return;
+    var nb = createBlockAfter(cb, '');
+    save(); renderPage();
+    focusBlock(nb.id, 0);
   });
   addItem('⧉', 'Duplicate', locked, function(){
     var cb = state.blocks[blockId];

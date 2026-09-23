@@ -231,6 +231,7 @@ document.addEventListener('keydown', function(e){
     if(typeof zettelkastenVisible !== 'undefined' && zettelkastenVisible){ hideZettelkastenView(); }
     closeBlockMenu();
     if(zoomedBlockId) zoomOut();
+    if(typeof selectedBlockIds !== 'undefined' && selectedBlockIds.length) clearBlockSelection();
   } else if(isMod && (e.key === 'z' || e.key === 'Z')){
     /* While actively typing in a contentEditable field, defer to the
        browser's own native undo/redo for that field instead of jumping
@@ -242,6 +243,11 @@ document.addEventListener('keydown', function(e){
     if(isTextEntryTarget(document.activeElement)) return;
     e.preventDefault();
     performRedo();
+  } else if((e.key === 'Delete' || e.key === 'Backspace') && !isMod &&
+            typeof selectedBlockIds !== 'undefined' && selectedBlockIds.length &&
+            !isTextEntryTarget(document.activeElement)){
+    e.preventDefault();
+    bulkDeleteSelectedBlocks();
   }
 });
 

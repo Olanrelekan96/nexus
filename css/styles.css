@@ -199,6 +199,8 @@
   .conflict-actions button{border:1px solid var(--border); background:var(--paper-raised); border-radius:6px; padding:4px 10px; font-size:0.75rem; cursor:pointer; font-family:var(--sans); color:var(--ink);}
   .conflict-badge{display:inline-block; min-width:16px; padding:0 4px; border-radius:8px; background:var(--danger); color:var(--paper); font-size:0.6875rem; text-align:center; margin-left:6px;}
   .block-row.has-conflict > .block-content{box-shadow: inset 3px 0 0 0 var(--danger);}
+  .block-row.selected{background:color-mix(in srgb,var(--focus) 14%,transparent);}
+  .block-row.selected > .block-content{box-shadow: inset 3px 0 0 0 var(--focus);}
   .block-conflict-flag{color:var(--danger); font-size:0.75rem; cursor:pointer; margin-left:4px; opacity:.85;}
   .block-conflict-flag:hover{opacity:1;}
 

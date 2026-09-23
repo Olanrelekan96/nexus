@@ -147,6 +147,48 @@ async def t_undo_guard(browser, base):
     await ctx.close()
 
 
+async def t_multi_select_bulk_delete(browser, base):
+    ctx, page = await new_page(browser, base); c = Ctx(page)
+    page.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
+    await boot(page, base)
+    ids = await page.evaluate("""() => {
+        const p = state.pages[state.currentPageId];
+        p.rootBlocks = [];
+        const ids = ['Alpha','Beta','Gamma','Delta'].map((t) => {
+            const id = uid();
+            state.blocks[id] = mkBlock(id, p.id, null, t);
+            p.rootBlocks.push(id);
+            return id;
+        });
+        save(); renderPage();
+        return ids;
+    }""")
+    a_id, b_id, g_id, d_id = ids
+
+    # Ctrl-click Beta, then Shift-click Delta with real mouse events on the real
+    # bullet elements: range-select must land on Beta/Gamma/Delta (not Alpha),
+    # and the .selected class must actually be applied in the live DOM.
+    await page.click('.block-row[data-id="%s"] .bullet' % b_id, modifiers=["Control"])
+    await page.click('.block-row[data-id="%s"] .bullet' % d_id, modifiers=["Shift"])
+    selected = await page.evaluate("selectedBlockIds")
+    check(selected == [b_id, g_id, d_id], "Shift/Ctrl-click on real bullets gave %s, expected [Beta, Gamma, Delta]" % selected)
+    classes = await page.evaluate(
+        "(ids) => ids.map((id) => document.querySelector(`.block-row[data-id=\"${id}\"]`).classList.contains('selected'))",
+        ids)
+    check(classes == [False, True, True, True], "the .selected class in the live DOM did not match the real selection: %s" % classes)
+
+    # Delete bulk-deletes the real selection through the app's real confirm() dialog.
+    await page.keyboard.press("Delete")
+    await page.wait_for_timeout(300)
+    remaining = await page.evaluate("Object.keys(state.blocks)")
+    check(a_id in remaining, "Alpha (not selected) must survive a bulk delete")
+    check(b_id not in remaining and g_id not in remaining and d_id not in remaining,
+          "bulk delete via the Delete key did not remove the selected blocks: remaining=%s" % remaining)
+    check(await page.evaluate("selectedBlockIds.length") == 0, "selection must be cleared after a bulk delete")
+    check(not c.errors, c.errors)
+    await ctx.close()
+
+
 async def t_tabs_persist(browser, base):
     ctx, page = await new_page(browser, base); c = Ctx(page)
     page.on("dialog", lambda d: asyncio.ensure_future(d.accept("x")))
@@ -854,7 +896,7 @@ async def t_three_devices_share_one_drive_file(browser, base):
     await ctx.close()
 
 
-TESTS = [t_boot_clean, t_nav_crawl, t_footnotes, t_daily_calendar_31st, t_tasks_recurrence, t_flashcards_typing_guard, t_undo_guard,
+TESTS = [t_boot_clean, t_nav_crawl, t_footnotes, t_daily_calendar_31st, t_tasks_recurrence, t_flashcards_typing_guard, t_undo_guard, t_multi_select_bulk_delete,
          t_tabs_persist, t_offline_first_visit, t_passcode_launch_policy, t_backup_restore_and_encrypted, t_mobile_layout, t_xss_sweep, t_find_replace_literal, t_formatting_and_attachments_persist,
          t_load_failure_never_overwrites, t_flush_before_load_is_harmless, t_typing_autosaves_without_blur, t_passcode_set_failure_keeps_data, t_passcode_removal_failure_keeps_lock,
          t_trashed_pages_are_not_backlinks, t_task_group_labels_are_text, t_saved_view_cancel_is_isolated, t_xss_deep_views, t_settings_round_trip, t_settings_passcode_rows_persist, t_drive_sync_pauses_while_locked,

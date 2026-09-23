@@ -933,13 +933,21 @@ document.addEventListener('contextmenu', function(e){
     return;
   }
 
-  /* 2. A block row → the same menu the "⋯" button opens, at the pointer. */
+  /* 2. A block row → the same menu the "⋯" button opens, at the pointer — or,
+     when 2+ blocks are selected and this row is one of them, the bulk menu for
+     the whole selection instead. Right-clicking a row outside the selection
+     drops the stale selection and falls through to the normal single-block menu. */
   var row = e.target.closest ? e.target.closest('.block-row') : null;
   if(row && row.dataset.id && state.blocks[row.dataset.id]){
     e.preventDefault();
     closeSlashMenu();
     closeCtxMenu();
     commitEditingBlock();
+    if(typeof selectedBlockIds !== 'undefined' && selectedBlockIds.length > 1 && selectedBlockIds.indexOf(row.dataset.id) > -1){
+      openCtxMenu(bulkBlockMenuItems(selectedBlockIds.slice()), e.clientX, e.clientY);
+      return;
+    }
+    if(typeof clearBlockSelection === 'function') clearBlockSelection();
     openBlockMenu(row, row.dataset.id, {x:e.clientX, y:e.clientY});
     return;
   }
@@ -992,6 +1000,7 @@ document.addEventListener('contextmenu', function(e){
   if(outline && state.pages[state.currentPageId]){
     e.preventDefault();
     commitEditingBlock();
+    if(typeof clearBlockSelection === 'function') clearBlockSelection();
     openCtxMenu(outlineMenuItems(), e.clientX, e.clientY);
     return;
   }

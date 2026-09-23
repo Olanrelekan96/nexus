@@ -394,4 +394,180 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
     'a brand-new notebook (invalid/empty input) must also be stamped immediately, not left at schemaVersion 0 for one load cycle');
 }
 
-console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard, notebook schema versioning.');
+/* --- Large-page render performance: buildBlockRefIndex() must answer findBlockRefsTo(id).length
+   for every block, so the render path can compute the reference-badge count for a whole page in
+   one O(notebook size) pass instead of one such pass per rendered block (which made opening a
+   page cost blocks-on-page × blocks-in-notebook — the dominant cost on a large notebook). Proven
+   here by exhaustive comparison against the original per-block scan, covering: a block never
+   counting as referencing itself, a transclusion !((id)) not counting, a block referencing the
+   same target twice only counting once (matching findBlockRefsTo's first-match short-circuit),
+   and multiple distinct blocks each referencing the same target counting separately. */
+{
+  const core = read('js/00-state-and-helpers.js');
+  const testState = { blocks: {
+    a: { id: 'a', text: 'no refs here' },
+    b: { id: 'b', text: 'refs ((a)) once' },
+    c: { id: 'c', text: 'refs ((a)) twice: ((a)) again' }, /* must count once toward a, not twice */
+    d: { id: 'd', text: 'transclusion !((a)) does not count' },
+    e: { id: 'e', text: 'self-ref ((e)) must not count' },
+    f: { id: 'f', text: 'refs two targets: ((a)) and ((b))' },
+    g: { id: 'g', text: null }, /* no text at all */
+    h: { id: 'h' } /* text field entirely absent */
+  }};
+  const ctx = sandbox(extractFn(core, 'findBlockRefsTo') + '\n' + extractFn(core, 'buildBlockRefIndex'), { state: testState });
+  const index = ctx.buildBlockRefIndex();
+  Object.keys(testState.blocks).forEach((id) => {
+    assert.strictEqual(index[id] || 0, ctx.findBlockRefsTo(id).length,
+      'buildBlockRefIndex()[' + id + '] must equal findBlockRefsTo(' + JSON.stringify(id) + ').length');
+  });
+  assert.strictEqual(index.a, 3, 'a is referenced by b, c (once, deduped) and f — 3 total');
+  assert.strictEqual(index.b, 1, 'b is referenced by f only');
+  assert.strictEqual(index.e, undefined, 'a block referencing only itself must not appear in the index');
+
+  const renderSrc = read('js/04-render-page.js');
+  assert.ok(/var syncCount = \(blockRefIndexForRender \|\| buildBlockRefIndex\(\)\)\[block\.id\] \|\| 0;/.test(renderSrc),
+    'renderBlockRow must read the precomputed index (O(1)) instead of calling findBlockRefsTo per block (O(notebook size))');
+  assert.ok(/blockRefIndexForRender = buildBlockRefIndex\(\);/.test(renderSrc),
+    'renderOutline must build the reference index exactly once per render pass');
+  assert.ok(/var fragment = document\.createDocumentFragment\(\);\s*\n\s*renderBlockList\(rootIds, fragment\);\s*\n\s*container\.appendChild\(fragment\);/.test(renderSrc),
+    'renderOutline must build the top-level block list into a detached fragment and attach it once, not append each row directly into the live #outline element');
+}
+
+/* --- "Add block above/below" (block right-click menu): createBlockBefore/createBlockAfter must
+   insert a new sibling in the correct position, with the same parent, for both a root-level block
+   and a nested one — and the menu must offer both, disabled when the target line is locked (same
+   rule already applied to Cut/Paste/Duplicate on that line, since inserting a sibling is a
+   structural change next to it, not a change to its own text). */
+{
+  const core = read('js/00-state-and-helpers.js') + '\n' + read('js/02-editor-core.js');
+  const ctx = sandbox(
+    extractFn(core, 'uid') + '\n' +
+    extractFn(core, 'mkBlock') + '\n' +
+    extractFn(core, 'siblingsArrayOf') + '\n' +
+    extractFn(core, 'createBlockBefore') + '\n' +
+    extractFn(core, 'createBlockAfter')
+  );
+  ctx.state = { blocks: {}, pages: { p1: { id: 'p1', rootBlocks: [] } } };
+  const root = ctx.mkBlock('root1', 'p1', null, 'root');
+  ctx.state.blocks.root1 = root;
+  ctx.state.pages.p1.rootBlocks.push('root1');
+  const mid = ctx.createBlockBefore(root, 'inserted-before-root'); /* first block on a page: "before" still needs a valid insertion point */
+  assert.deepStrictEqual(ctx.state.pages.p1.rootBlocks, [mid.id, 'root1'],
+    'createBlockBefore on a root block must land immediately before it in rootBlocks');
+  const after = ctx.createBlockAfter(root, 'inserted-after-root');
+  assert.deepStrictEqual(ctx.state.pages.p1.rootBlocks, [mid.id, 'root1', after.id],
+    'createBlockAfter on a root block must land immediately after it in rootBlocks');
+
+  const parent = ctx.mkBlock('parent1', 'p1', null, 'parent');
+  ctx.state.blocks.parent1 = parent;
+  const child = ctx.mkBlock('child1', 'p1', 'parent1', 'child');
+  ctx.state.blocks.child1 = child;
+  parent.children.push('child1');
+  const beforeChild = ctx.createBlockBefore(child, 'x');
+  const afterChild = ctx.createBlockAfter(child, 'y');
+  assert.deepStrictEqual(Array.from(parent.children), [beforeChild.id, 'child1', afterChild.id],
+    'createBlockBefore/After on a nested block must insert into the parent\'s children, not rootBlocks');
+  assert.strictEqual(beforeChild.parent, 'parent1');
+  assert.strictEqual(afterChild.parent, 'parent1');
+
+  const renderSrc = read('js/04-render-page.js');
+  assert.ok(/addItem\('⬆', 'Add block above', locked, function\(\)\{\s*\n\s*var cb = state\.blocks\[blockId\];\s*\n\s*if\(!cb\) return;\s*\n\s*var nb = createBlockBefore\(cb, ''\);/.test(renderSrc),
+    'block menu must offer "Add block above", disabled when locked, using createBlockBefore');
+  assert.ok(/addItem\('⬇', 'Add block below', locked, function\(\)\{\s*\n\s*var cb = state\.blocks\[blockId\];\s*\n\s*if\(!cb\) return;\s*\n\s*var nb = createBlockAfter\(cb, ''\);/.test(renderSrc),
+    'block menu must offer "Add block below", disabled when locked, using createBlockAfter');
+}
+
+/* --- Multi-block selection: Shift+click range-select must use the same visible
+   (collapse-aware) order as keyboard Up/Down (flattenVisible), Ctrl/Cmd+click must
+   toggle a single block, and bulk delete must (a) run as exactly one save()/render
+   pass — one undo checkpoint for the whole operation, not one per block — (b) skip
+   a selected block whose ancestor is also selected, since deleting the ancestor
+   already removes it, and (c) skip and report a locked selected block rather than
+   deleting it. */
+{
+  const renderSrc = read('js/04-render-page.js');
+
+  /* --- toggleBlockSelection: range vs. toggle behavior, using the real flattenVisible. --- */
+  {
+    const src = extractFn(renderSrc, 'clearBlockSelectionVisuals') + '\n' +
+      extractFn(renderSrc, 'setBlockSelection') + '\n' +
+      extractFn(renderSrc, 'toggleBlockSelection') + '\n' +
+      extractFn(read('js/02-editor-core.js'), 'flattenVisible');
+    const testState = { blocks: {}, pages: { p1: { id: 'p1', rootBlocks: ['a','b','c','d'] } } };
+    ['a','b','c','d'].forEach((id) => { testState.blocks[id] = { id, pageId: 'p1', children: [], collapsed: false }; });
+    const ctx = sandbox(src, {
+      state: testState,
+      document: { querySelector: function(){ return null; } },
+      selectedBlockIds: [], selectionAnchorId: null
+    });
+    ctx.toggleBlockSelection('b', false); /* plain (Ctrl/Cmd) click: select just b, anchor = b */
+    assert.deepStrictEqual(Array.from(ctx.selectedBlockIds), ['b']);
+    ctx.toggleBlockSelection('d', true); /* Shift+click from anchor b to d: range b..d */
+    assert.deepStrictEqual(Array.from(ctx.selectedBlockIds), ['b', 'c', 'd'],
+      'Shift+click must select the visible range between the anchor and the clicked block');
+    ctx.toggleBlockSelection('b', true); /* Shift+click back to b: range shrinks, anchor unchanged */
+    assert.deepStrictEqual(Array.from(ctx.selectedBlockIds), ['b'],
+      'a later Shift+click must re-extend from the same original anchor, not the last-selected end');
+    ctx.toggleBlockSelection('b', false); /* Ctrl/Cmd-click an already-selected block toggles it off */
+    assert.deepStrictEqual(Array.from(ctx.selectedBlockIds), []);
+  }
+
+  /* --- bulkDeleteSelectedBlocks: ancestor-filtering, locked-skip, single save()/render. --- */
+  {
+    const calls = { save: 0, renderPage: 0, focusBlock: [], toast: [] };
+    const testState = { blocks: {} };
+    function mk(id, parent, locked){ return { id, parent: parent || null, children: [], locked: !!locked, pageId: 'p1' }; }
+    testState.blocks.parent1 = mk('parent1', null); testState.blocks.parent1.children = ['child1'];
+    testState.blocks.child1 = mk('child1', 'parent1');   /* selected, but its ancestor parent1 is also selected → must be skipped */
+    testState.blocks.solo1 = mk('solo1', null);          /* selected, deletable */
+    testState.blocks.locked1 = mk('locked1', null, true); /* selected, locked → must be skipped and reported */
+    function stubRemove(b){
+      (function collect(ids){
+        ids.forEach((cid) => { if(testState.blocks[cid]){ collect(testState.blocks[cid].children); delete testState.blocks[cid]; } });
+      })(b.children.slice());
+      delete testState.blocks[b.id];
+      return { focusId: 'landed', offset: 0 };
+    }
+    const src = extractFn(renderSrc, 'clearBlockSelectionVisuals') + '\n' +
+      extractFn(renderSrc, 'clearBlockSelection') + '\n' +
+      extractFn(renderSrc, 'bulkDeleteSelectedBlocks') + '\n' +
+      extractFn(read('js/02-editor-core.js'), 'isDescendantOrSelf') + '\n' +
+      extractFn(read('js/13a-locks-and-sidebar.js'), 'pageIsLocked') + '\n' +
+      extractFn(read('js/13a-locks-and-sidebar.js'), 'blockIsLocked');
+    const ctx = sandbox(src, {
+      state: testState,
+      document: { querySelector: function(){ return null; } },
+      selectedBlockIds: ['parent1', 'child1', 'solo1', 'locked1'],
+      selectionAnchorId: 'locked1',
+      confirm: function(){ return true; },
+      save: function(){ calls.save++; },
+      renderPage: function(){ calls.renderPage++; },
+      focusBlock: function(id, off){ calls.focusBlock.push([id, off]); },
+      toast: function(msg){ calls.toast.push(msg); },
+      removeBlockSubtree: stubRemove
+    });
+    ctx.bulkDeleteSelectedBlocks();
+    assert.deepStrictEqual(Object.keys(testState.blocks).sort(), ['locked1'],
+      'parent1 (and its descendant child1) and solo1 must be removed; locked1 must survive');
+    assert.strictEqual(calls.save, 1, 'a multi-block delete must be exactly one save() call (one undo checkpoint), not one per block');
+    assert.strictEqual(calls.renderPage, 1, 'a multi-block delete must re-render exactly once, not once per block');
+    assert.ok(calls.toast.some((m) => /1 locked line/.test(m)), 'must report that one locked selected block was skipped');
+    assert.deepStrictEqual(Array.from(ctx.selectedBlockIds), [], 'selection must be cleared after a bulk delete');
+  }
+
+  /* --- Wiring: bullet click routes to selection on Shift/Ctrl/Cmd, plain click still zooms;
+     right-click on a multi-selected row opens the bulk menu; Escape/Delete are wired globally. */
+  assert.ok(/if\(e\.shiftKey\)\{ toggleBlockSelection\(block\.id, true\); return; \}/.test(renderSrc) &&
+    /if\(e\.metaKey \|\| e\.ctrlKey\)\{ toggleBlockSelection\(block\.id, false\); return; \}/.test(renderSrc),
+    'the bullet click handler must route Shift/Ctrl/Cmd-click to selection before the plain-click zoom fallback');
+  const ctxMenuSrc = read('js/13-slash-and-context-menus.js');
+  assert.ok(/selectedBlockIds\.length > 1 && selectedBlockIds\.indexOf\(row\.dataset\.id\) > -1\)\{\s*\n\s*openCtxMenu\(bulkBlockMenuItems/.test(ctxMenuSrc),
+    'right-clicking a row that is part of a 2+ block selection must open the bulk menu instead of the single-block menu');
+  const wiringSrc = read('js/14-wiring-and-init.js');
+  assert.ok(/if\(typeof selectedBlockIds !== 'undefined' && selectedBlockIds\.length\) clearBlockSelection\(\);/.test(wiringSrc),
+    'Escape must clear an active block selection');
+  assert.ok(/\(e\.key === 'Delete' \|\| e\.key === 'Backspace'\) && !isMod &&\s*\n\s*typeof selectedBlockIds !== 'undefined' && selectedBlockIds\.length &&\s*\n\s*!isTextEntryTarget\(document\.activeElement\)\)\{\s*\n\s*e\.preventDefault\(\);\s*\n\s*bulkDeleteSelectedBlocks\(\);/.test(wiringSrc),
+    'Delete/Backspace must trigger a bulk delete only when a selection is active and focus is not in a text-entry target');
+}
+
+console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard, notebook schema versioning, large-page render index & fragment batching, add block above/below menu, multi-block selection & bulk delete.');

@@ -2781,6 +2781,39 @@ function findBlockRefsTo(id){
   return refs;
 }
 
+/* Same relationship findBlockRefsTo(id).length answers ("how many other blocks
+   reference this one"), for every block at once. findBlockRefsTo does a full
+   scan of every block in the notebook per call; the render path used to call
+   it once per rendered block, making opening a page cost (blocks on the page)
+   × (blocks in the whole notebook) — the dominant cost on a large notebook,
+   worse than DOM creation itself. This does the one full scan a render needs
+   and reuses it for every block's badge via an O(1) lookup afterward. Mirrors
+   findBlockRefsTo's exact semantics: a block never counts as referencing
+   itself, a transclusion !((id)) doesn't count, and a block referencing the
+   same target more than once still only counts once (matching findBlockRefsTo's
+   found/break short-circuit on the first match per source block). */
+function buildBlockRefIndex(){
+  var index = {};
+  var re = /!?\(\(([a-zA-Z0-9_-]+)\)\)/g;
+  Object.keys(state.blocks).forEach(function(bid){
+    var blk = state.blocks[bid];
+    if(!blk || !blk.text) return;
+    var seenTargets = null;
+    re.lastIndex = 0;
+    var m;
+    while((m = re.exec(blk.text))){
+      if(blk.text.charAt(m.index) === '!') continue;
+      var target = m[1];
+      if(target === bid) continue;
+      if(!seenTargets) seenTargets = {};
+      if(seenTargets[target]) continue;
+      seenTargets[target] = true;
+      index[target] = (index[target] || 0) + 1;
+    }
+  });
+  return index;
+}
+
 function copyToClipboard(text){
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(text).catch(function(){ fallbackCopy(text); });

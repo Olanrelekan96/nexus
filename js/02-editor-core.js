@@ -521,6 +521,7 @@ function openPage(pageId, skipHistory){
   if(typeof hideFlashcardsView === 'function') hideFlashcardsView();
   if(typeof hideStickyNotesView === 'function') hideStickyNotesView();
   if(typeof hideZettelkastenView === 'function') hideZettelkastenView();
+  if(typeof clearBlockSelection === 'function') clearBlockSelection(); /* a multi-selection is scoped to the page it was made on */
   state.currentPageId = pageId;
   document.getElementById('graph-view').classList.remove('visible');
   var tasksViewEl = document.getElementById('tasks-view');
@@ -734,6 +735,15 @@ function createBlockAfter(refBlock, text){
   state.blocks[id] = nb;
   var arr = siblingsArrayOf(refBlock);
   arr.splice(arr.indexOf(refBlock.id)+1, 0, id);
+  return nb;
+}
+
+function createBlockBefore(refBlock, text){
+  var id = uid();
+  var nb = mkBlock(id, refBlock.pageId, refBlock.parent, text||"");
+  state.blocks[id] = nb;
+  var arr = siblingsArrayOf(refBlock);
+  arr.splice(arr.indexOf(refBlock.id), 0, id);
   return nb;
 }
 
