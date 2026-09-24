@@ -570,4 +570,145 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
     'Delete/Backspace must trigger a bulk delete only when a selection is active and focus is not in a text-entry target');
 }
 
-console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard, notebook schema versioning, large-page render index & fragment batching, add block above/below menu, multi-block selection & bulk delete.');
+/* --- Footnote model caching: getPageFootnoteModel must memoize by page identity instead of
+   recomputing a full page walk on every call. decorateText (which this file wraps) is called
+   once per rendered block across several render loops (outliner, backlinks, query/table results,
+   task manager, search) — an uncached recompute per call turned a page of N blocks into N
+   page-sized scans. Measured live in a real browser on a 20,000-block notebook: renderOutline
+   at 8,000 blocks went from ~12.25s to ~1.03s once this and the reference-index fix were both in
+   place, with per-block cost flat (~130us) instead of growing, and a CPU profile confirmed
+   footnote-model functions no longer appear in the render hot path at all
+   (see tests/e2e/stress_large_page.py, a standalone diagnostic script, not part of this suite). */
+{
+  const footnotesSrc = read('js/33-footnotes.js');
+  function grabVarLine(name){
+    const m = footnotesSrc.match(new RegExp('^var ' + name + ' = .*;$', 'm'));
+    assert.ok(m, name + ' not found in js/33-footnotes.js');
+    return m[0];
+  }
+  const src = [
+    grabVarLine('FOOTNOTE_REF_RE'),
+    grabVarLine('FOOTNOTE_DEF_RE'),
+    extractFn(footnotesSrc, 'footnoteDefinitionInfo'),
+    extractFn(footnotesSrc, 'walkPageBlocksForFootnotes'),
+    extractFn(footnotesSrc, 'invalidateFootnoteModelCache'),
+    extractFn(footnotesSrc, 'getPageFootnoteModel')
+  ].join('\n');
+  const testState = { blocks: {
+    def1: { id:'def1', pageId:'p1', children:[], text:'[^x]: The definition text' },
+    ref1: { id:'ref1', pageId:'p1', children:[], text:'see [^x] here' },
+    plain: { id:'plain', pageId:'p1', children:[], text:'nothing special' }
+  }};
+  const page = { id:'p1', rootBlocks: ['def1','ref1','plain'] };
+  const ctx = sandbox(src, { state: testState, footnoteModelCache: null });
+
+  const model1 = ctx.getPageFootnoteModel(page);
+  assert.strictEqual(model1.definitions.x.blockId, 'def1', 'the model itself must still be computed correctly, not just cached');
+  assert.strictEqual(model1.references[0].blockId, 'ref1');
+
+  const model2 = ctx.getPageFootnoteModel(page);
+  assert.strictEqual(model1, model2, 'a second call for the same page must return the cached object, not recompute');
+
+  ctx.invalidateFootnoteModelCache();
+  const model3 = ctx.getPageFootnoteModel(page);
+  assert.notStrictEqual(model1, model3, 'invalidateFootnoteModelCache must force a fresh recompute');
+
+  const otherPage = { id:'p2', rootBlocks: [] };
+  const model4 = ctx.getPageFootnoteModel(otherPage);
+  assert.notStrictEqual(model3, model4, 'a different page identity must not reuse another page\'s cached model');
+  const model5 = ctx.getPageFootnoteModel(page);
+  assert.notStrictEqual(model3, model5,
+    'switching to a different page and back must recompute, not incorrectly serve the now-stale pre-switch cache slot');
+
+  const helpersSrc = read('js/00-state-and-helpers.js');
+  assert.ok(/function save\(options\)\{\s*\n\s*options = options \|\| \{\};\s*\n\s*syncEditingBlockToState\(\);\s*\n\s*if\(typeof invalidateFootnoteModelCache === 'function'\) invalidateFootnoteModelCache\(\);/.test(helpersSrc),
+    'save() must invalidate the footnote model cache — it is the one signal already used everywhere for "the notebook just changed"');
+}
+
+/* --- Security hardening: any target="_blank" link must carry rel="noopener noreferrer", so the
+   opened page cannot use window.opener to navigate this tab (reverse tabnabbing). Checks every
+   js/*.js file rather than one known line, so a future target="_blank" added anywhere is caught
+   automatically instead of relying on someone remembering the rule. */
+{
+  const jsDir = path.join(root, 'js');
+  const offenders = [];
+  fs.readdirSync(jsDir).filter((f) => f.endsWith('.js')).forEach((f) => {
+    const src = read('js/' + f);
+    const re = /<a\b[^>]*target=["']_blank["'][^>]*>/g;
+    let m;
+    while ((m = re.exec(src))) {
+      if (!/rel=["'][^"']*noopener/.test(m[0])) offenders.push(f + ': ' + m[0]);
+    }
+  });
+  assert.deepStrictEqual(offenders, [], 'target="_blank" link(s) missing rel="noopener noreferrer": ' + offenders.join(' | '));
+}
+
+/* --- backupFormatVersion: exported backups carry an explicit format version (distinct from the
+   notebook's own schemaVersion — see comment in js/06-backup-sync.js for why they're separate).
+   Restoring a legacy backup (field absent) or a current one must proceed normally; restoring one
+   stamped with a NEWER format than this copy of Nexus understands must warn before doing anything
+   destructive, and declining that warning must abort before touching state, save, or render. */
+{
+  const backupSrc = read('js/06-backup-sync.js');
+  assert.ok(/var NEXUS_BACKUP_FORMAT_VERSION = 1;/.test(backupSrc), 'NEXUS_BACKUP_FORMAT_VERSION constant must exist');
+  assert.ok(/exportObj\.backupFormatVersion = NEXUS_BACKUP_FORMAT_VERSION;/.test(backupSrc),
+    'buildBackupJson must stamp the exported file with the current backup format version');
+
+  function makeCtx(confirmAnswers){
+    const answers = confirmAnswers.slice();
+    const calls = { confirm: [], normalizeState: 0, save: 0, renderAll: 0, toast: [] };
+    return {
+      calls,
+      ctx: sandbox(extractFn(backupSrc, 'restoreFromDecryptedJsonText'), {
+        NEXUS_BACKUP_FORMAT_VERSION: 1,
+        confirm: function(msg){ calls.confirm.push(msg); return answers.length ? answers.shift() : true; },
+        snapshotVersion: function(){},
+        normalizeState: function(p){ calls.normalizeState++; return p; },
+        save: function(){ calls.save++; },
+        renderAll: function(){ calls.renderAll++; },
+        toast: function(m){ calls.toast.push(m); },
+        renderAttachmentsSection: function(){}
+      })
+    };
+  }
+
+  /* Legacy backup (no backupFormatVersion field): only the normal "replace everything" confirm,
+     no extra warning, restore proceeds. */
+  {
+    const { ctx, calls } = makeCtx([true]);
+    ctx.restoreFromDecryptedJsonText(JSON.stringify({ pages:{}, blocks:{} }));
+    assert.strictEqual(calls.confirm.length, 1, 'a legacy backup must not trigger the newer-format warning');
+    assert.strictEqual(calls.normalizeState, 1);
+    assert.strictEqual(calls.save, 1);
+  }
+
+  /* Current format version: same as legacy — no extra warning. */
+  {
+    const { ctx, calls } = makeCtx([true]);
+    ctx.restoreFromDecryptedJsonText(JSON.stringify({ pages:{}, blocks:{}, backupFormatVersion:1 }));
+    assert.strictEqual(calls.confirm.length, 1, 'a current-format backup must not trigger the newer-format warning');
+    assert.strictEqual(calls.normalizeState, 1);
+  }
+
+  /* Newer format than this copy understands: warning shown first; accepting it proceeds to the
+     normal confirm and then the actual restore. */
+  {
+    const { ctx, calls } = makeCtx([true, true]);
+    ctx.restoreFromDecryptedJsonText(JSON.stringify({ pages:{}, blocks:{}, backupFormatVersion:99 }));
+    assert.strictEqual(calls.confirm.length, 2, 'a newer-format backup must show the extra warning before the normal confirm');
+    assert.ok(/newer version of Nexus/.test(calls.confirm[0]));
+    assert.strictEqual(calls.normalizeState, 1, 'accepting both prompts must still restore');
+  }
+
+  /* Newer format, warning declined: must abort immediately — no normal confirm, no state change. */
+  {
+    const { ctx, calls } = makeCtx([false]);
+    ctx.restoreFromDecryptedJsonText(JSON.stringify({ pages:{}, blocks:{}, backupFormatVersion:99 }));
+    assert.strictEqual(calls.confirm.length, 1, 'declining the newer-format warning must not proceed to the normal confirm');
+    assert.strictEqual(calls.normalizeState, 0, 'declining the newer-format warning must never touch state');
+    assert.strictEqual(calls.save, 0);
+    assert.strictEqual(calls.renderAll, 0);
+  }
+}
+
+console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard, notebook schema versioning, large-page render index & fragment batching, add block above/below menu, multi-block selection & bulk delete, footnote model caching, target=_blank rel=noopener guard, backupFormatVersion.');

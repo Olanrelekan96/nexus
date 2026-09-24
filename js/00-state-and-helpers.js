@@ -1637,6 +1637,7 @@ function scheduleEditAutosave(){
 function save(options){
   options = options || {};
   syncEditingBlockToState();
+  if(typeof invalidateFootnoteModelCache === 'function') invalidateFootnoteModelCache();
   if(options.touchEntities !== false) touchChangedEntities();
   if(options.recordUndo !== false) recordUndoCheckpoint();
   var doBroadcast = !suppressBroadcast && options.broadcast !== false;
@@ -2369,7 +2370,7 @@ function renderFileHtml(raw){
   var parsed = parseAttRef(raw);
   return '<span class="att-file" data-att-id="'+escapeHtml(parsed.id)+'" data-att-name="'+escapeHtml(parsed.name)+'">'
     + '<span class="att-file-icon">📎</span>'
-    + '<a class="att-file-link" data-att-id="'+escapeHtml(parsed.id)+'" href="#" target="_blank">'+escapeHtml(parsed.name||'file')+'</a>'
+    + '<a class="att-file-link" data-att-id="'+escapeHtml(parsed.id)+'" href="#" target="_blank" rel="noopener noreferrer">'+escapeHtml(parsed.name||'file')+'</a>'
     + '<button type="button" class="att-dl-btn" title="Download file" aria-label="Download '+escapeHtml(parsed.name||'file')+'">⬇</button>'
     + '</span>';
 }

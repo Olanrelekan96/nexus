@@ -40,7 +40,22 @@ function walkPageBlocksForFootnotes(page, fn){
   walk(page.rootBlocks || []);
 }
 
+/* Memoized by page identity: the model is only actually recomputed the first
+   time it's needed after something changes, and reused by every decorateText/
+   getPageFootnoteModel call until then. Without this, decorateText (used in
+   several per-block render loops across the app: the outliner, backlinks,
+   query/table results, the task manager, search) each recomputed the WHOLE
+   page's footnote model on every single call — including for text with no
+   footnote syntax at all — turning a page of N blocks into N page-sized
+   scans. invalidateFootnoteModelCache() is called from save() (00-state-and-
+   helpers.js), the one signal already used everywhere in this codebase for
+   "the notebook just changed" — save() always runs before the next render,
+   so nothing here can observe stale data, just fewer redundant rebuilds of
+   the *same*, still-current one within that render. */
+var footnoteModelCache = null;
+function invalidateFootnoteModelCache(){ footnoteModelCache = null; }
 function getPageFootnoteModel(page){
+  if(footnoteModelCache && footnoteModelCache.page === page) return footnoteModelCache.model;
   var defs = {};
   var defOrder = [];
   var refs = [];
@@ -80,7 +95,9 @@ function getPageFootnoteModel(page){
     if(!numberById[id]) ordered.push({id:id, number:null, definition:defs[id], firstRefBlockId:null});
   });
 
-  return {definitions:defs, definitionOrder:defOrder, references:refs, numberById:numberById, ordered:ordered};
+  var model = {definitions:defs, definitionOrder:defOrder, references:refs, numberById:numberById, ordered:ordered};
+  footnoteModelCache = {page:page, model:model};
+  return model;
 }
 
 function renderFootnoteRefHtml(id, depth, modelOverride){

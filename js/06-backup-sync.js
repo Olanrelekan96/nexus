@@ -13,6 +13,15 @@
 /* ============================================================
    BACKUP / RESTORE + VERSION SAFETY NET + REMINDER
    ============================================================ */
+/* Describes the shape of the exported JSON file itself (currently: notebook
+   state fields plus a top-level __attachments map of base64-inlined blobs) —
+   distinct from schemaVersion, which describes the notebook data inside it.
+   The two can change independently: a future backup format might, say, store
+   attachments as separate zip entries instead of inline base64, which is a
+   change to how the FILE is shaped, not to the notebook's own data model.
+   Bump this only when the outer file shape changes; schema migrations
+   (00-state-and-helpers.js) still handle the notebook contents either way. */
+var NEXUS_BACKUP_FORMAT_VERSION = 1;
 var META_KEY = STORAGE_KEY + '_meta';
 
 function loadMeta(){
@@ -250,6 +259,7 @@ function buildBackupJson(){
     var attMap = {};
     attList.forEach(function(a){ attMap[a.id] = {name:a.name, type:a.type, size:a.size, dataB64:a.dataB64}; });
     exportObj.__attachments = attMap;
+    exportObj.backupFormatVersion = NEXUS_BACKUP_FORMAT_VERSION;
     return JSON.stringify(exportObj, null, 2);
   });
 }
@@ -551,6 +561,19 @@ function restoreFromDecryptedJsonText(jsonText){
   try{
     var parsed = JSON.parse(jsonText);
     if(!parsed.pages || !parsed.blocks){ toast('That file does not look like a Nexus backup.'); return; }
+    /* Missing means this backup predates the field — every backup format so
+       far (inline base64 attachments in __attachments) is the same shape, so
+       there is nothing to convert; the check only matters once a FUTURE
+       version bumps this past what this copy of Nexus understands, at which
+       point restoring is safe to attempt (nothing here mutates the file) but
+       not guaranteed complete, so the user is told plainly and decides. */
+    var backupVersion = typeof parsed.backupFormatVersion === 'number' ? parsed.backupFormatVersion : 0;
+    delete parsed.backupFormatVersion;
+    if(backupVersion > NEXUS_BACKUP_FORMAT_VERSION){
+      if(!confirm('This backup was made by a newer version of Nexus (backup format ' + backupVersion +
+                  ', this copy understands up to ' + NEXUS_BACKUP_FORMAT_VERSION + '). ' +
+                  'It may not restore completely. Continue anyway?')) return;
+    }
     if(!confirm('Restoring will replace everything currently in Nexus with this backup. Continue?')) return;
     snapshotVersion('before restore'); // safety net in case the wrong file was picked
     var attachments = parsed.__attachments || {};
