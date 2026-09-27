@@ -5,7 +5,7 @@ const assert = require('assert');
 const { webcrypto } = require('crypto');
 
 const root = path.join(__dirname, '..');
-const securitySource = fs.readFileSync(path.join(root, 'js', '09-security-lock.js'), 'utf8');
+const securitySource = fs.readFileSync(path.join(root, 'js', 'core', '09-security-lock.js'), 'utf8');
 
 function makeContext(shared) {
   const clock = shared && shared.clock ? shared.clock : {now:1700000000000};

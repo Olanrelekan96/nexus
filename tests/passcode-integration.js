@@ -66,8 +66,8 @@ const ctx = {
   saveSettings(){}, toast(){}, setDataHealthStatus(){}, setSidebarCollapsed(){}, appLocked:false
 };
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(path.join(jsDir,'07-find-replace-settings.js'),'utf8'), ctx, {filename:'07-find-replace-settings.js'});
-vm.runInContext(fs.readFileSync(path.join(jsDir,'09-security-lock.js'),'utf8'), ctx, {filename:'09-security-lock.js'});
+vm.runInContext(fs.readFileSync(path.join(jsDir,'features','07-find-replace-settings.js'),'utf8'), ctx, {filename:'07-find-replace-settings.js'});
+vm.runInContext(fs.readFileSync(path.join(jsDir,'core','09-security-lock.js'),'utf8'), ctx, {filename:'09-security-lock.js'});
 
 local.nexus_state_lock = JSON.stringify({version:2, wrappedDEK:'x'});
 ctx.lockCryptoKey = {};

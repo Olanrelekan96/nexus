@@ -15,7 +15,7 @@ const vm = require('vm');
 const assert = require('assert');
 
 const root = path.join(__dirname, '..');
-const source = fs.readFileSync(path.join(root, 'js', '06-backup-sync.js'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'js', 'sync', '06-backup-sync.js'), 'utf8');
 
 /* Each call is one simulated "launch": a fresh module context (fresh
  * in-memory vars, fresh sessionStorage unless one is passed in), but the

@@ -255,6 +255,254 @@ async def t_passcode_launch_policy(browser, base):
         shutil.rmtree(ud, ignore_errors=True)
 
 
+async def t_data_health_attachment_integrity(browser, base):
+    """Nothing previously exercised the Data Health panel in a real browser at
+    all. Adds a dangling {{file:}} reference (attachment never stored), a
+    healthy attachment, and a stored attachment whose blob doesn't match its
+    own recorded size (simulated truncation/corruption), then opens the panel
+    via the real openDataHealth()/renderDataHealth() path and checks the
+    actual rendered DOM rows -- not just the underlying function in isolation
+    (already covered in tests/regressions.js) -- plus the diagnostics alert."""
+    ctx, page = await new_page(browser, base); c = Ctx(page)
+    await boot(page, base)
+    await page.evaluate("""async () => {
+        const p = state.pages[state.currentPageId];
+        const brokenId = uid();
+        state.blocks[brokenId] = mkBlock(brokenId, p.id, null, 'broken link {{file:ghost-id-12345|missing.png}}');
+        p.rootBlocks.push(brokenId);
+
+        const healthyId = uid();
+        const healthyBytes = new Uint8Array([1,2,3,4]);
+        await putAttachment({id: healthyId, name: 'ok.bin', type: 'application/octet-stream',
+            size: healthyBytes.length, addedAt: Date.now(), blob: new Blob([healthyBytes])});
+        const healthyRefId = uid();
+        state.blocks[healthyRefId] = mkBlock(healthyRefId, p.id, null, '{{file:' + healthyId + '|ok.bin}}');
+        p.rootBlocks.push(healthyRefId);
+
+        // Stored attachment whose blob doesn't match its own declared size --
+        // simulates the kind of truncation/corruption this check exists to catch.
+        const mismatchId = uid();
+        await putAttachment({id: mismatchId, name: 'truncated.bin', type: 'application/octet-stream',
+            size: 999, addedAt: Date.now(), blob: new Blob([new Uint8Array([9,9,9])])});
+
+        save();
+    }""")
+    await page.evaluate("() => openDataHealth()")
+    await page.wait_for_selector(".quality-health-grid", timeout=5000)
+    await page.wait_for_timeout(300)  # renderDataHealth's Promise.all settling
+    rows = await page.evaluate("""() => Array.from(document.querySelectorAll('.quality-health-row'))
+        .map((r) => [r.querySelector('.quality-health-label').textContent, r.querySelector('.quality-health-value').textContent])""")
+    row_map = dict(rows)
+    check("Missing references" in row_map, "Data Health panel is missing the 'Missing references' row: %s" % rows)
+    check(row_map.get("Missing references") == "1",
+          "expected exactly 1 missing reference, got: %s" % row_map.get("Missing references"))
+    check("Corrupt / unreadable" in row_map, "Data Health panel is missing the 'Corrupt / unreadable' row: %s" % rows)
+    check(row_map.get("Corrupt / unreadable") == "1",
+          "the truncated attachment must be flagged and the healthy one must not, so this must read 1: %s" % row_map.get("Corrupt / unreadable"))
+
+    alert_text = {}
+    def on_dialog(d):
+        alert_text["msg"] = d.message
+        asyncio.ensure_future(d.accept())
+    page.on("dialog", on_dialog)
+    await page.evaluate("() => runNexusDiagnostics()")
+    await page.wait_for_timeout(300)
+    check("1 missing reference(s), 1 unreadable/corrupt file(s)" in alert_text.get("msg", ""),
+          "diagnostics alert must report the same counts as the Data Health panel: %r" % alert_text.get("msg"))
+    check(not c.errors, c.errors)
+    await ctx.close()
+
+
+async def t_backup_restore_full_fidelity(browser, base):
+    """Priority-1 audit item: a representative notebook (page w/ property, a
+    parent/child block hierarchy, a task, a query block, a flashcard, a
+    Zettelkasten page, and a real stored attachment) must survive a full
+    backup -> wipe to a clean environment -> restore round trip byte-for-byte
+    and field-for-field, not just "the one block I happened to check"."""
+    ctx, page = await new_page(browser, base); c = Ctx(page)
+    page.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
+    await boot(page, base)
+
+    ids = await page.evaluate("""async () => {
+        const pid = uid();
+        state.pages[pid] = {id:pid, title:'Fidelity Test', type:'page', createdAt:Date.now(),
+            properties:[{key:'status', value:'active'}], rootBlocks:[]};
+        state.titleIndex['fidelity test'] = pid;
+
+        const plainId = uid(); state.blocks[plainId] = mkBlock(plainId, pid, null, 'A plain note.');
+        state.pages[pid].rootBlocks.push(plainId);
+
+        const parentId = uid(); state.blocks[parentId] = mkBlock(parentId, pid, null, 'Parent line');
+        state.pages[pid].rootBlocks.push(parentId);
+        const childId = uid(); state.blocks[childId] = mkBlock(childId, pid, parentId, 'Nested child line');
+        state.blocks[parentId].children.push(childId);
+
+        const taskId = uid();
+        state.blocks[taskId] = mkBlock(taskId, pid, null, '[ ] Buy milk @2026-10-01 !high #errand');
+        state.pages[pid].rootBlocks.push(taskId);
+
+        const queryId = uid(); state.blocks[queryId] = mkBlock(queryId, pid, null, '{{query: #errand}}');
+        state.pages[pid].rootBlocks.push(queryId);
+
+        const bytes = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) bytes[i] = i;
+        const blob = new Blob([bytes], {type: 'application/octet-stream'});
+        const attId = uid();
+        await putAttachment({id: attId, name: 'fixture.bin', type: 'application/octet-stream',
+            size: bytes.length, addedAt: Date.now(), blob: blob});
+        const attRefId = uid();
+        state.blocks[attRefId] = mkBlock(attRefId, pid, null, '{{file:' + attId + '|fixture.bin}}');
+        state.pages[pid].rootBlocks.push(attRefId);
+
+        ensureFlashcardState();
+        const deckId = Object.keys(state.flashcards.decks)[0];
+        makeFlashcard('What is Nexus?', 'A knowledge OS', deckId, pid, plainId);
+
+        createZettelPage('permanent', 'Fidelity Zettel', 'Some zettel body text.');
+
+        // Normalize now, before taking the "before" snapshot, so the comparison
+        // is apples-to-apples against the ALSO-normalized post-restore state --
+        // otherwise a normalizeState-added bookkeeping field would look like a
+        // false-positive data loss even though nothing was actually lost.
+        state = normalizeState(state);
+        save();
+        // Render once before snapshotting "before": renderProperties() lazily
+        // backfills a missing prop.type the first time a page is displayed
+        // (unrelated to backup/restore), and restore calls renderAll()
+        // internally -- comparing an unrendered "before" against a rendered
+        // "after" would flag that harmless, unrelated backfill as data loss.
+        renderPage();
+        return {pid: pid, attId: attId};
+    }""")
+    page_id, att_id = ids["pid"], ids["attId"]
+
+    snapshot_script = """async (attId) => {
+        function stable(x, seen) {
+            if (x === null || typeof x !== 'object') return x;
+            if (seen.has(x)) return null;
+            seen.add(x);
+            if (Array.isArray(x)) return x.map((v) => stable(v, seen));
+            const out = {};
+            Object.keys(x).sort().forEach((k) => {
+                // updatedAt/updatedBy are sync tie-break bookkeeping (see
+                // touchChangedEntities), deliberately re-stamped on every
+                // entity when restoring into a state whose last known
+                // snapshot didn't have them -- correct behavior, not data
+                // loss, and not what this test is checking.
+                if (k === 'updatedAt' || k === 'updatedBy') return;
+                out[k] = stable(x[k], seen);
+            });
+            return out;
+        }
+        const snapshot = JSON.stringify(stable({pages: state.pages, blocks: state.blocks, flashcards: state.flashcards}, new WeakSet()));
+        const rec = await getAttachment(attId);
+        if (!rec) return {snapshot, hashHex: null, missing: true};
+        const buf = await rec.blob.arrayBuffer();
+        const digest = await crypto.subtle.digest('SHA-256', buf);
+        const hashHex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+        return {snapshot, hashHex, missing: false};
+    }"""
+    before = await page.evaluate(snapshot_script, att_id)
+    check(not before["missing"], "fixture attachment was not stored before backup even began")
+
+    backup_json = await page.evaluate("() => buildBackupJson()")
+
+    # Wipe to a genuinely clean environment: delete the attachment from IndexedDB
+    # (not just overwrite `state`, which restore would do anyway) and reset the
+    # in-memory notebook to a fresh seed, so restore is proven to RECREATE
+    # everything from the backup rather than leave pre-existing data untouched.
+    await page.evaluate("""async (attId) => {
+        await deleteAttachmentRecord(attId);
+        state = seedState();
+        save();
+    }""", att_id)
+    still_there = await page.evaluate("(pid) => !!state.pages[pid]", page_id)
+    check(not still_there, "the clean-environment reset did not actually clear the original page")
+
+    await page.evaluate("(json) => restoreFromDecryptedJsonText(json)", backup_json)
+    await page.wait_for_timeout(1200)
+
+    after = await page.evaluate(snapshot_script, att_id)
+    check(not after["missing"], "the attachment was not recreated by restore")
+    check(before["snapshot"] == after["snapshot"],
+          "restored pages/blocks/flashcards do not match the original notebook byte-for-byte")
+    check(before["hashHex"] == after["hashHex"],
+          "restored attachment bytes do not match the original (hash mismatch): %s vs %s" % (before["hashHex"], after["hashHex"]))
+    check(not c.errors, c.errors)
+    await ctx.close()
+
+
+async def t_schema_version_matrix(browser, base):
+    """Priority-3 audit item. Every fixture in tests/fixtures/schema-versions/
+    represents a notebook shaped like a real past version -- today there is
+    exactly one (legacy/undefined -> baseline v1, since no real migration has
+    ever been needed yet; tests/regressions.js documents how to extend this
+    when one is added). Loaded through the REAL normalizeState in a real
+    browser (exercising its full self-healing, not just runSchemaMigrations in
+    isolation, which is already covered at the unit level), each fixture must
+    land on the current schema version with no page/block/flashcard dropped
+    and no content-bearing field altered, and re-normalizing the result must
+    be a no-op. Deliberately checks counts and specific content fields rather
+    than a full structural diff: normalizeState legitimately backfills several
+    unrelated defaults (page icon/banner, etc.) that would show up as false
+    "data loss" in a byte-for-byte comparison -- full fidelity for an
+    already-current notebook is what t_backup_restore_full_fidelity is for."""
+    ctx, page = await new_page(browser, base); c = Ctx(page)
+    page.on("dialog", lambda d: asyncio.ensure_future(d.accept()))
+    await boot(page, base)
+
+    fixtures_dir = os.path.join(ROOT, "tests", "fixtures", "schema-versions")
+    fixture_files = sorted(f for f in os.listdir(fixtures_dir) if f.endswith(".json"))
+    check(len(fixture_files) >= 1, "expected at least one schema-version fixture")
+
+    for fname in fixture_files:
+        with open(os.path.join(fixtures_dir, fname)) as f:
+            fixture_text = f.read()
+
+        result = await page.evaluate("""(json) => {
+            const fixture = JSON.parse(json);
+            delete fixture._fixtureNote;
+            const pageCountBefore = Object.keys(fixture.pages).length;
+            const blockCountBefore = Object.keys(fixture.blocks).length;
+            const flashcardCountBefore = Object.keys(fixture.flashcards.cards).length;
+            const blockTextsBefore = {};
+            Object.keys(fixture.blocks).forEach((id) => { blockTextsBefore[id] = fixture.blocks[id].text; });
+
+            const migrated = normalizeState(JSON.parse(JSON.stringify(fixture)));
+            const blockTextsAfter = {};
+            Object.keys(migrated.blocks).forEach((id) => { blockTextsAfter[id] = migrated.blocks[id].text; });
+
+            const reNormalized = normalizeState(JSON.parse(JSON.stringify(migrated)));
+
+            return {
+                schemaVersion: migrated.schemaVersion,
+                pageCountAfter: Object.keys(migrated.pages).length,
+                blockCountAfter: Object.keys(migrated.blocks).length,
+                flashcardCountAfter: Object.keys(migrated.flashcards.cards).length,
+                pageCountBefore, blockCountBefore, flashcardCountBefore,
+                blockTextsMatch: JSON.stringify(blockTextsBefore) === JSON.stringify(blockTextsAfter),
+                idempotentVersion: reNormalized.schemaVersion,
+                idempotentBlockCount: Object.keys(reNormalized.blocks).length
+            };
+        }""", fixture_text)
+
+        check(result["schemaVersion"] >= 1, "%s: must be stamped with a schema version, got %r" % (fname, result["schemaVersion"]))
+        check(result["pageCountAfter"] == result["pageCountBefore"],
+              "%s: page count changed (%d -> %d) -- a page was dropped or added" % (fname, result["pageCountBefore"], result["pageCountAfter"]))
+        check(result["blockCountAfter"] == result["blockCountBefore"],
+              "%s: block count changed (%d -> %d) -- a block was dropped or added" % (fname, result["blockCountBefore"], result["blockCountAfter"]))
+        check(result["flashcardCountAfter"] == result["flashcardCountBefore"],
+              "%s: flashcard count changed -- a card was dropped or added" % fname)
+        check(result["blockTextsMatch"], "%s: block text content changed during migration" % fname)
+        check(result["idempotentVersion"] == result["schemaVersion"],
+              "%s: re-normalizing an already-current notebook must not change its schema version" % fname)
+        check(result["idempotentBlockCount"] == result["blockCountAfter"],
+              "%s: re-normalizing an already-current notebook must not change its block count" % fname)
+
+    check(not c.errors, c.errors)
+    await ctx.close()
+
+
 async def t_backup_restore_and_encrypted(browser, base):
     ctx, page = await new_page(browser, base); c = Ctx(page); answer = {"v": PASSCODE}
     page.on("dialog", lambda d: asyncio.ensure_future(d.accept(answer["v"]) if d.type == "prompt" else d.accept()))
@@ -695,6 +943,35 @@ async def t_sync_merge_convergence(browser, base):
     await ctx.close()
 
 
+async def t_sync_long_offline_divergence(browser, base):
+    """Priority-4 audit item ("offline for months"). The existing convergence/protocol/drive
+    fuzz tests above only ever interleave single edits a few tens of milliseconds apart,
+    alternating which device edits next -- a fundamentally different shape of divergence than two
+    devices that are genuinely offline from each other for a long stretch and each independently
+    accumulate a large, uninterrupted batch of changes before ever reconnecting. Runs the harness's
+    new longOfflineTrials (simulated multi-day gaps between each device's own edits, 15-35 edits
+    per device before merging) and checks the same proven correctness properties as the existing
+    convergence test: commutativity, structural invariants, idempotence, three-way convergence."""
+    ctx, page = await new_page(browser, base); c = Ctx(page)
+    await boot(page, base); await page.add_script_tag(path=HARNESS)
+    r = await page.evaluate("() => NexusSim.longOfflineTrials(400, 98765)")
+    f = r["fails"]
+    check(not f.get("not-commutative"), "long-offline merge gave a genuinely different result (not just order) depending on merge order: %s %s" % (f, r["sample"].get("not-commutative")))
+    check(not f.get("invariant"), "long-offline merge broke tree structure (orphaned/dangling blocks): %s %s" % (f, r["sample"].get("invariant")))
+    check(not f.get("three-way-diverges"), "long-offline merge gave a genuinely different result (not just order) depending on propagation order through a third replica: %s" % f)
+    check(sum(v for k, v in f.items() if k.startswith("not-idempotent")) == 0,
+          "re-merging an already-merged long-offline result changed real content (not just order): %s %s" % (f, r["sample"]))
+    # Known, narrow, non-destructive finding from building this test (see sync_harness.js's
+    # isOrderOnlyDiff/onlyOrderDiffers): heavy concurrent reordering across a long divergence can
+    # leave a handful of blocks in a different (but structurally valid, content-identical) order
+    # depending on merge path. Verified never to coincide with real data loss; tracked, not silently
+    # hidden, and not conflated with an actual failure above.
+    order_only = f.get("order-only-nondeterminism", 0)
+    check(order_only <= 60, "order-only nondeterminism rate looks too high to still call 'narrow' (%d / 400 trials) -- worth a closer look" % order_only)
+    check(not c.errors, c.errors)
+    await ctx.close()
+
+
 async def t_drive_cycle_recovers_and_settles(browser, base):
     """A whole Drive sync cycle (network stubbed): conflict + safety snapshot + recovery, then a quiet second cycle."""
     ctx, page = await new_page(browser, base); c = Ctx(page)
@@ -897,10 +1174,10 @@ async def t_three_devices_share_one_drive_file(browser, base):
 
 
 TESTS = [t_boot_clean, t_nav_crawl, t_footnotes, t_daily_calendar_31st, t_tasks_recurrence, t_flashcards_typing_guard, t_undo_guard, t_multi_select_bulk_delete,
-         t_tabs_persist, t_offline_first_visit, t_passcode_launch_policy, t_backup_restore_and_encrypted, t_mobile_layout, t_xss_sweep, t_find_replace_literal, t_formatting_and_attachments_persist,
+         t_tabs_persist, t_offline_first_visit, t_passcode_launch_policy, t_data_health_attachment_integrity, t_backup_restore_and_encrypted, t_backup_restore_full_fidelity, t_schema_version_matrix, t_mobile_layout, t_xss_sweep, t_find_replace_literal, t_formatting_and_attachments_persist,
          t_load_failure_never_overwrites, t_flush_before_load_is_harmless, t_typing_autosaves_without_blur, t_passcode_set_failure_keeps_data, t_passcode_removal_failure_keeps_lock,
          t_trashed_pages_are_not_backlinks, t_task_group_labels_are_text, t_saved_view_cancel_is_isolated, t_xss_deep_views, t_settings_round_trip, t_settings_passcode_rows_persist, t_drive_sync_pauses_while_locked,
-         t_sync_merge_convergence, t_drive_cycle_recovers_and_settles, t_version_history_snapshots, t_page_history_and_diff_ui,
+         t_sync_merge_convergence, t_sync_long_offline_divergence, t_drive_cycle_recovers_and_settles, t_version_history_snapshots, t_page_history_and_diff_ui,
          t_version_history_passcode_lifecycle, t_conflicts_panel, t_versions_ui_is_text_only, t_three_devices_share_one_drive_file]
 
 

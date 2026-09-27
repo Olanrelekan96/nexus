@@ -18,6 +18,21 @@ function extractFn(src, name) {
   assert.ok(end >= 0, 'end of ' + name + ' not found');
   return rest.slice(0, end + 1);
 }
+
+/* Recursively lists .js files under dir, returning paths relative to dir with forward
+   slashes (e.g. 'core/00-state-and-helpers.js') -- js/ has category subfolders. */
+function listJsFilesRecursive(dir) {
+  const out = [];
+  function walk(sub) {
+    fs.readdirSync(path.join(dir, sub), { withFileTypes: true }).forEach((entry) => {
+      const rel = sub ? sub + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) walk(rel);
+      else if (entry.name.endsWith('.js')) out.push(rel);
+    });
+  }
+  walk('');
+  return out;
+}
 function sandbox(code, globals) {
   const ctx = vm.createContext(Object.assign({}, globals || {}));
   vm.runInContext(code, ctx);
@@ -26,18 +41,18 @@ function sandbox(code, globals) {
 
 /* --- escapeHtml must be total: numeric footnote labels used to throw "str.replace is not a function". */
 {
-  const ctx = sandbox(extractFn(read('js/00-state-and-helpers.js'), 'escapeHtml'));
+  const ctx = sandbox(extractFn(read('js/core/00-state-and-helpers.js'), 'escapeHtml'));
   assert.strictEqual(ctx.escapeHtml(1), '1');
   assert.strictEqual(ctx.escapeHtml(0), '0');
   assert.strictEqual(ctx.escapeHtml(null), '');
   assert.strictEqual(ctx.escapeHtml(undefined), '');
   assert.strictEqual(ctx.escapeHtml('<img src=x onerror="a">&'), '&lt;img src=x onerror=&quot;a&quot;&gt;&amp;');
-  assert.ok(/String\(n \|\| '\?'\)/.test(read('js/33-footnotes.js')), 'footnote label must be stringified');
+  assert.ok(/String\(n \|\| '\?'\)/.test(read('js/editor/33-footnotes.js')), 'footnote label must be stringified');
 }
 
 /* --- Recurrence: month/year arithmetic must clamp to month end instead of overflowing. */
 {
-  const src = read('js/15-task-manager.js');
+  const src = read('js/features/15-task-manager.js');
   const code = ['parseYmd', 'ymd', 'addInterval'].map((n) => extractFn(src, n)).join('\n');
   const ctx = sandbox(code);
   const add = (d, unit, n) => ctx.ymd(ctx.addInterval(ctx.parseYmd(d), { n: n, unit: unit }));
@@ -52,12 +67,12 @@ function sandbox(code, globals) {
 }
 
 /* --- Daily calendar cursor must be anchored to the 1st (setMonth on the 31st overflowed). */
-assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.setDate\(1\);/.test(read('js/02-editor-core.js')),
+assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.setDate\(1\);/.test(read('js/editor/02-editor-core.js')),
   'dailyCalCursor must be anchored to day 1');
 
 /* --- Flashcards: a first-time "again" card is learning, not new; shortcuts ignore typing targets. */
 {
-  const fsrc = read('js/26-flashcards.js');
+  const fsrc = read('js/features/26-flashcards.js');
   const ctx = sandbox(extractFn(fsrc, 'flashcardStatus'));
   assert.strictEqual(ctx.flashcardStatus({ reps: 0 }), 'new');
   assert.strictEqual(ctx.flashcardStatus({ reps: 0, lastReviewedAt: 5, state: 'learning' }), 'learning');
@@ -68,7 +83,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 
 /* --- Ctrl/Cmd+Z/Y must be left to native undo inside any text field. */
 {
-  const ctx = sandbox(extractFn(read('js/14-wiring-and-init.js'), 'isTextEntryTarget'));
+  const ctx = sandbox(extractFn(read('js/core/14-wiring-and-init.js'), 'isTextEntryTarget'));
   const el = (tag, extra) => Object.assign({ tagName: tag, isContentEditable: false }, extra || {});
   assert.strictEqual(ctx.isTextEntryTarget(null), false);
   assert.strictEqual(ctx.isTextEntryTarget(el('DIV', { isContentEditable: true })), true);
@@ -77,12 +92,12 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.strictEqual(ctx.isTextEntryTarget(el('TEXTAREA')), true);
   assert.strictEqual(ctx.isTextEntryTarget(el('INPUT', { type: 'checkbox' })), false);
   assert.strictEqual(ctx.isTextEntryTarget(el('BUTTON')), false);
-  assert.ok(!/activeElement\.isContentEditable\) return;/.test(read('js/14-wiring-and-init.js')), 'undo/redo guard must use isTextEntryTarget');
+  assert.ok(!/activeElement\.isContentEditable\) return;/.test(read('js/core/14-wiring-and-init.js')), 'undo/redo guard must use isTextEntryTarget');
 }
 
 /* --- Tabs must not be pruned before the notebook has loaded (it dropped every saved page tab each launch). */
 {
-  const t = extractFn(read('js/32-tabs.js'), 'nexusTabsClean');
+  const t = extractFn(read('js/features/32-tabs.js'), 'nexusTabsClean');
   assert.ok(/if\(!\(typeof state !== 'undefined' && state && state\.pages\)\) return;/.test(t), 'nexusTabsClean must wait for state');
 }
 
@@ -92,7 +107,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.ok(sw.includes("CACHE='nexus-shell-v5'"));
   assert.ok(sw.includes('nexusPrecacheShell'), 'install must precache the shell');
   assert.ok(sw.includes('Response.error()'), 'failed subresources must not be answered with the HTML shell');
-  const pwa = read('js/12-pwa.js');
+  const pwa = read('js/core/12-pwa.js');
   const a = pwa.indexOf('var NEXUS_SW_SOURCE = ');
   const b = pwa.indexOf('function downloadServiceWorkerFile');
   assert.ok(a >= 0 && b > a);
@@ -105,7 +120,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 {
   const html = read('index.html');
   assert.ok(!/<script[^>]+src=["']https?:\/\//i.test(html), 'index.html must not load remote scripts at startup');
-  const bk = read('js/06-backup-sync.js');
+  const bk = read('js/sync/06-backup-sync.js');
   assert.ok(/function ensureGoogleIdentity\(/.test(bk) && /function ensureGoogleApi\(/.test(bk));
   assert.ok(/function gdriveGetTokenSilently\(onReady, onFail\)\{\s*\/\*[^*]*\*\/\s*if\(!gdriveAuthStillValid\(\)\)/.test(bk),
     'silent renewal must check the connection window before loading Google');
@@ -113,41 +128,41 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 
 /* --- Replacement text must be inserted literally ($$, $& are special in String.replace strings). */
 {
-  const ctx = sandbox(extractFn(read('js/02-editor-core.js'), 'renameCascade'),
+  const ctx = sandbox(extractFn(read('js/editor/02-editor-core.js'), 'renameCascade'),
     { state: { blocks: { a: { text: 'see [[Old Title]] and [[old title]]' }, b: { text: 'nothing' } } } });
   ctx.renameCascade('Old Title', 'Budget $$ & $&');
   assert.strictEqual(ctx.state.blocks.a.text, 'see [[Budget $$ & $&]] and [[Budget $$ & $&]]');
   assert.strictEqual(ctx.state.blocks.b.text, 'nothing');
-  const fr = extractFn(read('js/07-find-replace-settings.js'), 'applyFindReplace');
+  const fr = extractFn(read('js/features/07-find-replace-settings.js'), 'applyFindReplace');
   assert.ok(/function\(\)\{ replaced\+\+; return replace; \}/.test(fr), 'find & replace must use a function replacer');
 }
 
 /* --- serializeInline is the single DOM->text serialiser; a wrapper that delegated per child element
    flattened all formatting and attachment widgets on save. */
 {
-  const fn = read('js/33-footnotes.js');
+  const fn = read('js/editor/33-footnotes.js');
   assert.ok(!/\bserializeInline\s*=/.test(fn), '33-footnotes.js must not wrap or reassign serializeInline');
-  const core = extractFn(read('js/00-state-and-helpers.js'), 'serializeInline');
+  const core = extractFn(read('js/core/00-state-and-helpers.js'), 'serializeInline');
   assert.ok(core.includes("contains('footnote-ref')") && core.includes("'[^'"), 'serializeInline must serialise footnote refs itself');
 }
 
 /* --- Trashed pages are archived: their links are not live backlinks; tag pages still list tagged blocks. */
 {
-  const bl = extractFn(read('js/05-backlinks-nav-graph.js'), 'renderBacklinks');
+  const bl = extractFn(read('js/features/05-backlinks-nav-graph.js'), 'renderBacklinks');
   assert.ok(/sourcePage\.trashedAt\) return;/.test(bl), 'renderBacklinks must skip blocks from trashed pages');
   assert.ok(!/r\.type === 'page' && r\.title/.test(bl), '#tag references must keep counting so tag pages list their tagged blocks');
 }
 
 /* --- User data (page titles, tags) must never be interpolated into task-group headers as HTML. */
 {
-  const tm = read('js/15-task-manager.js');
+  const tm = read('js/features/15-task-manager.js');
   assert.ok(!/head\.innerHTML\s*=\s*'<span>'\s*\+\s*g\.label/.test(tm), 'task group header must not use innerHTML with g.label');
   assert.ok(/labelEl\.textContent = g\.label;/.test(tm), 'task group label must be a text node');
 }
 
 /* --- Saved database views: the query builder edits a copy; only Save commits it (Cancel must not leak). */
 {
-  const qe = read('js/01-query-engine.js');
+  const qe = read('js/features/01-query-engine.js');
   assert.ok(/function cloneDbViewDirs\(/.test(qe) && /qbView = cloneDbViewDirs\(qbActiveView\.dirs\);/.test(qe), 'builder must work on a copy of the saved view');
   assert.ok(!/qbView = qbActiveView\.dirs;/.test(qe), 'builder must not edit the saved view by reference');
   assert.ok(/qbViewToSave\.dirs = cloneDbViewDirs\(qbView\)/.test(qe), 'Save must commit the copy');
@@ -155,7 +170,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 
 /* --- Background Drive sync on a file:// page must never raise an alert(). */
 {
-  const bk = read('js/06-backup-sync.js');
+  const bk = read('js/sync/06-backup-sync.js');
   assert.ok(/function gdriveBlockedByOrigin\(silent\)/.test(bk) && /if\(silent\) return true;/.test(bk));
   assert.ok(/function gdrivePerformSyncCycle\(\)\{[\s\S]{0,200}gdriveBlockedByOrigin\(true\)\) return;/.test(bk), 'sync cycle must use the silent origin check');
   assert.ok(/function runGdriveSyncCycle\(\)\{[\s\S]{0,500}gdriveBlockedByOrigin\(true\)\) return;/.test(bk), 'the sync timer entry must use the silent origin check');
@@ -163,7 +178,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 
 /* --- The passcode gate also covers Drive sync (no background merge/upload while locked). */
 {
-  const bk = read('js/06-backup-sync.js');
+  const bk = read('js/sync/06-backup-sync.js');
   assert.ok(/function runGdriveSyncCycle\(\)\{[\s\S]{0,400}appLocked\) return;/.test(bk), 'runGdriveSyncCycle must stop while locked');
   assert.ok(/function gdrivePerformSyncCycle\(\)\{\s*if\(typeof appLocked !== 'undefined' && appLocked\) return;/.test(bk), 'gdrivePerformSyncCycle must stop while locked');
 }
@@ -181,7 +196,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 
 /* --- Sync: every content field counts as an edit; ties resolve identically on both devices. */
 {
-  const core = read('js/00-state-and-helpers.js');
+  const core = read('js/core/00-state-and-helpers.js');
   const ctx = sandbox(['entityChanged', 'pickWinner'].map((n) => extractFn(core, n)).join('\n') + '\nvar SYNC_META_KEYS = {updatedAt:1, updatedBy:1, order:1};');
   const base = { id: 'p', title: 'T', updatedAt: 1, updatedBy: 'a', order: 0 };
   assert.strictEqual(ctx.entityChanged(base, Object.assign({}, base, { updatedAt: 9, updatedBy: 'b', order: 4 })), false, 'bookkeeping alone is not an edit');
@@ -198,7 +213,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 
 /* --- Version history: text-level diff helper, protection rules, and no plaintext leftovers. */
 {
-  const bk = read('js/06-backup-sync.js');
+  const bk = read('js/sync/06-backup-sync.js');
   const ctx = sandbox(['tokenizeWords', 'wordDiffParts', 'versionIsProtected', 'versionKind', 'formatBytes'].map((n) => extractFn(bk, n)).join('\n'));
   const d = ctx.wordDiffParts('the quick brown fox', 'the slow brown dog');
   assert.strictEqual(JSON.stringify(d.a.filter((x) => x.d && /\S/.test(x.t)).map((x) => x.t)), JSON.stringify(['quick', 'fox']));
@@ -209,16 +224,16 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.strictEqual(ctx.formatBytes(1536), '2 KB');
   assert.ok(!/MAX_VERSIONS\b/.test(bk) && /MAX_UNPINNED_VERSIONS = 30/.test(bk), 'retention must not be the old fixed five');
   assert.ok(!/localStorage\.setItem\(CONFLICTS_KEY/.test(bk), 'the conflict log must not be written to plaintext localStorage');
-  assert.ok(/function syncSafetySnapshot\(/.test(bk) && /syncSafetySnapshot\(mergeResult, 'Google Drive'\)/.test(bk) && /syncSafetySnapshot\(result, link\.label\)/.test(read('js/10-lan-sync.js')), 'both sync paths must snapshot before applying a destructive merge');
-  const lock = read('js/09-security-lock.js');
+  assert.ok(/function syncSafetySnapshot\(/.test(bk) && /syncSafetySnapshot\(mergeResult, 'Google Drive'\)/.test(bk) && /syncSafetySnapshot\(result, link\.label\)/.test(read('js/sync/10-lan-sync.js')), 'both sync paths must snapshot before applying a destructive merge');
+  const lock = read('js/core/09-security-lock.js');
   assert.ok(/encryptExistingVersions\(\)/.test(lock) && /decryptExistingVersions\(\)/.test(lock) && /clearAllVersions\(\)/.test(lock), 'passcode set/remove/erase must handle snapshots');
 }
 
 /* --- Permanent deletion is recoverable (safety snapshot first); the conflict log loads at startup. */
 {
-  const ed = read('js/02-editor-core.js');
+  const ed = read('js/editor/02-editor-core.js');
   assert.ok(/snapshotVersionThrottled\('perm-delete'/.test(ed) && /snapshotVersion\('Before emptying the trash'/.test(ed), 'permanent deletes must take a safety snapshot');
-  assert.ok(/initConflictsStore\(\);/.test(read('js/14-wiring-and-init.js')), 'the conflict log must be loaded when the notebook boots');
+  assert.ok(/initConflictsStore\(\);/.test(read('js/core/14-wiring-and-init.js')), 'the conflict log must be loaded when the notebook boots');
 }
 
 /* --- Guard against new accidental duplicate global declarations. All 34 js/ files load as
@@ -237,7 +252,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   ]);
   const seen = {};
   const record = (name, file) => { (seen[name] = seen[name] || []).push(file); };
-  fs.readdirSync(path.join(root, 'js')).filter((f) => f.endsWith('.js')).sort().forEach((f) => {
+  listJsFilesRecursive(path.join(root, 'js')).sort().forEach((f) => {
     const src = read('js/' + f);
     let m;
     const fnRe = /^function ([A-Za-z0-9_$]+)\(/gm;
@@ -254,7 +269,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
    Sticky Notes / Welcome entries. User-unique content survives, mapped block references are repaired,
    and the migration is idempotent. */
 {
-  const core = read('js/00-state-and-helpers.js');
+  const core = read('js/core/00-state-and-helpers.js');
   const names = ['uid','entityChanged','pickWinner','rebuildTitleIndex','legacySystemPageKey','knownSystemPageKey','markKnownSystemPage',
     'rewriteKnownBlockRefs','systemBlockComparableText','systemBlocksEquivalent','systemPageCanonicalId',
     'mergeKnownSystemPageGroup','dedupeKnownSystemPages','selfHealKnownSystemPages'];
@@ -323,7 +338,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
     'normalization must run the self-healing guard');
   assert.ok(/selfHealKnownSystemPages\(merged, 'post-merge'\)/.test(core),
     'post-merge path must run the self-healing guard before sync push');
-  ['js/21-database-sidebar.js','js/22-query-sidebar.js','js/27-sticky-notes.js'].forEach((file) => {
+  ['js/features/21-database-sidebar.js','js/features/22-query-sidebar.js','js/features/27-sticky-notes.js'].forEach((file) => {
     const src = read(file);
     assert.ok(/systemKey\s*:\s*['"]/.test(src), file + ' must stamp a stable systemKey on creation');
   });
@@ -337,7 +352,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
    Every notebook — fresh via seedState() or restored from before this existed — ends up
    stamped, so a future migration always has an accurate "already applied" record. */
 {
-  const core = read('js/00-state-and-helpers.js');
+  const core = read('js/core/00-state-and-helpers.js');
   const runnerSrc = extractFn(core, 'runSchemaMigrations');
 
   /* Fresh/legacy notebook with no migrations registered yet still gets the baseline stamp. */
@@ -394,6 +409,48 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
     'a brand-new notebook (invalid/empty input) must also be stamped immediately, not left at schemaVersion 0 for one load cycle');
 }
 
+/* --- Cross-version migration matrix (audit item #3). Every fixture in
+   tests/fixtures/schema-versions/ represents a notebook shaped like a real past version, run
+   through the REAL, current runSchemaMigrations (not synthetic stand-ins, unlike the ordering/
+   idempotency/retry test above). Today there is exactly one edge -- legacy/undefined -> baseline
+   v1, since no real migration has ever been needed yet. To extend this when one is: drop a new
+   fixture here shaped like the version it starts from (see legacy-pre-v1.json for the template
+   and its own comment), and this loop picks it up automatically; add a fixture-specific assertion
+   below for whatever that migration is supposed to change, the same way a real migrate() function
+   would be tested in isolation elsewhere. */
+{
+  const core = read('js/core/00-state-and-helpers.js');
+  const startIdx = core.search(/^var NEXUS_SCHEMA_MIGRATIONS = /m);
+  assert.ok(startIdx >= 0, 'NEXUS_SCHEMA_MIGRATIONS not found');
+  const fromStart = core.slice(startIdx);
+  const runnerFnSrc = extractFn(fromStart, 'runSchemaMigrations');
+  const migrationSrc = fromStart.slice(0, fromStart.indexOf(runnerFnSrc) + runnerFnSrc.length);
+  const ctx = sandbox(migrationSrc);
+  const currentVersion = ctx.NEXUS_SCHEMA_MIGRATIONS.length
+    ? Math.max.apply(null, ctx.NEXUS_SCHEMA_MIGRATIONS.map((m) => m.version))
+    : ctx.NEXUS_BASELINE_SCHEMA_VERSION;
+
+  const fixturesDir = path.join(root, 'tests/fixtures/schema-versions');
+  const fixtureFiles = fs.readdirSync(fixturesDir).filter((f) => f.endsWith('.json'));
+  assert.ok(fixtureFiles.length >= 1, 'expected at least one schema-version fixture');
+  fixtureFiles.forEach((file) => {
+    const fixture = JSON.parse(fs.readFileSync(path.join(fixturesDir, file), 'utf8'));
+    delete fixture._fixtureNote;
+    const pageCountBefore = Object.keys(fixture.pages).length;
+    const blockCountBefore = Object.keys(fixture.blocks).length;
+
+    const migrated = ctx.runSchemaMigrations(JSON.parse(JSON.stringify(fixture)));
+    assert.strictEqual(migrated.schemaVersion, currentVersion,
+      file + ' must land on the current schema version (' + currentVersion + ') after migration, got ' + migrated.schemaVersion);
+    assert.strictEqual(Object.keys(migrated.pages).length, pageCountBefore, file + ': page count must not change');
+    assert.strictEqual(Object.keys(migrated.blocks).length, blockCountBefore, file + ': block count must not change');
+
+    const reMigrated = ctx.runSchemaMigrations(JSON.parse(JSON.stringify(migrated)));
+    assert.strictEqual(reMigrated.schemaVersion, currentVersion,
+      file + ': re-running migrations on already-current data must not change the version');
+  });
+}
+
 /* --- Large-page render performance: buildBlockRefIndex() must answer findBlockRefsTo(id).length
    for every block, so the render path can compute the reference-badge count for a whole page in
    one O(notebook size) pass instead of one such pass per rendered block (which made opening a
@@ -403,7 +460,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
    same target twice only counting once (matching findBlockRefsTo's first-match short-circuit),
    and multiple distinct blocks each referencing the same target counting separately. */
 {
-  const core = read('js/00-state-and-helpers.js');
+  const core = read('js/core/00-state-and-helpers.js');
   const testState = { blocks: {
     a: { id: 'a', text: 'no refs here' },
     b: { id: 'b', text: 'refs ((a)) once' },
@@ -424,7 +481,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.strictEqual(index.b, 1, 'b is referenced by f only');
   assert.strictEqual(index.e, undefined, 'a block referencing only itself must not appear in the index');
 
-  const renderSrc = read('js/04-render-page.js');
+  const renderSrc = read('js/editor/04-render-page.js');
   assert.ok(/var syncCount = \(blockRefIndexForRender \|\| buildBlockRefIndex\(\)\)\[block\.id\] \|\| 0;/.test(renderSrc),
     'renderBlockRow must read the precomputed index (O(1)) instead of calling findBlockRefsTo per block (O(notebook size))');
   assert.ok(/blockRefIndexForRender = buildBlockRefIndex\(\);/.test(renderSrc),
@@ -439,7 +496,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
    rule already applied to Cut/Paste/Duplicate on that line, since inserting a sibling is a
    structural change next to it, not a change to its own text). */
 {
-  const core = read('js/00-state-and-helpers.js') + '\n' + read('js/02-editor-core.js');
+  const core = read('js/core/00-state-and-helpers.js') + '\n' + read('js/editor/02-editor-core.js');
   const ctx = sandbox(
     extractFn(core, 'uid') + '\n' +
     extractFn(core, 'mkBlock') + '\n' +
@@ -470,7 +527,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.strictEqual(beforeChild.parent, 'parent1');
   assert.strictEqual(afterChild.parent, 'parent1');
 
-  const renderSrc = read('js/04-render-page.js');
+  const renderSrc = read('js/editor/04-render-page.js');
   assert.ok(/addItem\('⬆', 'Add block above', locked, function\(\)\{\s*\n\s*var cb = state\.blocks\[blockId\];\s*\n\s*if\(!cb\) return;\s*\n\s*var nb = createBlockBefore\(cb, ''\);/.test(renderSrc),
     'block menu must offer "Add block above", disabled when locked, using createBlockBefore');
   assert.ok(/addItem\('⬇', 'Add block below', locked, function\(\)\{\s*\n\s*var cb = state\.blocks\[blockId\];\s*\n\s*if\(!cb\) return;\s*\n\s*var nb = createBlockAfter\(cb, ''\);/.test(renderSrc),
@@ -485,14 +542,14 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
    already removes it, and (c) skip and report a locked selected block rather than
    deleting it. */
 {
-  const renderSrc = read('js/04-render-page.js');
+  const renderSrc = read('js/editor/04-render-page.js');
 
   /* --- toggleBlockSelection: range vs. toggle behavior, using the real flattenVisible. --- */
   {
     const src = extractFn(renderSrc, 'clearBlockSelectionVisuals') + '\n' +
       extractFn(renderSrc, 'setBlockSelection') + '\n' +
       extractFn(renderSrc, 'toggleBlockSelection') + '\n' +
-      extractFn(read('js/02-editor-core.js'), 'flattenVisible');
+      extractFn(read('js/editor/02-editor-core.js'), 'flattenVisible');
     const testState = { blocks: {}, pages: { p1: { id: 'p1', rootBlocks: ['a','b','c','d'] } } };
     ['a','b','c','d'].forEach((id) => { testState.blocks[id] = { id, pageId: 'p1', children: [], collapsed: false }; });
     const ctx = sandbox(src, {
@@ -531,9 +588,9 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
     const src = extractFn(renderSrc, 'clearBlockSelectionVisuals') + '\n' +
       extractFn(renderSrc, 'clearBlockSelection') + '\n' +
       extractFn(renderSrc, 'bulkDeleteSelectedBlocks') + '\n' +
-      extractFn(read('js/02-editor-core.js'), 'isDescendantOrSelf') + '\n' +
-      extractFn(read('js/13a-locks-and-sidebar.js'), 'pageIsLocked') + '\n' +
-      extractFn(read('js/13a-locks-and-sidebar.js'), 'blockIsLocked');
+      extractFn(read('js/editor/02-editor-core.js'), 'isDescendantOrSelf') + '\n' +
+      extractFn(read('js/core/13a-locks-and-sidebar.js'), 'pageIsLocked') + '\n' +
+      extractFn(read('js/core/13a-locks-and-sidebar.js'), 'blockIsLocked');
     const ctx = sandbox(src, {
       state: testState,
       document: { querySelector: function(){ return null; } },
@@ -560,10 +617,10 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.ok(/if\(e\.shiftKey\)\{ toggleBlockSelection\(block\.id, true\); return; \}/.test(renderSrc) &&
     /if\(e\.metaKey \|\| e\.ctrlKey\)\{ toggleBlockSelection\(block\.id, false\); return; \}/.test(renderSrc),
     'the bullet click handler must route Shift/Ctrl/Cmd-click to selection before the plain-click zoom fallback');
-  const ctxMenuSrc = read('js/13-slash-and-context-menus.js');
+  const ctxMenuSrc = read('js/editor/13-slash-and-context-menus.js');
   assert.ok(/selectedBlockIds\.length > 1 && selectedBlockIds\.indexOf\(row\.dataset\.id\) > -1\)\{\s*\n\s*openCtxMenu\(bulkBlockMenuItems/.test(ctxMenuSrc),
     'right-clicking a row that is part of a 2+ block selection must open the bulk menu instead of the single-block menu');
-  const wiringSrc = read('js/14-wiring-and-init.js');
+  const wiringSrc = read('js/core/14-wiring-and-init.js');
   assert.ok(/if\(typeof selectedBlockIds !== 'undefined' && selectedBlockIds\.length\) clearBlockSelection\(\);/.test(wiringSrc),
     'Escape must clear an active block selection');
   assert.ok(/\(e\.key === 'Delete' \|\| e\.key === 'Backspace'\) && !isMod &&\s*\n\s*typeof selectedBlockIds !== 'undefined' && selectedBlockIds\.length &&\s*\n\s*!isTextEntryTarget\(document\.activeElement\)\)\{\s*\n\s*e\.preventDefault\(\);\s*\n\s*bulkDeleteSelectedBlocks\(\);/.test(wiringSrc),
@@ -580,10 +637,10 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
    footnote-model functions no longer appear in the render hot path at all
    (see tests/e2e/stress_large_page.py, a standalone diagnostic script, not part of this suite). */
 {
-  const footnotesSrc = read('js/33-footnotes.js');
+  const footnotesSrc = read('js/editor/33-footnotes.js');
   function grabVarLine(name){
     const m = footnotesSrc.match(new RegExp('^var ' + name + ' = .*;$', 'm'));
-    assert.ok(m, name + ' not found in js/33-footnotes.js');
+    assert.ok(m, name + ' not found in js/editor/33-footnotes.js');
     return m[0];
   }
   const src = [
@@ -620,7 +677,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.notStrictEqual(model3, model5,
     'switching to a different page and back must recompute, not incorrectly serve the now-stale pre-switch cache slot');
 
-  const helpersSrc = read('js/00-state-and-helpers.js');
+  const helpersSrc = read('js/core/00-state-and-helpers.js');
   assert.ok(/function save\(options\)\{\s*\n\s*options = options \|\| \{\};\s*\n\s*syncEditingBlockToState\(\);\s*\n\s*if\(typeof invalidateFootnoteModelCache === 'function'\) invalidateFootnoteModelCache\(\);/.test(helpersSrc),
     'save() must invalidate the footnote model cache — it is the one signal already used everywhere for "the notebook just changed"');
 }
@@ -632,7 +689,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 {
   const jsDir = path.join(root, 'js');
   const offenders = [];
-  fs.readdirSync(jsDir).filter((f) => f.endsWith('.js')).forEach((f) => {
+  listJsFilesRecursive(jsDir).forEach((f) => {
     const src = read('js/' + f);
     const re = /<a\b[^>]*target=["']_blank["'][^>]*>/g;
     let m;
@@ -644,12 +701,12 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 }
 
 /* --- backupFormatVersion: exported backups carry an explicit format version (distinct from the
-   notebook's own schemaVersion — see comment in js/06-backup-sync.js for why they're separate).
+   notebook's own schemaVersion — see comment in js/sync/06-backup-sync.js for why they're separate).
    Restoring a legacy backup (field absent) or a current one must proceed normally; restoring one
    stamped with a NEWER format than this copy of Nexus understands must warn before doing anything
    destructive, and declining that warning must abort before touching state, save, or render. */
 {
-  const backupSrc = read('js/06-backup-sync.js');
+  const backupSrc = read('js/sync/06-backup-sync.js');
   assert.ok(/var NEXUS_BACKUP_FORMAT_VERSION = 1;/.test(backupSrc), 'NEXUS_BACKUP_FORMAT_VERSION constant must exist');
   assert.ok(/exportObj\.backupFormatVersion = NEXUS_BACKUP_FORMAT_VERSION;/.test(backupSrc),
     'buildBackupJson must stamp the exported file with the current backup format version');
@@ -711,4 +768,52 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   }
 }
 
-console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard, notebook schema versioning, large-page render index & fragment batching, add block above/below menu, multi-block selection & bulk delete, footnote model caching, target=_blank rel=noopener guard, backupFormatVersion.');
+/* --- Attachment integrity checker: distinct from getOrphanAttachments (an attachment exists but
+   nothing references it), this must catch the opposite and orthogonal problems -- a {{file:}}/
+   {{img:}} reference pointing at an attachment that isn't in storage, and a stored attachment
+   whose blob doesn't match its own recorded size or throws when read -- without flagging a
+   perfectly healthy one. Async (Promise.all over per-attachment reads), so this is the one test
+   in the file that isn't purely synchronous; it runs last and the final summary only prints once
+   it genuinely resolves, so a failure here still fails the whole suite rather than being silently
+   skipped after the synchronous tests above already logged success. */
+(async () => {
+  const qualitySrc = read('js/core/20-quality-hardening.js');
+  const src = extractFn(qualitySrc, 'bytesLabel') + '\n' + extractFn(qualitySrc, 'getAttachmentIntegrityIssues');
+  const testState = { blocks: {
+    refA: { id:'refA', pageId:'p1', children:[], text:'see {{file:healthy-id|ok.bin}}' },
+    refB: { id:'refB', pageId:'p1', children:[], text:'broken link {{img:ghost-id|missing.png}}' }
+  }};
+  const records = [
+    { id:'healthy-id', name:'ok.bin', size:4, blob:{ size:4, arrayBuffer:() => Promise.resolve(new ArrayBuffer(4)) } },
+    { id:'mismatch-id', name:'truncated.bin', size:100, blob:{ size:3, arrayBuffer:() => Promise.resolve(new ArrayBuffer(3)) } },
+    { id:'throws-id', name:'bad.bin', size:10, blob:{ size:10, arrayBuffer:() => Promise.reject(new Error('read failed')) } },
+    { id:'noblob-id', name:'ghost.bin', size:5, blob:null }
+  ];
+  const ctx = sandbox(src, {
+    state: testState,
+    listAllAttachments: () => Promise.resolve(records)
+  });
+
+  const result = await ctx.getAttachmentIntegrityIssues();
+
+  assert.deepStrictEqual(Array.from(result.missingReferences.map((m) => m.id)), ['ghost-id'],
+    'must flag exactly the referenced-but-not-stored attachment, not the healthy one');
+  assert.deepStrictEqual(Array.from(result.missingReferences[0].referencedBy.map((r) => r.blockId)), ['refB'],
+    'a missing reference must point back to the block that references it');
+
+  const corruptIds = Array.from(result.corrupt.map((c) => c.id)).sort();
+  assert.deepStrictEqual(corruptIds, ['mismatch-id', 'noblob-id', 'throws-id'],
+    'must flag the size-mismatch, no-blob, and read-throws records, and only those three');
+  assert.ok(!result.corrupt.some((c) => c.id === 'healthy-id'), 'a healthy attachment must never be flagged');
+  const byId = {}; result.corrupt.forEach((c) => { byId[c.id] = c; });
+  assert.strictEqual(byId['mismatch-id'].problem, 'size-mismatch');
+  assert.ok(/Recorded 100 B, actual blob is 3 B/.test(byId['mismatch-id'].detail));
+  assert.strictEqual(byId['noblob-id'].problem, 'unreadable');
+  assert.strictEqual(byId['throws-id'].problem, 'unreadable');
+
+  console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard, notebook schema versioning, large-page render index & fragment batching, add block above/below menu, multi-block selection & bulk delete, footnote model caching, target=_blank rel=noopener guard, backupFormatVersion, cross-version migration matrix, attachment integrity checker.');
+})().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});
+

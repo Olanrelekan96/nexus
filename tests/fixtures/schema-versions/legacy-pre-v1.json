@@ -1,0 +1,46 @@
+{
+  "_fixtureNote": "Deliberately has NO schemaVersion field -- this is the exact shape of every real Nexus notebook that existed before schemaVersion was introduced. It is the one real cross-version transition in this app so far (undefined/legacy -> baseline v1). When a real v2 migration is ever added, drop a new fixture here shaped like a v1 notebook, and extend the loop test in tests/regressions.js and the t_schema_version_matrix E2E test to assert the v2-specific change, following this file as the template.",
+  "pages": {
+    "page-legacy-notes": {
+      "id": "page-legacy-notes",
+      "title": "Legacy Notes",
+      "type": "page",
+      "createdAt": 1700000000000,
+      "properties": [{"key": "status", "value": "active"}],
+      "rootBlocks": ["blk-plain", "blk-parent", "blk-task", "blk-query"]
+    },
+    "page-legacy-second": {
+      "id": "page-legacy-second",
+      "title": "Second Legacy Page",
+      "type": "page",
+      "createdAt": 1700000001000,
+      "properties": [],
+      "rootBlocks": ["blk-second-plain"]
+    }
+  },
+  "blocks": {
+    "blk-plain": {"id": "blk-plain", "pageId": "page-legacy-notes", "parent": null, "text": "A plain note from before schema versioning existed.", "children": [], "collapsed": false},
+    "blk-parent": {"id": "blk-parent", "pageId": "page-legacy-notes", "parent": null, "text": "Parent line", "children": ["blk-child"], "collapsed": false},
+    "blk-child": {"id": "blk-child", "pageId": "page-legacy-notes", "parent": "blk-parent", "text": "Nested child line", "children": [], "collapsed": false},
+    "blk-task": {"id": "blk-task", "pageId": "page-legacy-notes", "parent": null, "text": "[ ] Buy milk @2026-10-01 !high #errand", "children": [], "collapsed": false},
+    "blk-query": {"id": "blk-query", "pageId": "page-legacy-notes", "parent": null, "text": "{{query: #errand}}", "children": [], "collapsed": false},
+    "blk-second-plain": {"id": "blk-second-plain", "pageId": "page-legacy-second", "parent": null, "text": "Links to [[Legacy Notes]].", "children": [], "collapsed": false}
+  },
+  "titleIndex": {
+    "legacy notes": "page-legacy-notes",
+    "second legacy page": "page-legacy-second"
+  },
+  "currentPageId": "page-legacy-notes",
+  "dailyShowAll": false,
+  "tombstones": {"pages": {}, "blocks": {}},
+  "deviceId": "legacy-fixture-device",
+  "templates": {
+    "tpl-meeting": {"id": "tpl-meeting", "title": "Meeting Notes", "blocks": [{"text": "Attendees: ", "children": []}, {"text": "Action items:", "children": []}]}
+  },
+  "flashcards": {
+    "decks": {"deck-legacy": {"id": "deck-legacy", "name": "Legacy Deck", "createdAt": 1700000002000}},
+    "cards": {"card-legacy": {"id": "card-legacy", "deckId": "deck-legacy", "front": "What is Nexus?", "back": "A knowledge OS", "sourcePageId": "page-legacy-notes", "sourceBlockId": "blk-plain", "reps": 0, "state": "new"}}
+  },
+  "stickyNotes": {"cards": {}},
+  "folders": {}
+}

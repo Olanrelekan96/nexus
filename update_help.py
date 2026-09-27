@@ -2,7 +2,7 @@
 """Maintain the in-app Nexus Help/Tutorial.
 
 Release rule:
-  1. Update js/00-state-and-helpers.js when a user-visible feature changes.
+  1. Update js/core/00-state-and-helpers.js when a user-visible feature changes.
   2. Add/refresh its section in NEXUS_HELP_FEATURE_CATALOG and the maintained
      guide sections used by ensureCompleteHelpGuide().
   3. Increment NEXUS_HELP_GUIDE_VERSION for material guide revisions.
@@ -17,7 +17,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parent
-STATE_FILE = ROOT / "js" / "00-state-and-helpers.js"
+STATE_FILE = ROOT / "js" / "core" / "00-state-and-helpers.js"
 TEXT = STATE_FILE.read_text(encoding="utf-8")
 
 m = re.search(r"var NEXUS_HELP_GUIDE_VERSION\s*=\s*(\d+)\s*;", TEXT)

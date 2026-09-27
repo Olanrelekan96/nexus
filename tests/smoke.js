@@ -3,11 +3,23 @@ const path = require('path');
 const cp = require('child_process');
 const assert = require('assert');
 const vm = require('vm');
-const coreSource = fs.readFileSync(path.join(__dirname, '..', 'js', '00-state-and-helpers.js'), 'utf8');
+const coreSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'core', '00-state-and-helpers.js'), 'utf8');
 
 const root = path.resolve(__dirname, '..');
 const jsDir = path.join(root, 'js');
-const jsFiles = fs.readdirSync(jsDir).filter(f => f.endsWith('.js')).sort();
+function listJsFilesRecursive(dir) {
+  const out = [];
+  function walk(sub) {
+    fs.readdirSync(path.join(dir, sub), { withFileTypes: true }).forEach((entry) => {
+      const rel = sub ? sub + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) walk(rel);
+      else if (entry.name.endsWith('.js')) out.push(rel);
+    });
+  }
+  walk('');
+  return out;
+}
+const jsFiles = listJsFilesRecursive(jsDir).sort();
 
 for (const file of jsFiles) {
   const full = path.join(jsDir, file);
@@ -19,7 +31,7 @@ const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 assert.strictEqual((index.match(/<body>/g) || []).length, 1, 'index.html must contain exactly one <body>');
 assert.strictEqual((index.match(/<\/body>/g) || []).length, 1, 'index.html must contain exactly one </body>');
 assert.ok(!/AIza[\w-]{20,}/.test(index), 'index.html must not ship a live Google API key');
-assert.ok(!/AIza[\w-]{20,}/.test(fs.readFileSync(path.join(root,'js','06-backup-sync.js'),'utf8')), 'backup/sync code must not embed a live Google API key');
+assert.ok(!/AIza[\w-]{20,}/.test(fs.readFileSync(path.join(root,'js', 'sync', '06-backup-sync.js'),'utf8')), 'backup/sync code must not embed a live Google API key');
 assert.ok(index.includes('gdrive-api-key-input'), 'Google Drive API key must be configurable at runtime');
 assert.ok(index.includes('settings-passcodereentry-row'), 'passcode re-entry setting row missing');
 assert.ok(index.includes('data-passcodereentry="1"'), '1-hour passcode interval missing');
@@ -37,12 +49,12 @@ for (const theme of ['aurora','amethyst','meadow','ember']) {
 assert.ok(index.includes('data-health-overlay'), 'Data health UI must be present');
 assert.ok(/nexus-build" content="2026-09-19-quality-hardened-v1-/.test(index), 'quality build marker missing');
 assert.ok(index.includes('tasks-layout'), 'task layout control missing');
-const core = fs.readFileSync(path.join(root,'js','00-state-and-helpers.js'),'utf8');
+const core = fs.readFileSync(path.join(root,'js', 'core', '00-state-and-helpers.js'),'utf8');
 assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*31/.test(core), 'current Help guide version missing');
 assert.ok(core.includes('Google Drive sync encryption key'), 'Google Drive sync encryption key Help topic missing');
 assert.ok(core.includes('ensureCompleteHelpGuide(docsId)'), 'existing Help pages must receive the complete guide update');
-const dbSidebar = fs.readFileSync(path.join(root,'js','21-database-sidebar.js'),'utf8');
-const querySidebar = fs.readFileSync(path.join(root,'js','22-query-sidebar.js'),'utf8');
+const dbSidebar = fs.readFileSync(path.join(root,'js', 'features', '21-database-sidebar.js'),'utf8');
+const querySidebar = fs.readFileSync(path.join(root,'js', 'features', '22-query-sidebar.js'),'utf8');
 assert.ok(dbSidebar.includes('ensureDefaultDatabasePage'), 'default database page creator');
 assert.ok(dbSidebar.includes('renderDatabaseSidebarSection'), 'database sidebar index renderer');
 assert.ok(dbSidebar.includes('databaseSidebarFilter'), 'database filter state');
@@ -51,9 +63,9 @@ assert.ok(querySidebar.includes('ensureDefaultQueryPage'), 'default query page c
 assert.ok(querySidebar.includes('renderQuerySidebarSection'), 'query sidebar index renderer');
 assert.ok(querySidebar.includes('querySidebarFilter'), 'query filter state');
 assert.ok(querySidebar.includes('repairedId'), 'default query page repair');
-assert.ok(fs.readFileSync(path.join(root,'js','01-query-engine.js'),'utf8').includes('queryBlockId'), 'query widget addressability');
-assert.ok(fs.readFileSync(path.join(root,'js','02-editor-core.js'),'utf8').includes('default Database workspace cannot be moved to Trash'), 'database workspace trash guard');
-assert.ok(fs.readFileSync(path.join(root,'js','01-query-engine.js'),'utf8').includes('dbBlockId'), 'database widget addressability');
+assert.ok(fs.readFileSync(path.join(root,'js', 'features', '01-query-engine.js'),'utf8').includes('queryBlockId'), 'query widget addressability');
+assert.ok(fs.readFileSync(path.join(root,'js', 'editor', '02-editor-core.js'),'utf8').includes('default Database workspace cannot be moved to Trash'), 'database workspace trash guard');
+assert.ok(fs.readFileSync(path.join(root,'js', 'features', '01-query-engine.js'),'utf8').includes('dbBlockId'), 'database widget addressability');
 assert.ok(core.includes('NEXUS_HELP_FEATURE_CATALOG'), 'Help feature catalog missing');
 assert.ok(core.includes('Query workspace & sidebar index'), 'query workspace Help topic missing');
 assert.ok(core.includes('Task gallery view'), 'task gallery Help topic missing');
@@ -69,7 +81,7 @@ assert.ok(core.includes('Pinned tabs & sidebar drag-and-drop ordering'), 'Pinned
 assert.ok(core.includes('Additional crafted themes'), 'crafted themes Help topic missing');
 assert.ok(core.includes('help-73'), 'crafted themes Help catalog id missing');
 assert.ok(core.includes('help-72'), 'Workspace tabs Help catalog id missing');
-const tabs = fs.readFileSync(path.join(root,'js','32-tabs.js'),'utf8');
+const tabs = fs.readFileSync(path.join(root,'js', 'features', '32-tabs.js'),'utf8');
 assert.ok(tabs.includes('function toggleNexusTabPinned'), 'tab pin action missing');
 assert.ok(tabs.includes('isNexusTabPinned'), 'pinned close guard missing');
 assert.ok(cssTheme.includes('.nexus-tab.pinned'), 'pinned tab CSS missing');
@@ -81,8 +93,8 @@ assert.ok(index.includes('id="nexus-tabs-shell"'), 'tab shell missing');
 assert.ok(index.includes('id="nexus-tabs-menu-popover"'), 'tab menu popover missing');
 assert.ok(index.includes('id="sidebar-nav-list"'), 'sidebar navigation reorder container missing');
 assert.ok(index.includes('id="sidebar-order-reset-btn"'), 'sidebar order reset control missing');
-assert.ok(index.includes('js/34-sidebar-ui-ordering.js'), 'sidebar ordering module load missing');
-const sidebarUi = fs.readFileSync(path.join(root,'js','34-sidebar-ui-ordering.js'),'utf8');
+assert.ok(index.includes('js/features/34-sidebar-ui-ordering.js'), 'sidebar ordering module load missing');
+const sidebarUi = fs.readFileSync(path.join(root,'js', 'features', '34-sidebar-ui-ordering.js'),'utf8');
 assert.ok(sidebarUi.includes('NEXUS_SIDEBAR_ORDER_KEY'), 'sidebar order persistence key missing');
 assert.ok(sidebarUi.includes('function nexusSidebarMoveBefore'), 'sidebar reorder movement function missing');
 assert.ok(sidebarUi.includes("handle.addEventListener('dragstart'"), 'sidebar drag-and-drop handle missing');
@@ -95,10 +107,10 @@ assert.ok(cssTheme.includes('/* Persistent mobile sidebar toggle.'), 'persistent
 assert.ok(core.includes('Mobile sidebar always-visible toggle'), 'mobile sidebar Help topic missing');
 assert.ok(core.includes('help-76'), 'mobile sidebar Help catalog id missing');
 assert.ok(/NEXUS_HELP_GUIDE_VERSION\s*=\s*31/.test(core), 'current Help version must be v31');
-assert.ok(index.includes('js/32-tabs.js'), 'tabs module load missing');
+assert.ok(index.includes('js/features/32-tabs.js'), 'tabs module load missing');
 
-const footnotes = fs.readFileSync(path.join(root,'js','33-footnotes.js'),'utf8');
-assert.ok(index.includes('js/33-footnotes.js'), 'footnotes module load missing');
+const footnotes = fs.readFileSync(path.join(root,'js', 'editor', '33-footnotes.js'),'utf8');
+assert.ok(index.includes('js/editor/33-footnotes.js'), 'footnotes module load missing');
 assert.ok(footnotes.includes('FOOTNOTE_REF_RE'), 'footnote reference parser missing');
 assert.ok(footnotes.includes('FOOTNOTE_DEF_RE'), 'footnote definition parser missing');
 assert.ok(footnotes.includes('function getPageFootnoteModel'), 'footnote page model missing');
@@ -109,7 +121,7 @@ assert.ok(cssTheme.includes('.footnote-ref'), 'footnote ref CSS missing');
 assert.ok(cssTheme.includes('#page-footnotes'), 'footnote panel CSS missing');
 assert.ok(core.includes('Footnotes'), 'Footnotes Help topic missing');
 
-assert.ok(fs.readFileSync(path.join(root,'js','31-command-center.js'),'utf8').includes('function showCommandCenterView'), 'Command Center show function missing');
+assert.ok(fs.readFileSync(path.join(root,'js', 'features', '31-command-center.js'),'utf8').includes('function showCommandCenterView'), 'Command Center show function missing');
 assert.ok(core.includes('Release rule: whenever a user-visible feature'), 'Help maintenance instruction missing');
 const catalogCount = (core.match(/\{id:'[^']+', title:'/g) || []).length;
 assert.ok(catalogCount >= 60, `Help feature catalog unexpectedly small: ${catalogCount}`);
@@ -154,7 +166,7 @@ assert.ok(css.includes('.quality-modal'), 'data health modal CSS missing');
 assert.ok(css.includes('.tasks-gallery'), 'task gallery CSS missing');
 assert.ok(css.includes('.page-banner-ocean'), 'page banner CSS missing');
 assert.ok(css.includes('.page-icon-btn'), 'page icon CSS missing');
-const tasks = fs.readFileSync(path.join(root,'js','15-task-manager.js'),'utf8');const security = fs.readFileSync(path.join(root,'js','09-security-lock.js'),'utf8');const wiring = fs.readFileSync(path.join(root,'js','14-wiring-and-init.js'),'utf8');
+const tasks = fs.readFileSync(path.join(root,'js', 'features', '15-task-manager.js'),'utf8');const security = fs.readFileSync(path.join(root,'js', 'core', '09-security-lock.js'),'utf8');const wiring = fs.readFileSync(path.join(root,'js', 'core', '14-wiring-and-init.js'),'utf8');
 assert.ok(security.includes("PASSCODE_REENTRY_CHOICES = ['1','6','12','24']"), 'passcode interval choices missing');
 assert.ok(security.includes('enforcePasscodeReentry'), 'automatic passcode re-entry enforcement missing');
 assert.ok(security.includes('refreshLockSessionTimer'), 'passcode session timer missing');
@@ -168,7 +180,7 @@ assert.ok(security.includes('persistPasscodeSessionKey'), 'launch session persis
 assert.ok(security.includes('updatePasscodeLaunchSessionPolicy'), 'launch policy updater missing');
 assert.ok(index.includes('settings-passcode-launch-row'), 'Request passcode on launch setting missing');
 assert.ok(index.includes('data-passcoderequest="off"'), 'launch off control missing');
-assert.ok(fs.readFileSync(path.join(root,'js','14-wiring-and-init.js'),'utf8').includes('startNotebookWithSecurityGate'), 'startup security gate missing');
+assert.ok(fs.readFileSync(path.join(root,'js', 'core', '14-wiring-and-init.js'),'utf8').includes('startNotebookWithSecurityGate'), 'startup security gate missing');
 assert.ok(core.includes('Launch passcode policy & device auto-unlock'), 'launch policy Help section missing');
 
 assert.ok(tasks.includes("['board','list','gallery']"), 'task layout cycle must include gallery');
@@ -176,8 +188,8 @@ assert.ok(tasks.includes("tasksViewState.layout === 'gallery' ? 'tasks-gallery'"
 assert.ok(index.includes('Switch task layout (Board, List, Gallery)'), 'task gallery accessibility label missing');
 assert.ok(tasks.includes('Task layout: '), 'task gallery runtime accessibility label missing');
 assert.ok(core.includes('Task gallery view'), 'Task gallery Help section missing');
-assert.ok(fs.existsSync(path.join(root,'js','24-page-appearance.js')), 'page appearance module missing');
-const appearance = fs.readFileSync(path.join(root,'js','24-page-appearance.js'),'utf8');
+assert.ok(fs.existsSync(path.join(root,'js', 'features', '24-page-appearance.js')), 'page appearance module missing');
+const appearance = fs.readFileSync(path.join(root,'js', 'features', '24-page-appearance.js'),'utf8');
 assert.ok(appearance.includes('NEXUS_PAGE_ICON_CHOICES'), 'page icon choices missing');
 assert.ok(appearance.includes('NEXUS_PAGE_BANNER_LABELS'), 'page banner presets missing');
 assert.ok(appearance.includes('renderPageAppearance'), 'page appearance renderer missing');
@@ -187,7 +199,7 @@ assert.ok(index.includes('page-banner-btn'), 'page banner control missing');
 
 assert.ok(index.includes('id="dashboard-view"'), 'dashboard home hub view missing');
 assert.ok(index.includes('id="btn-dashboard"'), 'permanent Dashboard sidebar button missing');
-const dashboard = fs.readFileSync(path.join(root,'js','13b-dashboard.js'),'utf8');
+const dashboard = fs.readFileSync(path.join(root,'js', 'features', '13b-dashboard.js'),'utf8');
 assert.ok(dashboard.includes('showDashboardView'), 'dashboard show function missing');
 assert.ok(dashboard.includes('renderDashboardStats'), 'dashboard stats renderer missing');
 assert.ok(dashboard.includes('renderDashboardWorkspaces'), 'dashboard workspace renderer missing');
@@ -199,21 +211,21 @@ assert.ok(core.includes('Page transclusion'), 'Page transclusion Help topic miss
 assert.ok(core.includes('Block transclusion'), 'Block transclusion Help topic missing');
 assert.ok(core.includes('Section transclusion'), 'Section transclusion Help topic missing');
 assert.ok(core.includes('Flashcards & spaced repetition'), 'Flashcards Help topic missing');
-assert.ok(fs.existsSync(path.join(root,'js','25-transclusion.js')), 'transclusion module missing');
-const tx = fs.readFileSync(path.join(root,'js','25-transclusion.js'),'utf8');
+assert.ok(fs.existsSync(path.join(root,'js', 'editor', '25-transclusion.js')), 'transclusion module missing');
+const tx = fs.readFileSync(path.join(root,'js', 'editor', '25-transclusion.js'),'utf8');
 assert.ok(tx.includes('![[Page Title]]'), 'page transclusion syntax missing');
 assert.ok(tx.includes('!((block-id))'), 'block transclusion syntax missing');
 assert.ok(tx.includes('![[Page Title#Heading]]'), 'section transclusion syntax missing');
 assert.ok(tx.includes('NEXUS_TRANSCLUSION_MAX_DEPTH'), 'transclusion recursion guard missing');
-assert.ok(index.includes('js/25-transclusion.js'), 'transclusion script not loaded');
+assert.ok(index.includes('js/editor/25-transclusion.js'), 'transclusion script not loaded');
 assert.ok(css.includes('.transclusion-card'), 'transclusion CSS missing');
 assert.ok(css.includes('#flashcards-view.visible'), 'flashcards CSS missing');
-const fc = fs.readFileSync(path.join(root,'js','26-flashcards.js'),'utf8');
+const fc = fs.readFileSync(path.join(root,'js', 'features', '26-flashcards.js'),'utf8');
 assert.ok(fc.includes('ensureFlashcardState'), 'flashcard state initializer missing');
 assert.ok(fc.includes('scheduleFlashcard'), 'flashcard scheduler missing');
 assert.ok(fc.includes('renderFlashcardReview'), 'flashcard review renderer missing');
 assert.ok(fc.includes('flashcardSidebarFilter'), 'created flashcards sidebar filter missing');
-assert.ok(index.includes('js/26-flashcards.js'), 'flashcards module not loaded');
+assert.ok(index.includes('js/features/26-flashcards.js'), 'flashcards module not loaded');
 const flashcardCtx = {
   window: {crypto:{randomUUID:()=> 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'}},
   console, setTimeout, clearTimeout, Promise, JSON, Math, Date,
@@ -222,7 +234,7 @@ const flashcardCtx = {
 };
 vm.createContext(flashcardCtx);
 vm.runInContext(coreSource, flashcardCtx, {filename:'00-state-and-helpers.js'});
-vm.runInContext(fs.readFileSync(path.join(root,'js','26-flashcards.js'),'utf8'), flashcardCtx, {filename:'26-flashcards.js'});
+vm.runInContext(fs.readFileSync(path.join(root,'js', 'features', '26-flashcards.js'),'utf8'), flashcardCtx, {filename:'26-flashcards.js'});
 flashcardCtx.state={flashcards:{decks:{d:{id:'d',name:'Study',createdAt:1}},cards:{}} , pages:{}, currentPageId:null};
 flashcardCtx.flashcardState={deckId:'all',status:'all',query:'',reviewId:null,revealed:false,selectedId:null};
 const fcCreated=flashcardCtx.makeFlashcard('Capital of Nigeria?','Abuja','d',null,null);
@@ -248,7 +260,7 @@ txContext.headingInfo = function(text){
 vm.createContext(txContext);
 vm.runInContext(coreSource, txContext, {filename:'00-state-and-helpers.js'});
 txContext.blockPreviewText = function(blk){ return (blk.text || '').trim() || '(empty block)'; };
-vm.runInContext(fs.readFileSync(path.join(root,'js','25-transclusion.js'),'utf8'), txContext, {filename:'25-transclusion.js'});
+vm.runInContext(fs.readFileSync(path.join(root,'js', 'editor', '25-transclusion.js'),'utf8'), txContext, {filename:'25-transclusion.js'});
 txContext.state = {
   pages: {
     p1:{id:'p1',title:'Source',type:'page',rootBlocks:['h1','b2'],properties:[]},
@@ -272,7 +284,7 @@ assert.ok(/Circular page transclusion/.test(txContext.renderPageTransclusion(txC
 
 
 
-const folders = fs.readFileSync(path.join(root,'js','29-folders.js'),'utf8');
+const folders = fs.readFileSync(path.join(root,'js', 'features', '29-folders.js'),'utf8');
 assert.ok(folders.includes('ensureFolderState'), 'folder state initializer missing');
 assert.ok(folders.includes('createFolder'), 'folder creation missing');
 assert.ok(folders.includes('createFolderPrompt'), 'folder prompt missing');
@@ -283,8 +295,8 @@ assert.ok(folders.includes('folderSidebarFilter'), 'folder-local filter state mi
 assert.ok(folders.includes('renderFolderSidebarSection'), 'folder sidebar renderer missing');
 assert.ok(index.includes('id="folder-tree"'), 'folder tree UI missing');
 assert.ok(index.includes('id="new-folder-btn"'), 'new folder control missing');
-assert.ok(index.indexOf('js/29-folders.js') < index.indexOf('js/14-wiring-and-init.js'), 'folders module must load before final wiring');
-assert.ok(fs.readFileSync(path.join(root,'js','13-slash-and-context-menus.js'),'utf8').includes('copy.folderId = page.folderId'), 'duplicated pages should retain their folder');
+assert.ok(index.indexOf('js/features/29-folders.js') < index.indexOf('js/core/14-wiring-and-init.js'), 'folders module must load before final wiring');
+assert.ok(fs.readFileSync(path.join(root,'js', 'editor', '13-slash-and-context-menus.js'),'utf8').includes('copy.folderId = page.folderId'), 'duplicated pages should retain their folder');
 assert.ok(css.includes('.folder-children'), 'nested folder CSS missing');
 assert.ok(core.includes('Folder organization & nested folders'), 'folder Help topic missing');
 assert.ok(core.includes("help-68"), 'folder Help catalog id missing');
@@ -316,7 +328,7 @@ assert.strictEqual(folderCtx.state.pages.p.folderId,workFolderId,'pages inside a
 
 // Passcode re-entry runtime smoke: load the security module's session-timer
 // logic without requiring its browser-only DOM wiring.
-const securitySource = fs.readFileSync(path.join(root,'js','09-security-lock.js'),'utf8');
+const securitySource = fs.readFileSync(path.join(root,'js', 'core', '09-security-lock.js'),'utf8');
 const securityLogic = securitySource.slice(
   securitySource.indexOf('var lockCryptoKey = null'),
   securitySource.indexOf("document.getElementById('lock-submit').onclick")
@@ -350,9 +362,9 @@ assert.ok(scheduledDelay >= 24*60*60*1000 - 1000 && scheduledDelay <= 24*60*60*1
 secCtx.currentSettings.passcodeReentryHours = '1';
 secCtx.refreshLockSessionTimer();
 assert.ok(scheduledDelay >= 60*60*1000 - 1000 && scheduledDelay <= 60*60*1000 + 1000, '1-hour interval should schedule approximately 1 hour');
-const lockSource = fs.readFileSync(path.join(root,'js','09-security-lock.js'),'utf8');
+const lockSource = fs.readFileSync(path.join(root,'js', 'core', '09-security-lock.js'),'utf8');
 assert.ok(/\.then\(function\(\)\{[\s\S]*?refreshLockSessionTimer\(\);[\s\S]*?return rc\.display;/.test(lockSource), 'setting a new passcode should start the re-entry timer immediately');
-const settingsSource = fs.readFileSync(path.join(root,'js','07-find-replace-settings.js'),'utf8');
+const settingsSource = fs.readFileSync(path.join(root,'js', 'features', '07-find-replace-settings.js'),'utf8');
 assert.ok(/tryUnlockWithRecovery\(code\)\.then\(function\(ok\)\{[\s\S]*?refreshLockSessionTimer\(\);/.test(settingsSource), 'recovery unlock should start the re-entry timer');
 assert.ok(lockSource.includes('persistPasscodeReentryStartedAt(0);'), 're-entry start time should be cleared on lock');
 /* Force the actual expiry path to execute with a 100ms synthetic interval.
@@ -415,9 +427,9 @@ assert.strictEqual(ctx.state.pages.doc.helpGuideVersion, 31, 'Help guide should 
 /* Passcode re-entry hardening: the session start is persisted as non-secret
    metadata so timer throttling/background suspension cannot silently defeat
    the configured interval. */
-const corePersistenceSource = fs.readFileSync(path.join(jsDir, '00-state-and-helpers.js'), 'utf8');
+const corePersistenceSource = fs.readFileSync(path.join(jsDir, 'core', '00-state-and-helpers.js'), 'utf8');
 assert.ok(/function flushSaveNow\(\)[\s\S]*?return enqueueNotebookPersist\(json, capturedKey\)/.test(corePersistenceSource), 'flushSaveNow should return its persistence promise and capture the encryption key');
-const lockCode = fs.readFileSync(path.join(jsDir, '09-security-lock.js'), 'utf8');
+const lockCode = fs.readFileSync(path.join(jsDir, 'core', '09-security-lock.js'), 'utf8');
 assert.ok(lockCode.includes("PASSCODE_REENTRY_STATE_KEY = LOCK_KEY + '_reentry_v3'"), 'passcode re-entry persistence key missing');
 assert.ok(lockCode.includes('loadPasscodeReentryState'), 'passcode re-entry persisted state loader missing');
 assert.ok(lockCode.includes('persistPasscodeReentryState(passcodeUnlockedAt, deadlineAt)'), 'unlock deadline is not persisted');
@@ -435,7 +447,7 @@ assert.strictEqual(helpCountAfterSecond, helpCountAfterFirst, 'Help updater must
 
 // Persistent tab-state smoke test (DOM-free): the module must store and reload
 // only UI state, independent of notebook contents.
-const tabsSource = fs.readFileSync(path.join(root,'js','32-tabs.js'),'utf8');
+const tabsSource = fs.readFileSync(path.join(root,'js', 'features', '32-tabs.js'),'utf8');
 const tabStore = {};
 const tabCtx = vm.createContext({
   console,
@@ -502,14 +514,14 @@ assert.ok(mergedWithFc.flashcards && mergedWithFc.flashcards.cards.c1, 'sync mer
 assert.strictEqual(mergedWithFc.flashcards.cards.c1.front,'F2','flashcard merge should use the winning updated copy');
 assert.ok(merged.pages.p.rootBlocks.length === 3, 'merge must retain all root blocks');
 assert.strictEqual(JSON.stringify(merged.pages.p.rootBlocks), JSON.stringify(['b','a','c']), 'merge must converge on the winning page container order');
-assert.ok(fs.existsSync(path.join(root,'js','23-daily-notes.js')), 'daily notes renderer missing');
-var dailyNotes = fs.readFileSync(path.join(root,'js','23-daily-notes.js'),'utf8');
+assert.ok(fs.existsSync(path.join(root,'js', 'features', '23-daily-notes.js')), 'daily notes renderer missing');
+var dailyNotes = fs.readFileSync(path.join(root,'js', 'features', '23-daily-notes.js'),'utf8');
 assert.ok(dailyNotes.includes('shiftDailyPage'), 'daily adjacent-day navigation missing');
 assert.ok(dailyNotes.includes('daily-journal-chrome'), 'daily journal chrome missing');
 assert.ok(core.includes("help-59"), 'daily notes Help catalog id missing');
 assert.ok(/Logseq-inspired Daily Notes/.test(core), 'daily notes Help section missing');
 
-const stickyModule = fs.readFileSync(path.join(root,'js','27-sticky-notes.js'),'utf8');
+const stickyModule = fs.readFileSync(path.join(root,'js', 'features', '27-sticky-notes.js'),'utf8');
 assert.ok(stickyModule.includes('Sticky Note Cards'), 'sticky notes module missing');
 assert.ok(stickyModule.includes('makeStickyNote'), 'sticky note creation missing');
 assert.ok(stickyModule.includes('renderStickyNoteSidebar'), 'sticky note sidebar missing');
@@ -517,7 +529,7 @@ assert.ok(core.includes("help-66"), 'sticky note Help catalog id missing');
 assert.ok(core.includes("help-67"), 'Zettelkasten Help catalog id missing');
 assert.ok(/Sticky Note Cards/.test(core), 'sticky note Help section missing');
 
-const zkMobile = fs.readFileSync(path.join(root,'js','30-zettelkasten-mobile.js'),'utf8');
+const zkMobile = fs.readFileSync(path.join(root,'js', 'features', '30-zettelkasten-mobile.js'),'utf8');
 assert.ok(zkMobile.includes('ZETTELKASTEN_MOBILE_KEY'), 'mobile Zettelkasten preference key missing');
 assert.ok(zkMobile.includes('setZettelkastenMobileCollapsed'), 'mobile Zettelkasten collapse state control missing');
 assert.ok(zkMobile.includes('localStorage.setItem(ZETTELKASTEN_MOBILE_KEY'), 'mobile Zettelkasten state must persist locally');
@@ -553,7 +565,7 @@ assert.ok(!mobileCtx.document._els['app'].classList.contains('sidebar-collapsed'
 assert.ok(fs.readFileSync(path.join(root,'css','styles.css'),'utf8').includes('#app.zettelkasten-mobile-collapsed #page-view.zettelkasten-mobile-content-expanded'), 'collapsed Zettelkasten should preserve a full-width content layout');
 
 // Command Center smoke: permanent entry, independent workspace, shortcut and command registry.
-const ccSource = fs.readFileSync(path.join(root,'js','31-command-center.js'),'utf8');
+const ccSource = fs.readFileSync(path.join(root,'js', 'features', '31-command-center.js'),'utf8');
 assert.ok(ccSource.includes('Command Center'), 'Command Center module should contain its label');
 assert.ok(ccSource.includes('Central Command Center'), 'Command Center module title missing');
 assert.ok(ccSource.includes('commandCenterCommands'), 'Command Center registry missing');
