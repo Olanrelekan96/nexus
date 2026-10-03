@@ -69,6 +69,40 @@ async def t_boot_clean(browser, base):
     await ctx.close()
 
 
+async def t_esm_module_conversion(browser, base):
+    """Proof-of-concept verification, in a real browser (Node's import() is a different
+    implementation from a browser's module loader -- this is the one check that can't be done any
+    other way). 30-zettelkasten-mobile.js is the one file in the project loaded as a real ES
+    module (<script type="module">) rather than a classic script sharing the global scope.
+    Confirms: no console errors from the module loading/running correctly alongside 36 classic
+    scripts; the classic-script bridge (28-zettelkasten.js calling two of this module's exports as
+    bare globals, since it can't `import`) actually works; and real encapsulation actually holds --
+    two more functions are exported from the module (collapseZettelkastenMobile,
+    expandZettelkastenMobile) but deliberately NOT bridged onto window, since nothing outside this
+    file currently needs them that way, and before this conversion every function in every file was
+    an accidental global whether anything used it externally or not."""
+    ctx, page = await new_page(browser, base); c = Ctx(page)
+    await boot(page, base)
+    result = await page.evaluate("""() => ({
+        moduleTagCount: document.querySelectorAll('script[type="module"][src*="30-zettelkasten-mobile"]').length,
+        bridgedApply: typeof window.applyZettelkastenMobileMode,
+        bridgedClear: typeof window.clearZettelkastenMobileVisualState,
+        privateWire: typeof window.wireZettelkastenMobile,
+        privateCollapse: typeof window.collapseZettelkastenMobile,
+        privateExpand: typeof window.expandZettelkastenMobile,
+        privateLoadPref: typeof window.loadZettelkastenMobilePreference
+    })""")
+    check(result["moduleTagCount"] == 1, "expected exactly one <script type=\"module\"> tag for 30-zettelkasten-mobile.js: %s" % result)
+    check(result["bridgedApply"] == "function", "the classic-script bridge for applyZettelkastenMobileMode must work in a real browser")
+    check(result["bridgedClear"] == "function", "the classic-script bridge for clearZettelkastenMobileVisualState must work in a real browser")
+    check(result["privateWire"] == "undefined", "wireZettelkastenMobile must be real module-private, not a window global")
+    check(result["privateCollapse"] == "undefined", "collapseZettelkastenMobile is exported but deliberately not window-bridged -- real encapsulation, not just every function happening to be reachable")
+    check(result["privateExpand"] == "undefined", "expandZettelkastenMobile is exported but deliberately not window-bridged")
+    check(result["privateLoadPref"] == "undefined", "loadZettelkastenMobilePreference must be real module-private")
+    check(not c.errors, c.errors)
+    await ctx.close()
+
+
 async def t_nav_crawl(browser, base):
     ctx, page = await new_page(browser, base); c = Ctx(page)
     page.on("dialog", lambda d: asyncio.ensure_future(d.dismiss()))
@@ -1173,7 +1207,7 @@ async def t_three_devices_share_one_drive_file(browser, base):
     await ctx.close()
 
 
-TESTS = [t_boot_clean, t_nav_crawl, t_footnotes, t_daily_calendar_31st, t_tasks_recurrence, t_flashcards_typing_guard, t_undo_guard, t_multi_select_bulk_delete,
+TESTS = [t_boot_clean, t_esm_module_conversion, t_nav_crawl, t_footnotes, t_daily_calendar_31st, t_tasks_recurrence, t_flashcards_typing_guard, t_undo_guard, t_multi_select_bulk_delete,
          t_tabs_persist, t_offline_first_visit, t_passcode_launch_policy, t_data_health_attachment_integrity, t_backup_restore_and_encrypted, t_backup_restore_full_fidelity, t_schema_version_matrix, t_mobile_layout, t_xss_sweep, t_find_replace_literal, t_formatting_and_attachments_persist,
          t_load_failure_never_overwrites, t_flush_before_load_is_harmless, t_typing_autosaves_without_blur, t_passcode_set_failure_keeps_data, t_passcode_removal_failure_keeps_lock,
          t_trashed_pages_are_not_backlinks, t_task_group_labels_are_text, t_saved_view_cancel_is_isolated, t_xss_deep_views, t_settings_round_trip, t_settings_passcode_rows_persist, t_drive_sync_pauses_while_locked,

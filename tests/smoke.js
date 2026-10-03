@@ -3,6 +3,7 @@ const path = require('path');
 const cp = require('child_process');
 const assert = require('assert');
 const vm = require('vm');
+const { pathToFileURL } = require('url');
 const coreSource = fs.readFileSync(path.join(__dirname, '..', 'js', 'core', '00-state-and-helpers.js'), 'utf8');
 
 const root = path.resolve(__dirname, '..');
@@ -539,30 +540,46 @@ assert.ok(index.includes('zettelkasten-mobile-reopen'), 'Zettelkasten mobile reo
 assert.ok(index.includes('zettelkasten-mobile-collapse'), 'Zettelkasten mobile collapse control missing');
 
 // Focused runtime smoke test for independent collapse/expand persistence.
-const mobileCtx = {
-  console, setTimeout, localStorage:{_v:null,getItem(){return this._v;},setItem(k,v){this._v=v;}},
-  window:{matchMedia:()=>({matches:true}),addEventListener:()=>{}},
-  zettelkastenVisible:true
-};
+// 30-zettelkasten-mobile.js is a genuine ES module (see its <script
+// type="module"> tag in index.html) -- the one file in the project not
+// loaded as a classic script sharing the global scope. vm.runInContext
+// (which parses source as a plain script) can no longer load it: `export`
+// is a syntax error outside real module parsing, and even past that, a
+// module's top-level declarations don't attach to the vm context object the
+// way a classic script's do -- only a real import resolves them, onto a
+// namespace object, which is what makes dynamic import() the correct way to
+// runtime-test it rather than a workaround for the old approach.
+// Everything from here to the end of the file runs inside this async IIFE
+// (matching the one other async test in tests/regressions.js) because
+// import() is inherently async and this file has no "type": "module" of its
+// own (it's a CommonJS script) to allow top-level await.
+(async () => {
 const makeEl = () => ({ style:{}, attrs:{}, classList:{s:new Set(), add(...xs){xs.forEach(x=>this.s.add(x));}, remove(...xs){xs.forEach(x=>this.s.delete(x));}, toggle(x,on){if(on)this.s.add(x);else this.s.delete(x);}, contains(x){return this.s.has(x);}}, setAttribute(k,v){this.attrs[k]=v;}, getAttribute(k){return this.attrs[k];}, addEventListener(){}, textContent:'', title:''});
-mobileCtx.document={addEventListener(){}, getElementById(id){return this._els[id] || null;}, _els:{}};
-['app','zettelkasten-view','page-view','zettelkasten-mobile-backdrop','zettelkasten-mobile-reopen','zettelkasten-mobile-collapse','zettelkasten-mobile-close'].forEach(id=>mobileCtx.document._els[id]=makeEl());
-vm.createContext(mobileCtx);
-vm.runInContext(zkMobile, mobileCtx, {filename:'30-zettelkasten-mobile.js'});
-mobileCtx.zettelkastenVisible = true;
-mobileCtx.applyZettelkastenMobileMode();
-assert.ok(mobileCtx.document._els['app'].classList.contains('zettelkasten-mobile-active'), 'Zettelkasten should enter mobile mode');
-assert.ok(mobileCtx.document._els['app'].classList.contains('zettelkasten-mobile-drawer-open'), 'Zettelkasten should open as a mobile drawer');
-mobileCtx.collapseZettelkastenMobile();
-assert.ok(mobileCtx.document._els['app'].classList.contains('zettelkasten-mobile-collapsed'), 'collapse should hide the mobile drawer');
-assert.strictEqual(mobileCtx.localStorage._v, '1', 'collapsed state should persist');
-assert.ok(mobileCtx.document._els['page-view'].classList.contains('visible'), 'collapsed state should reveal the editor/content');
-assert.ok(mobileCtx.document._els['page-view'].classList.contains('zettelkasten-mobile-content-expanded'), 'collapsed state should expand content area');
-mobileCtx.expandZettelkastenMobile();
-assert.ok(!mobileCtx.document._els['app'].classList.contains('zettelkasten-mobile-collapsed'), 'expand should reopen the mobile drawer');
-assert.strictEqual(mobileCtx.localStorage._v, '0', 'expanded state should persist');
-assert.ok(!mobileCtx.document._els['app'].classList.contains('sidebar-collapsed'), 'Zettelkasten collapse must not alter main sidebar state');
+const _els = {};
+['app','zettelkasten-view','page-view','zettelkasten-mobile-backdrop','zettelkasten-mobile-reopen','zettelkasten-mobile-collapse','zettelkasten-mobile-close'].forEach(id=>_els[id]=makeEl());
+// A module reads ambient globals the same way a classic script does (window
+// is the same global object either way) -- set up the fakes on Node's real
+// global before importing, then clean up right after so nothing here leaks
+// into the plain string-content checks that follow.
+global.localStorage = {_v:null,getItem(){return this._v;},setItem(k,v){this._v=v;}};
+global.window = {matchMedia:()=>({matches:true}),addEventListener:()=>{}};
+global.document = {addEventListener(){}, getElementById(id){return _els[id] || null;}};
+global.zettelkastenVisible = true;
+const zkModule = await import(pathToFileURL(path.join(root,'js','features','30-zettelkasten-mobile.js')).href);
+zkModule.applyZettelkastenMobileMode();
+assert.ok(_els['app'].classList.contains('zettelkasten-mobile-active'), 'Zettelkasten should enter mobile mode');
+assert.ok(_els['app'].classList.contains('zettelkasten-mobile-drawer-open'), 'Zettelkasten should open as a mobile drawer');
+zkModule.collapseZettelkastenMobile();
+assert.ok(_els['app'].classList.contains('zettelkasten-mobile-collapsed'), 'collapse should hide the mobile drawer');
+assert.strictEqual(global.localStorage._v, '1', 'collapsed state should persist');
+assert.ok(_els['page-view'].classList.contains('visible'), 'collapsed state should reveal the editor/content');
+assert.ok(_els['page-view'].classList.contains('zettelkasten-mobile-content-expanded'), 'collapsed state should expand content area');
+zkModule.expandZettelkastenMobile();
+assert.ok(!_els['app'].classList.contains('zettelkasten-mobile-collapsed'), 'expand should reopen the mobile drawer');
+assert.strictEqual(global.localStorage._v, '0', 'expanded state should persist');
+assert.ok(!_els['app'].classList.contains('sidebar-collapsed'), 'Zettelkasten collapse must not alter main sidebar state');
 assert.ok(fs.readFileSync(path.join(root,'css','styles.css'),'utf8').includes('#app.zettelkasten-mobile-collapsed #page-view.zettelkasten-mobile-content-expanded'), 'collapsed Zettelkasten should preserve a full-width content layout');
+delete global.localStorage; delete global.window; delete global.document; delete global.zettelkastenVisible;
 
 // Command Center smoke: permanent entry, independent workspace, shortcut and command registry.
 const ccSource = fs.readFileSync(path.join(root,'js', 'features', '31-command-center.js'),'utf8');
@@ -580,3 +597,7 @@ const swCode = fs.readFileSync(path.join(root,'sw.js'),'utf8');
 assert.ok(swCode.includes("CACHE='nexus-shell-v5'"), 'mobile sidebar update must bump the PWA cache generation');
 assert.ok(swCode.includes("fetch(req,{cache:'no-store'})"), 'PWA fetch must revalidate updated security assets');
 assert.ok(index.includes('09-security-lock.js?v=20260919-passcode-v7-true-launch-off'), 'security script must be cache-busted for the passcode launch policy repair');
+})().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

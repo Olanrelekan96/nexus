@@ -482,11 +482,11 @@ function renderDailyCalendarWidget(dailyPages){
 }
 document.getElementById('toggle-daily-view').onclick = toggleDailyViewMode;
 
-function toast(msg){
+function toast(msg, ms){
   var t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer = setTimeout(function(){ t.classList.remove('show'); }, 2200);
+  t._timer = setTimeout(function(){ t.classList.remove('show'); }, ms || 2200);
 }
 
 /* ============================================================

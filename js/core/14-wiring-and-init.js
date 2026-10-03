@@ -304,8 +304,8 @@ function bootNotebook(){
       gdriveGetTokenSilently(function(){
         startGdriveAutoSyncTimer();
         runGdriveSyncCycle();
-      }, function(){
-        setGdriveAutoSyncStatus(gdriveAuthExpired()
+      }, function(reason){
+        setGdriveAutoSyncStatus(reason === 'network' ? gdriveNetworkStatusText() : gdriveAuthExpired()
           ? 'Drive connection expired after ' + gdriveAuthTtlHours() + 'h — click "Sync now" to reconnect.'
           : 'Needs sign-in — click "Sync now" to reconnect.');
       });

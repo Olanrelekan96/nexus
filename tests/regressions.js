@@ -811,7 +811,97 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
   assert.strictEqual(byId['noblob-id'].problem, 'unreadable');
   assert.strictEqual(byId['throws-id'].problem, 'unreadable');
 
-  console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard, notebook schema versioning, large-page render index & fragment batching, add block above/below menu, multi-block selection & bulk delete, footnote model caching, target=_blank rel=noopener guard, backupFormatVersion, cross-version migration matrix, attachment integrity checker.');
+  /* --- Google Drive failure classification. A user on a carrier that blocks Google (works on one
+     mobile network, needs a VPN on another) saw "Could not reach Google Drive just now -- will
+     retry." for EVERY failure: a blocked network, Google answering 403, or a bug thrown inside the
+     merge. "Will retry" is misleading for the first (retrying never helps), and each needs
+     different advice. Failures are tagged at the fetch itself (gdriveFetch) rather than inferred
+     from the error type, because a plain coding bug also throws TypeError -- classifying by type
+     would report a bug as "your network blocks Google". */
+  {
+    const bsrc = read('js/sync/06-backup-sync.js');
+    const names = ['gdriveFetch', 'gdriveHttpError', 'gdriveFailureKind', 'gdriveNetworkStatusText',
+      'gdriveNetworkToastText', 'gdriveFailureStatus', 'gdriveFailureToast'];
+    const code = names.map((n) => extractFn(bsrc, n)).join('\n');
+
+    /* fetch itself rejecting = the request could not be completed at all (DNS block, refused, offline). */
+    {
+      const ctx = sandbox(code, { fetch: () => Promise.reject(new TypeError('Failed to fetch')) });
+      let caught = null;
+      try { await ctx.gdriveFetch('https://www.googleapis.com/drive/v3/files'); } catch (e) { caught = e; }
+      assert.ok(caught, 'a rejected fetch must reject gdriveFetch');
+      assert.strictEqual(ctx.gdriveFailureKind(caught), 'network');
+      const status = ctx.gdriveFailureStatus(caught, 'FALLBACK');
+      assert.ok(/block Google/.test(status) && /VPN/.test(status), 'network failure status must explain a blocked network and suggest a VPN/Wi-Fi: ' + status);
+      assert.ok(/VPN/.test(ctx.gdriveFailureToast(caught, 'FALLBACK')), 'network failure toast must carry the same hint');
+    }
+
+    /* Google answering (any status) is NOT a network failure: gdriveFetch must pass the response
+       through untouched, and the call sites turn a non-OK one into a status-carrying error. */
+    {
+      const ctx = sandbox(code, { fetch: () => Promise.resolve({ ok: false, status: 403 }) });
+      const res = await ctx.gdriveFetch('https://www.googleapis.com/drive/v3/files');
+      assert.strictEqual(res.status, 403, 'an HTTP error response must resolve, not be rewritten as a network failure');
+      const e403 = ctx.gdriveHttpError('Drive fetch', { status: 403 });
+      assert.strictEqual(e403.message, 'Drive fetch failed: 403', 'the original error text is kept');
+      assert.strictEqual(ctx.gdriveFailureKind(e403), 'http');
+      assert.ok(/refused the request \(HTTP 403\)/.test(ctx.gdriveFailureStatus(e403, 'FALLBACK')));
+      assert.ok(/refused the request \(HTTP 401\)/.test(ctx.gdriveFailureStatus(ctx.gdriveHttpError('Drive fetch', { status: 401 }), 'FALLBACK')));
+      const s500 = ctx.gdriveFailureStatus(ctx.gdriveHttpError('Drive upload', { status: 500 }), 'FALLBACK');
+      assert.ok(/HTTP 500/.test(s500) && /will retry/.test(s500), 'a server error is worth retrying, and says so: ' + s500);
+      assert.ok(!/VPN/.test(s500) && !/VPN/.test(ctx.gdriveFailureStatus(e403, 'FALLBACK')), 'an HTTP error means Google was reached -- a VPN hint would be wrong');
+      assert.strictEqual(ctx.gdriveFailureToast(e403, 'Could not save the backup to Google Drive.'), 'Could not save the backup to Google Drive (HTTP 403).');
+    }
+
+    /* The hazard this design exists to avoid: an ordinary coding bug throws TypeError too, and must
+       keep the old generic message rather than be reported as a blocked network. */
+    {
+      const ctx = sandbox(code, { fetch: () => Promise.resolve({ ok: true }) });
+      const bug = new TypeError("Cannot read properties of undefined (reading 'pages')");
+      assert.strictEqual(ctx.gdriveFailureKind(bug), 'other', 'a TypeError that did not come from a failed fetch is not a network failure');
+      assert.strictEqual(ctx.gdriveFailureStatus(bug, 'FALLBACK'), 'FALLBACK');
+      assert.strictEqual(ctx.gdriveFailureStatus(undefined, 'FALLBACK'), 'FALLBACK');
+      assert.strictEqual(ctx.gdriveFailureToast(bug, 'FALLBACK'), 'FALLBACK');
+    }
+
+    /* Google's own sign-in script failing to load is the network, not "needs sign-in": the silent
+       token path must say which, so the status line doesn't send someone in circles clicking On. */
+    {
+      const tagged = new Error('Could not load https://accounts.google.com/gsi/client'); tagged.networkFailure = true;
+      const reasons = [];
+      const ctx = sandbox(extractFn(bsrc, 'gdriveGetTokenSilently') + '\n' + extractFn(bsrc, 'gdriveFailureKind'), {
+        gdriveAuthStillValid: () => true,
+        ensureGoogleIdentity: () => Promise.reject(tagged)
+      });
+      ctx.gdriveGetTokenSilently(() => {}, (reason) => reasons.push(reason));
+      await new Promise((r) => setTimeout(r, 0));
+      assert.deepStrictEqual(reasons, ['network']);
+      const reasons2 = [];
+      const ctx2 = sandbox(extractFn(bsrc, 'gdriveGetTokenSilently') + '\n' + extractFn(bsrc, 'gdriveFailureKind'), {
+        gdriveAuthStillValid: () => false,
+        ensureGoogleIdentity: () => Promise.reject(tagged)
+      });
+      ctx2.gdriveGetTokenSilently(() => {}, (reason) => reasons2.push(reason));
+      await new Promise((r) => setTimeout(r, 0));
+      assert.deepStrictEqual(reasons2, [undefined], 'never-connected/expired must still take the ordinary sign-in path, without contacting Google');
+    }
+
+    /* Wiring: nothing may bypass the classification. */
+    assert.ok(!/(^|[^A-Za-z])fetch\('https:\/\/www\.googleapis\.com\/(drive|upload)/m.test(bsrc),
+      'every Drive API call must go through gdriveFetch, or its network failures are not tagged');
+    assert.ok(!/new Error\('Drive (fetch|upload|create) failed/.test(bsrc),
+      'Drive HTTP failures must be built with gdriveHttpError so they carry their status');
+    assert.ok(/gdriveFailureStatus\(err, 'Could not reach Google Drive just now — will retry\.'\)/.test(bsrc),
+      'the sync cycle must report the classified reason, not one message for everything');
+    assert.ok(/gdriveFindSyncFile\(function\(fileId, findErr\)/.test(bsrc) && (bsrc.match(/\.catch\(function\(err\)\{ cb\(null, err\); \}\)/g) || []).length === 2,
+      'finding/creating the sync file must hand its failure reason back to the cycle');
+    assert.ok(/function\(reason\)\{[\s\S]{0,260}reason === 'network' \? gdriveNetworkStatusText\(\)/.test(bsrc),
+      'the periodic sync path must not say "needs sign-in" when the sign-in script could not load');
+    assert.ok(/function\(reason\)\{\s*\n\s*setGdriveAutoSyncStatus\(reason === 'network' \? gdriveNetworkStatusText\(\)/.test(read('js/core/14-wiring-and-init.js')),
+      'the startup reconnect path must make the same distinction');
+  }
+
+  console.log('Nexus regression tests passed: escapeHtml, recurrence clamping, calendar anchor, flashcards, undo guard, tabs, service worker, no startup third-party requests, backlinks/trash, task-label XSS, saved-view isolation, silent background sync, sync change-tracking & tie-breaks, version history & conflict store, accessibility names, known-system-page Drive deduplication and self-healing, duplicate-function guard, notebook schema versioning, large-page render index & fragment batching, add block above/below menu, multi-block selection & bulk delete, footnote model caching, target=_blank rel=noopener guard, backupFormatVersion, cross-version migration matrix, attachment integrity checker, Google Drive failure classification.');
 })().catch((err) => {
   console.error(err);
   process.exitCode = 1;

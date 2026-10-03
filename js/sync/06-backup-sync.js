@@ -958,10 +958,60 @@ function loadExternalScriptOnce(src){
     var s = document.createElement('script');
     s.src = src; s.async = true;
     s.onload = function(){ resolve(); };
-    s.onerror = function(){ delete googleScriptPromises[src]; s.parentNode && s.parentNode.removeChild(s); reject(new Error('Could not load ' + src)); };
+    s.onerror = function(){ delete googleScriptPromises[src]; s.parentNode && s.parentNode.removeChild(s); var e = new Error('Could not load ' + src); e.networkFailure = true; reject(e); };
     document.head.appendChild(s);
   });
   return googleScriptPromises[src];
+}
+/* ---- Why a request to Google failed ----
+   The status line used to say the same thing ("could not reach Google Drive — will retry")
+   whether the network blocked Google, Google answered with an error, or a bug threw somewhere in
+   the merge — three problems with three different fixes, and "will retry" is actively misleading
+   for the first one: retrying never helps a network that blocks Google (some mobile carriers do;
+   a VPN or Wi-Fi gets around it). fetch() only rejects when the request could not be completed at
+   all (DNS failure, connection refused/reset, offline, blocked), and resolves normally with a
+   non-OK status when Google actually answered — so failures are tagged right at the fetch, not
+   inferred later from the error's type: a plain coding bug also throws TypeError, and would
+   otherwise be reported as "your network blocks Google". */
+function gdriveFetch(url, opts){
+  return fetch(url, opts).catch(function(err){
+    var e = new Error('Could not reach Google: ' + (err && err.message ? err.message : 'request failed'));
+    e.networkFailure = true;
+    throw e;
+  });
+}
+function gdriveHttpError(what, res){
+  var e = new Error(what + ' failed: ' + res.status);
+  e.httpStatus = res.status;
+  return e;
+}
+function gdriveFailureKind(err){
+  if(err && typeof err.httpStatus === 'number') return 'http';
+  if(err && err.networkFailure === true) return 'network';
+  return 'other';
+}
+function gdriveNetworkStatusText(){
+  return 'Couldn\'t connect to Google. Some networks, including certain mobile carriers, block Google services — try Wi-Fi or a VPN. Will retry.';
+}
+function gdriveNetworkToastText(){
+  return 'Could not reach Google — check your connection. If your network blocks Google, try Wi-Fi or a VPN.';
+}
+function gdriveFailureStatus(err, fallback){
+  var kind = gdriveFailureKind(err);
+  if(kind === 'network') return gdriveNetworkStatusText();
+  if(kind === 'http'){
+    if(err.httpStatus === 401 || err.httpStatus === 403){
+      return 'Google Drive refused the request (HTTP ' + err.httpStatus + ') — your sign-in or the Drive permissions may need attention.';
+    }
+    return 'Google Drive returned an error (HTTP ' + err.httpStatus + ') — will retry.';
+  }
+  return fallback;
+}
+function gdriveFailureToast(err, fallback){
+  var kind = gdriveFailureKind(err);
+  if(kind === 'network') return gdriveNetworkToastText();
+  if(kind === 'http') return fallback.replace(/\.$/, '') + ' (HTTP ' + err.httpStatus + ').';
+  return fallback;
 }
 function ensureGoogleIdentity(){
   if(window.google && google.accounts && google.accounts.oauth2) return Promise.resolve();
@@ -976,7 +1026,7 @@ function gdriveEnsurePicker(cb){
   ensureGoogleApi().then(function(){
     gapi.load('picker', function(){ gdrivePickerLoaded = true; cb(); });
   }, function(){
-    toast('Could not reach Google — check your connection and try again.');
+    toast(gdriveNetworkToastText(), 6000);
   });
 }
 
@@ -1001,15 +1051,15 @@ function gdriveOpenPicker(){
 
 function gdriveDownloadAndRestore(fileId){
   toast('Fetching file from Google Drive…');
-  fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
+  gdriveFetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
     headers: { 'Authorization': 'Bearer ' + gdriveAccessToken }
   }).then(function(res){
-    if(!res.ok) throw new Error('Drive fetch failed: ' + res.status);
+    if(!res.ok) throw gdriveHttpError('Drive fetch', res);
     return res.text();
   }).then(function(text){
     restoreFromJsonText(text);
   }).catch(function(err){
-    toast('Could not download that file from Google Drive.');
+    toast(gdriveFailureToast(err, 'Could not download that file from Google Drive.'), 6000);
   });
 }
 
@@ -1026,14 +1076,15 @@ function gdriveDownloadAndRestore(fileId){
    only fall back to the interactive consent screen if that silent
    attempt itself comes back with an error (e.g. the Google session
    cookie is also gone). Past the window, go straight to consent. */
-function gdriveWithToken(onReady){
+function gdriveWithToken(onReady, onNetworkFail){
   if(gdriveBlockedByOrigin()) return;
   if(!gdriveCredentialsConfigured()){
     alert('Google Drive import/export needs a Client ID and API key from Google Cloud Console first. See the setup notes for this feature.');
     return;
   }
   ensureGoogleIdentity().then(function(){ gdriveWithTokenLoaded(onReady); }, function(){
-    toast('Could not reach Google — check your connection and try again.');
+    toast(gdriveNetworkToastText(), 6000);
+    if(onNetworkFail) onNetworkFail();
   });
 }
 function gdriveWithTokenLoaded(onReady){
@@ -1097,7 +1148,7 @@ function gdriveUploadBackup(){
       'Content-Type: application/json\r\n\r\n' +
       json + '\r\n' +
       '--' + boundary + '--';
-    return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    return gdriveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
       headers: {
         'Authorization': 'Bearer ' + gdriveAccessToken,
@@ -1106,14 +1157,14 @@ function gdriveUploadBackup(){
       body: body
     });
   }).then(function(res){
-    if(!res.ok) throw new Error('Drive upload failed: ' + res.status);
+    if(!res.ok) throw gdriveHttpError('Drive upload', res);
     return res.json();
   }).then(function(file){
     toast('Backup saved to Google Drive: ' + fname);
     snapshotVersion('manual backup (Google Drive)', {kind:'backup'});
   }).catch(function(err){
     if(err && err.message === 'export-cancelled') return; /* already toasted, or silently cancelled */
-    toast('Could not save the backup to Google Drive.');
+    toast(gdriveFailureToast(err, 'Could not save the backup to Google Drive.'), 6000);
   });
 }
 
@@ -1245,7 +1296,7 @@ function setGdriveAuthTtl(hours){
 function gdriveGetTokenSilently(onReady, onFail){
   /* Never-connected (or lapsed) means: don't load or contact Google at all. */
   if(!gdriveAuthStillValid()){ onFail && onFail(); return; }
-  ensureGoogleIdentity().then(function(){ gdriveGetTokenSilentlyLoaded(onReady, onFail); }, function(){ onFail && onFail(); });
+  ensureGoogleIdentity().then(function(){ gdriveGetTokenSilentlyLoaded(onReady, onFail); }, function(err){ onFail && onFail(gdriveFailureKind(err)); });
 }
 function gdriveGetTokenSilentlyLoaded(onReady, onFail){
   /* The whole point of the setting: once the window since the last
@@ -1343,18 +1394,18 @@ function gdriveCreateSyncFile(cb){
       'Content-Type: application/json\r\n\r\n' +
       body + '\r\n' +
       '--' + boundary + '--';
-    return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    return gdriveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + gdriveAccessToken, 'Content-Type': 'multipart/related; boundary=' + boundary },
       body: multipartBody
     });
   }).then(function(res){
-    if(!res.ok) throw new Error('Drive create failed: ' + res.status);
+    if(!res.ok) throw gdriveHttpError('Drive create', res);
     return res.json();
   }).then(function(file){
     localStorage.setItem(GDRIVE_SYNC_FILEID_KEY, file.id);
     cb(file.id);
-  }).catch(function(){ cb(null); });
+  }).catch(function(err){ cb(null, err); });
 }
 
 /* drive.file scope only ever sees files this app itself created (or
@@ -1364,7 +1415,7 @@ function gdriveCreateSyncFile(cb){
 function gdriveFindSyncFile(cb, forceRelist){
   var cachedId = !forceRelist && localStorage.getItem(GDRIVE_SYNC_FILEID_KEY);
   if(cachedId){ cb(cachedId); return; }
-  fetch('https://www.googleapis.com/drive/v3/files?q=' +
+  gdriveFetch('https://www.googleapis.com/drive/v3/files?q=' +
     encodeURIComponent("name='" + GDRIVE_SYNC_FILENAME + "' and trashed=false") +
     '&spaces=drive&fields=files(id,name)', {
     headers: { 'Authorization': 'Bearer ' + gdriveAccessToken }
@@ -1375,7 +1426,7 @@ function gdriveFindSyncFile(cb, forceRelist){
     } else {
       gdriveCreateSyncFile(cb);
     }
-  }).catch(function(){ cb(null); });
+  }).catch(function(err){ cb(null, err); });
 }
 
 /* Resolves {data, needsPasscode, error}. data is the plain notebook
@@ -1385,10 +1436,10 @@ function gdriveFindSyncFile(cb, forceRelist){
    the caller should show a status, not fail loudly, since this is
    the normal shape of "just reopened the tab" before a click. */
 function gdrivePullSyncState(fileId){
-  return fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
+  return gdriveFetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', {
     headers: { 'Authorization': 'Bearer ' + gdriveAccessToken }
   }).then(function(res){
-    if(!res.ok) throw new Error('Drive fetch failed: ' + res.status);
+    if(!res.ok) throw gdriveHttpError('Drive fetch', res);
     return res.text();
   }).then(function(text){
     var obj;
@@ -1409,12 +1460,12 @@ function gdrivePullSyncState(fileId){
 
 function gdrivePushSyncState(fileId){
   return buildGdriveSyncBody().then(function(body){
-    return fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
+    return gdriveFetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
       method: 'PATCH',
       headers: { 'Authorization': 'Bearer ' + gdriveAccessToken, 'Content-Type': 'application/json' },
       body: body
     }).then(function(res){
-      if(!res.ok) throw new Error('Drive upload failed: ' + res.status);
+      if(!res.ok) throw gdriveHttpError('Drive upload', res);
       return res;
     });
   });
@@ -1455,8 +1506,8 @@ function gdrivePerformSyncCycle(){
 }
 
 function gdriveRunSyncCycleBody(done){
-  gdriveFindSyncFile(function(fileId){
-    if(!fileId){ setGdriveAutoSyncStatus('Could not reach the Google Drive sync file — will retry.'); done(); return; }
+  gdriveFindSyncFile(function(fileId, findErr){
+    if(!fileId){ setGdriveAutoSyncStatus(gdriveFailureStatus(findErr, 'Could not reach the Google Drive sync file — will retry.')); done(); return; }
     gdrivePullSyncState(fileId).then(function(result){
       if(result.needsPasscode){
         setGdriveAutoSyncStatus('Encrypted sync data found — click "Sync now" to unlock it for this session.');
@@ -1499,8 +1550,8 @@ function gdriveRunSyncCycleBody(done){
       return gdrivePushSyncState(fileId).then(function(){
         setGdriveAutoSyncStatus('Last synced ' + timeAgo(syncTs) + '.');
       });
-    }).catch(function(){
-      setGdriveAutoSyncStatus('Could not reach Google Drive just now — will retry.');
+    }).catch(function(err){
+      setGdriveAutoSyncStatus(gdriveFailureStatus(err, 'Could not reach Google Drive just now — will retry.'));
     }).then(done);
   });
 }
@@ -1517,8 +1568,9 @@ function runGdriveSyncCycle(){
   if(typeof appLocked !== 'undefined' && appLocked) return;
   if(!gdriveCredentialsConfigured() || gdriveBlockedByOrigin(true)) return;
   if(gdriveAccessToken && gdriveAuthStillValid()){ gdrivePerformSyncCycle(); return; }
-  gdriveGetTokenSilently(gdrivePerformSyncCycle, function(){
-    setGdriveAutoSyncStatus(gdriveAuthExpired()
+  gdriveGetTokenSilently(gdrivePerformSyncCycle, function(reason){
+    /* Google's own sign-in script couldn't load: that's the network, not a sign-in problem. */
+    setGdriveAutoSyncStatus(reason === 'network' ? gdriveNetworkStatusText() : gdriveAuthExpired()
       ? 'Drive connection expired after ' + gdriveAuthTtlHours() + 'h — click "Sync now" to reconnect.'
       : 'Needs sign-in — click "On" again to reconnect.');
     updateGdriveAuthTtlStatus();
@@ -1537,7 +1589,7 @@ function gdriveSyncNow(){
   ensureGdriveSyncMode().then(function(mode){
     if(mode === 'cancelled') return;
     setGdriveAutoSyncStatus('Syncing…');
-    gdriveWithToken(gdrivePerformSyncCycle);
+    gdriveWithToken(gdrivePerformSyncCycle, function(){ setGdriveAutoSyncStatus(gdriveNetworkStatusText()); });
   });
 }
 

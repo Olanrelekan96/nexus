@@ -7,7 +7,45 @@
  * the hub becomes an off-canvas drawer over the editor/content area.
  * The user's collapsed/expanded preference is persisted locally and survives
  * navigation and reloads. Desktop keeps the normal full-workspace behavior.
- * ============================================================ */
+ *
+ * PROOF-OF-CONCEPT: this is the one file in Nexus loaded as a real ES module
+ * (see its <script type="module"> tag in index.html) rather than a classic
+ * script sharing the project's one global scope. Chosen specifically because
+ * its only top-level side effect is a DOMContentLoaded listener -- module
+ * scripts are always deferred (they run only after every classic script on
+ * the page has finished, regardless of tag position), which would silently
+ * break any file whose top-level code needs to run at a precise point
+ * relative to other scripts. This file doesn't: DOMContentLoaded fires at the
+ * same logical moment whether or not the listener that registered for it
+ * came from a module, so there's no load-order hazard here. A file with
+ * synchronous load-time side effects (several do -- see the top-level
+ * `initNexusTabs()` call in 32-tabs.js, which wraps openPage/renderAll
+ * immediately on load and would install that wrap too late if deferred)
+ * would need its boot-timing restructured first, not just its script tag.
+ *
+ * What's genuinely different here, not just renamed: `export` is now a real,
+ * enforced contract instead of a naming convention. Four functions are
+ * exported -- the two 28-zettelkasten.js actually calls as a classic script
+ * (bridged onto `window` below, since a module's own declarations don't
+ * auto-attach there the way a classic script's do), plus two more
+ * (collapse/expand) that are genuinely meaningful standalone behavior and
+ * worth being independently testable even though nothing outside this file
+ * currently calls them -- an ES module can have a real public API wider than
+ * "whatever other files happen to reach into today", which a classic script
+ * never could. Everything else (the two remaining helpers, the module's own
+ * state) is now truly private: nothing else in the app can collide with
+ * those names anymore, where before this conversion anything could.
+ *
+ * What this ISN'T a full test of: this module still reads two ambient
+ * globals it doesn't import -- `zettelkastenVisible` and
+ * `hideZettelkastenView`, both defined in 28-zettelkasten.js, a classic
+ * script. A module can still read those (window is the same global object
+ * either way), but it can't get a real `import` of them until that file is
+ * converted too -- real static dependency tracking only starts once both
+ * sides of a relationship are modules, which is exactly the "gradual"
+ * part: converting one file at a time gets you real encapsulation for that
+ * file immediately, but not the full benefit (tree-shaking, a real
+ * dependency graph) until its neighbors follow. */
 "use strict";
 
 var ZETTELKASTEN_MOBILE_KEY = 'nexus_zettelkasten_mobile_collapsed';
@@ -31,7 +69,7 @@ function setZettelkastenMobileCollapsed(collapsed, persist){
   }
   applyZettelkastenMobileMode();
 }
-function clearZettelkastenMobileVisualState(){
+export function clearZettelkastenMobileVisualState(){
   var app=document.getElementById('app');
   var view=document.getElementById('zettelkasten-view');
   var page=document.getElementById('page-view');
@@ -43,7 +81,7 @@ function clearZettelkastenMobileVisualState(){
   if(backdrop){backdrop.style.display='none';backdrop.setAttribute('aria-hidden','true');}
   if(reopen){reopen.style.display='none';reopen.setAttribute('aria-expanded','false');}
 }
-function applyZettelkastenMobileMode(){
+export function applyZettelkastenMobileMode(){
   var app=document.getElementById('app');
   var view=document.getElementById('zettelkasten-view');
   var page=document.getElementById('page-view');
@@ -90,11 +128,11 @@ function applyZettelkastenMobileMode(){
   }
   if(close){close.style.display='inline-flex';}
 }
-function collapseZettelkastenMobile(){
+export function collapseZettelkastenMobile(){
   if(!zettelkastenMobileViewport()) return;
   setZettelkastenMobileCollapsed(true,true);
 }
-function expandZettelkastenMobile(){
+export function expandZettelkastenMobile(){
   if(!zettelkastenMobileViewport()) return;
   setZettelkastenMobileCollapsed(false,true);
 }
@@ -121,3 +159,16 @@ function wireZettelkastenMobile(){
   applyZettelkastenMobileMode();
 }
 if(typeof document!=='undefined'&&document.addEventListener) document.addEventListener('DOMContentLoaded',wireZettelkastenMobile);
+
+/* Classic-script bridge: 28-zettelkasten.js calls these two directly as bare
+   globals, same as it would call any other file's function in this project
+   -- and it can't `import` them, since it isn't a module itself. A module's
+   own top-level declarations don't auto-attach to `window` the way a
+   classic script's do, so without this they'd simply be undefined from the
+   caller's side despite being correctly exported. This explicit bridge is
+   exactly the shape every other converted file would need until enough of
+   its callers are also modules to talk in real imports instead. */
+if(typeof window!=='undefined'){
+  window.applyZettelkastenMobileMode=applyZettelkastenMobileMode;
+  window.clearZettelkastenMobileVisualState=clearZettelkastenMobileVisualState;
+}
