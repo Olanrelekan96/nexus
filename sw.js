@@ -1,4 +1,4 @@
-var CACHE='nexus-shell-v5';
+var CACHE='nexus-shell-v6';
 /* Precache the whole app shell at install time, not lazily on a later visit: a
    first visit followed immediately by going offline must still open the app. The
    asset list is read from index.html itself so it can never drift from the real

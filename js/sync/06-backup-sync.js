@@ -656,18 +656,18 @@ function gdriveAuthTtlMs(){
    the confirm()/prompt() dialogs to re-appear on launch.
 
    This block persists both across reloads:
-   - The passcode is written to sessionStorage (tab-scoped, never on disk)
-     with a configurable deadline (1/6/12/24 h), AND to the same durable
-     'security' IndexedDB store the local passcode lock uses for its own
-     "request on launch" setting (see persistPersistentPasscodeKey /
-     restorePersistentPasscodeKey in 09-security-lock.js). sessionStorage
-     alone only survives a same-tab reload — it's wiped the moment the
-     tab or app actually closes — so without the IndexedDB copy, a real
-     relaunch always looked like a brand-new session and re-prompted for
-     the key regardless of which "remember for…" interval was chosen.
-     Restored silently on load: sessionStorage first (cheap, synchronous),
-     falling back to the IndexedDB copy so the chosen interval actually
-     spans real launches, not just reloads within one open tab.
+   - The passcode is written to sessionStorage (tab-scoped, never ordinary
+     localStorage) with a configurable deadline (1/6/12/24 h), AND to the
+     durable 'security' IndexedDB store used by the local passcode lock.
+     sessionStorage alone only survives a same-tab reload — it's wiped the
+     moment the tab or app actually closes — so without the IndexedDB copy,
+     a real relaunch always looked like a brand-new session and re-prompted
+     for the key regardless of which "remember for…" interval was chosen.
+     The durable copy is AES-GCM encrypted under the device-local notebook
+     DEK; IndexedDB itself is not treated as a secure vault. Restored silently
+     on load: sessionStorage first (cheap, synchronous), falling back to the
+     encrypted IndexedDB copy so the chosen interval actually spans real
+     launches, not just reloads within one open tab.
    - The "I chose plain sync" decision is written to localStorage as a
      standing preference and restored on every load.
 
@@ -678,6 +678,8 @@ var GDRIVE_SYNC_KEY_SESSION_DEFAULT = '24';
 var GDRIVE_SYNC_KEY_SESSION_CHOICES = ['1', '6', '12', '24'];
 var GDRIVE_SYNC_KEY_PERSISTENT_STORE = 'security';
 var GDRIVE_SYNC_KEY_PERSISTENT_KEY = 'gdrive_synckey_persistent_v1';
+var GDRIVE_SYNC_KEY_PERSISTENT_VERSION = 2;
+var GDRIVE_SYNC_KEY_LEGACY_PERSISTENT_VERSION = 1;
 var gdriveSyncKeyUnlockedAt = 0;
 
 function gdriveSyncKeySessionHours(){
@@ -687,24 +689,37 @@ function gdriveSyncKeySessionHours(){
 function gdriveSyncKeySessionMs(){
   return parseInt(gdriveSyncKeySessionHours(), 10) * 60 * 60 * 1000;
 }
-/* Durable counterpart to the sessionStorage copy below. Stores the raw
-   passcode (not a derived key) since it must be reusable to derive the
-   Drive sync file's own PBKDF2 key against whatever salt that file
-   carries. Written to the shared 'security' IndexedDB store already
-   created for the local lock's device-local key (08-edit-dock-attachments.js),
-   gated by the same deadline as the sessionStorage copy. */
-function persistGdriveSyncKeyPersistent(){
-  if(!gdriveSyncPasscode || typeof openAttachmentDb !== 'function') return Promise.resolve(false);
+/* The durable copy is intentionally protected by the same device-local DEK
+   that encrypts the notebook. IndexedDB is not an encrypted vault by itself;
+   storing the raw Drive passcode there would expose the secret to any process
+   or storage inspection that can read this origin's database. The passcode is
+   therefore AES-GCM encrypted at rest under lockCryptoKey. The ciphertext is
+   never included in backups/sync. */
+function persistGdriveSyncKeyPersistent(deadlineOverride){
+  if(!gdriveSyncPasscode || typeof openAttachmentDb !== 'function' || typeof lockCryptoKey === 'undefined' || !lockCryptoKey || typeof encryptWithKey !== 'function'){
+    return Promise.resolve(false);
+  }
   var now = gdriveSyncKeyUnlockedAt || Date.now();
-  var deadline = now + gdriveSyncKeySessionMs();
-  return openAttachmentDb().then(function(db){
-    return new Promise(function(resolve){
-      try{
-        var tx = db.transaction(GDRIVE_SYNC_KEY_PERSISTENT_STORE, 'readwrite');
-        tx.objectStore(GDRIVE_SYNC_KEY_PERSISTENT_STORE).put({v:1, passcode: gdriveSyncPasscode, unlockedAt: now, deadlineAt: deadline}, GDRIVE_SYNC_KEY_PERSISTENT_KEY);
-        tx.oncomplete = function(){ resolve(true); };
-        tx.onerror = tx.onabort = function(){ resolve(false); };
-      }catch(e){ resolve(false); }
+  var requestedDeadline = Number(deadlineOverride);
+  var deadline = Number.isFinite(requestedDeadline) && requestedDeadline > now
+    ? requestedDeadline
+    : now + gdriveSyncKeySessionMs();
+  if(Date.now() >= deadline) return Promise.resolve(false);
+  return encryptWithKey(lockCryptoKey, gdriveSyncPasscode).then(function(payload){
+    return openAttachmentDb().then(function(db){
+      return new Promise(function(resolve){
+        try{
+          var tx = db.transaction(GDRIVE_SYNC_KEY_PERSISTENT_STORE, 'readwrite');
+          tx.objectStore(GDRIVE_SYNC_KEY_PERSISTENT_STORE).put({
+            v:GDRIVE_SYNC_KEY_PERSISTENT_VERSION,
+            payload:payload,
+            unlockedAt:now,
+            deadlineAt:deadline
+          }, GDRIVE_SYNC_KEY_PERSISTENT_KEY);
+          tx.oncomplete = function(){ resolve(true); };
+          tx.onerror = tx.onabort = function(){ resolve(false); };
+        }catch(e){ resolve(false); }
+      });
     });
   }).catch(function(){ return false; });
 }
@@ -723,11 +738,11 @@ function clearGdriveSyncKeyPersistent(){
 }
 /* Only consulted once the sessionStorage copy has already come up empty
    (see restoreGdriveSyncKeySession) — i.e. exactly the real-relaunch
-   case sessionStorage can't cover. No-ops if a passcode is already in
-   memory so it's safe to call speculatively. */
+   case sessionStorage can't cover. Requires the local notebook DEK, which
+   is available whenever bootNotebook() can run. */
 function restoreGdriveSyncKeyPersistent(){
   if(gdriveSyncPasscode) return Promise.resolve(true);
-  if(typeof openAttachmentDb !== 'function') return Promise.resolve(false);
+  if(typeof openAttachmentDb !== 'function' || typeof lockCryptoKey === 'undefined' || !lockCryptoKey || typeof decryptWithKey !== 'function') return Promise.resolve(false);
   return openAttachmentDb().then(function(db){
     return new Promise(function(resolve){
       try{
@@ -738,31 +753,65 @@ function restoreGdriveSyncKeyPersistent(){
       }catch(e){ resolve(null); }
     });
   }).then(function(raw){
-    if(!raw || raw.v !== 1 || typeof raw.passcode !== 'string' || !raw.deadlineAt || Date.now() >= Number(raw.deadlineAt)){
+    if(!raw || !raw.deadlineAt || Date.now() >= Number(raw.deadlineAt)){
       return clearGdriveSyncKeyPersistent().then(function(){ return false; });
     }
-    gdriveSyncPasscode = raw.passcode;
-    gdriveSyncKeyUnlockedAt = Number(raw.unlockedAt) || Date.now();
-    persistGdriveSyncKeySession(); /* refresh the fast sessionStorage copy for this tab too */
-    return true;
+    var deadline = Number(raw.deadlineAt);
+    if(!Number.isFinite(deadline) || deadline <= Date.now()){
+      return clearGdriveSyncKeyPersistent().then(function(){ return false; });
+    }
+    /* v2: encrypted-at-rest Drive passcode. */
+    if(raw.v === GDRIVE_SYNC_KEY_PERSISTENT_VERSION && raw.payload && raw.payload.iv && raw.payload.ct){
+      return decryptWithKey(lockCryptoKey, raw.payload).then(function(passcode){
+        if(typeof passcode !== 'string' || !passcode) throw new Error('invalid remembered sync key');
+        gdriveSyncPasscode = passcode;
+        gdriveSyncKeyUnlockedAt = Number(raw.unlockedAt) || Date.now();
+        return persistGdriveSyncKeySession(deadline, false).then(function(){ return true; });
+      }).catch(function(){ return clearGdriveSyncKeyPersistent().then(function(){ return false; }); });
+    }
+    /* v1 compatibility: earlier builds wrote the raw passcode. Migrate it
+       immediately to encrypted-at-rest v2. If migration cannot complete,
+       do not retain or restore the plaintext secret. */
+    if(raw.v === GDRIVE_SYNC_KEY_LEGACY_PERSISTENT_VERSION && typeof raw.passcode === 'string' && raw.passcode){
+      gdriveSyncPasscode = raw.passcode;
+      gdriveSyncKeyUnlockedAt = Number(raw.unlockedAt) || Date.now();
+      return persistGdriveSyncKeyPersistent(deadline).then(function(migrated){
+        if(!migrated){ gdriveSyncPasscode = null; gdriveSyncKeyUnlockedAt = 0; return false; }
+        return persistGdriveSyncKeySession(deadline, false).then(function(){ return true; });
+      }).catch(function(){ gdriveSyncPasscode = null; gdriveSyncKeyUnlockedAt = 0; return false; });
+    }
+    return clearGdriveSyncKeyPersistent().then(function(){ return false; });
   }).catch(function(){ return false; });
 }
-function persistGdriveSyncKeySession(){
-  if(!gdriveSyncPasscode) return;
+/* Persist the fast tab-scoped copy first, then encrypt and persist the durable
+   copy. deadlineOverride is used during restore so an old remembered window
+   is never accidentally extended just because Settings changed later.
+   persistPersistent=true for normal writes; false during restore migration. */
+function persistGdriveSyncKeySession(deadlineOverride, persistPersistent){
+  if(!gdriveSyncPasscode) return Promise.resolve(false);
+  var now = gdriveSyncKeyUnlockedAt || Date.now();
+  var requestedDeadline = Number(deadlineOverride);
+  var deadline = Number.isFinite(requestedDeadline) && requestedDeadline > now
+    ? requestedDeadline
+    : now + gdriveSyncKeySessionMs();
+  if(Date.now() >= deadline) return Promise.resolve(false);
+  var wroteSession = false;
   try{
-    var now = gdriveSyncKeyUnlockedAt || Date.now();
     sessionStorage.setItem(GDRIVE_SYNC_KEY_SESSION_KEY, JSON.stringify({
-      passcode: gdriveSyncPasscode,
-      unlockedAt: now,
-      deadlineAt: now + gdriveSyncKeySessionMs()
+      v:1,
+      passcode:gdriveSyncPasscode,
+      unlockedAt:now,
+      deadlineAt:deadline
     }));
+    wroteSession = true;
   }catch(e){}
-  persistGdriveSyncKeyPersistent();
+  if(persistPersistent === false) return Promise.resolve(wroteSession);
+  return persistGdriveSyncKeyPersistent(deadline).then(function(ok){ return wroteSession || ok; });
 }
 function clearGdriveSyncKeySession(){
   try{ sessionStorage.removeItem(GDRIVE_SYNC_KEY_SESSION_KEY); }catch(e){}
   try{ localStorage.removeItem(GDRIVE_SYNC_DECLINED_KEY); }catch(e){}
-  clearGdriveSyncKeyPersistent();
+  return clearGdriveSyncKeyPersistent();
 }
 function persistGdriveSyncDeclined(){
   try{ localStorage.setItem(GDRIVE_SYNC_DECLINED_KEY, '1'); }catch(e){}
@@ -771,11 +820,9 @@ function clearGdriveSyncDeclined(){
   try{ localStorage.removeItem(GDRIVE_SYNC_DECLINED_KEY); }catch(e){}
 }
 /* Restores both flags from storage on page load. Must be called from
-   DOMContentLoaded (after currentSettings is available) and before any
-   sync cycle fires its first ensureGdriveSyncMode() check. Returns a
-   Promise now (it used to be synchronous) so callers that need the key
-   in place before proceeding — bootNotebook's silent auto-sync check —
-   can wait on the IndexedDB fallback instead of racing it.            */
+   DOMContentLoaded (after currentSettings and the local lock key are
+   available) and before any sync cycle fires its first ensureGdriveSyncMode()
+   check. Returns a Promise so bootNotebook can wait for the durable lookup. */
 function restoreGdriveSyncKeySession(){
   try{
     if(localStorage.getItem(GDRIVE_SYNC_DECLINED_KEY) === '1'){
@@ -792,11 +839,10 @@ function restoreGdriveSyncKeySession(){
       gdriveSyncKeyUnlockedAt = Number(raw.unlockedAt) || Date.now();
       return Promise.resolve(true);
     }
-    clearGdriveSyncKeySession();
+    try{ sessionStorage.removeItem(GDRIVE_SYNC_KEY_SESSION_KEY); }catch(e){}
   }
   /* The same-tab sessionStorage copy is gone — normal on every real
-     relaunch, not just an expired window. Fall back to the durable
-     IndexedDB copy so the configured hours actually span launches. */
+     relaunch. Fall back to the encrypted IndexedDB copy. */
   return restoreGdriveSyncKeyPersistent();
 }
 /* ---- Settings UI ---- */
@@ -832,7 +878,7 @@ function setGdriveSyncKeySession(hours){
   currentSettings.gdriveSyncKeySessionHours = hours;
   saveSettings(currentSettings);
   setGdriveSyncKeySessionUI();
-  if(gdriveSyncPasscode) persistGdriveSyncKeySession();
+  if(gdriveSyncPasscode) persistGdriveSyncKeySession().catch(function(){});
   updateGdriveSyncKeySessionStatus();
   toast('Sync key remembered for ' + hours + ' hour' + (hours==='1'?'':'s') + ' after each unlock.');
 }
@@ -1350,9 +1396,10 @@ function ensureGdriveSyncMode(){
     clearGdriveSyncDeclined();
     gdriveSyncPasscode = passcode;
     gdriveSyncKeyUnlockedAt = Date.now();
-    persistGdriveSyncKeySession();
-    updateGdriveSyncKeySessionStatus();
-    return 'encrypted';
+    return persistGdriveSyncKeySession().then(function(){
+      updateGdriveSyncKeySessionStatus();
+      return 'encrypted';
+    });
   });
 }
 

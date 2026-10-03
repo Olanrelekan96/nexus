@@ -59,9 +59,12 @@ function makeContext(opts) {
     currentSettings: opts.currentSettings || { gdriveSyncKeySessionHours: '24' },
     appLocked: false,
     state: null,
+    lockCryptoKey: {id:'device-dek'},
     isLockEnabled: () => true,
     saveSettings: () => {},
-    toast: () => {}
+    toast: () => {},
+    encryptWithKey: (key, plaintext) => Promise.resolve({iv:'test-iv', ct:'ENC:'+Buffer.from(String(plaintext),'utf8').toString('base64')}),
+    decryptWithKey: (key, payload) => Promise.resolve(Buffer.from(String(payload.ct).slice(4), 'base64').toString('utf8'))
   };
   ctx.localStorage = {
     getItem: (k) => (Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null),
@@ -128,8 +131,11 @@ async function main() {
     const ctx1 = makeContext({ clock, currentSettings, sessionStorage: {}, persistentStore });
     ctx1.gdriveSyncPasscode = 'correct horse battery staple';
     ctx1.gdriveSyncKeyUnlockedAt = ctx1.Date.now();
-    ctx1.persistGdriveSyncKeySession();
+    await ctx1.persistGdriveSyncKeySession();
     await settle();
+    const durableRecord = persistentStore.gdrive_synckey_persistent_v1;
+    assert.strictEqual(durableRecord.v, 2, 'durable sync key records must use encrypted v2 format');
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(durableRecord, 'passcode'), false, 'durable sync key record must never contain the raw passcode');
 
     /* Simulate the app actually closing: a fresh context gets a fresh (empty)
        sessionStorage, but the same persistentStore object — same as IndexedDB
@@ -157,7 +163,7 @@ async function main() {
     const ctx1 = makeContext({ clock, sessionStorage: {}, persistentStore });
     ctx1.gdriveSyncPasscode = 'another passcode entirely';
     ctx1.gdriveSyncKeyUnlockedAt = ctx1.Date.now();
-    ctx1.persistGdriveSyncKeySession();
+    await ctx1.persistGdriveSyncKeySession();
     await settle();
 
     ctx1.clearGdriveSyncKeySession();
@@ -168,7 +174,23 @@ async function main() {
     assert.strictEqual(restored, false, 'clearGdriveSyncKeySession must also clear the durable IndexedDB copy');
   }
 
-  console.log('Google Drive sync-key launch persistence test passed: same-tab reload, real-relaunch restore within interval, expiry past the interval, and clear-on-lock-removal all behave correctly.');
+  /* --- v1 compatibility: a raw-passcode record left by the previous build must
+         migrate to encrypted v2 on the next successful launch and must not stay
+         in plaintext in IndexedDB. --- */
+  {
+    const clock = { now: 4000 };
+    const persistentStore = {
+      gdrive_synckey_persistent_v1: {v:1, passcode:'legacy secret', unlockedAt:4000, deadlineAt:4000 + 3600000}
+    };
+    const ctx = makeContext({ clock, sessionStorage: {}, persistentStore });
+    const restored = await ctx.restoreGdriveSyncKeySession();
+    assert.strictEqual(restored, true, 'legacy v1 remembered sync key should restore once and migrate');
+    assert.strictEqual(ctx.gdriveSyncPasscode, 'legacy secret');
+    assert.strictEqual(persistentStore.gdrive_synckey_persistent_v1.v, 2, 'legacy record must migrate to v2');
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(persistentStore.gdrive_synckey_persistent_v1, 'passcode'), false, 'migrated durable record must not retain plaintext');
+  }
+
+  console.log('Google Drive sync-key launch persistence test passed: same-tab reload, real-relaunch restore within interval, expiry past the interval, clear-on-lock-removal, encrypted-at-rest v2, and v1 migration all behave correctly.');
 }
 
 main().catch((err) => {

@@ -18,7 +18,7 @@ rm -f "$OUT"
 mkdir -p "$(dirname "$OUT")"
 # Exclude only VCS metadata — never a blanket ".*", which also matches
 # required dotfiles like .nojekyll.
-zip -r "$OUT" . -x ".git/*" -x ".git" > /dev/null
+zip -r "$OUT" . -x ".git/*" -x ".git" -x "*/__pycache__/*" -x "*.pyc" > /dev/null
 
 echo "Verifying packaged archive contents..."
 missing=0

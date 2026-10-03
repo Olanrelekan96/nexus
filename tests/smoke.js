@@ -594,7 +594,7 @@ assert.ok(fs.readFileSync(path.join(root,'css','styles.css'),'utf8').includes('#
 assert.ok(lockCode.includes('Promise.resolve(flushed).catch(function(){});'), 'passcode lock should initiate the save flush without blocking the security boundary');
 assert.ok(lockCode.includes('function closeSecurityOverlays()'), 'lockNow should close all security overlays');
 const swCode = fs.readFileSync(path.join(root,'sw.js'),'utf8');
-assert.ok(swCode.includes("CACHE='nexus-shell-v5'"), 'mobile sidebar update must bump the PWA cache generation');
+assert.ok(swCode.includes("CACHE='nexus-shell-v6'"), 'mobile sidebar update must bump the PWA cache generation');
 assert.ok(swCode.includes("fetch(req,{cache:'no-store'})"), 'PWA fetch must revalidate updated security assets');
 assert.ok(index.includes('09-security-lock.js?v=20260919-passcode-v7-true-launch-off'), 'security script must be cache-busted for the passcode launch policy repair');
 })().catch((err) => {

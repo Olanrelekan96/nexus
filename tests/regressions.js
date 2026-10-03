@@ -104,7 +104,7 @@ assert.ok(/var dailyCalCursor = new Date\(\);\s*[\s\S]{0,200}dailyCalCursor\.set
 /* --- Service worker: precaches the shell; the embedded download copy is byte-identical to sw.js. */
 {
   const sw = read('sw.js');
-  assert.ok(sw.includes("CACHE='nexus-shell-v5'"));
+  assert.ok(sw.includes("CACHE='nexus-shell-v6'"));
   assert.ok(sw.includes('nexusPrecacheShell'), 'install must precache the shell');
   assert.ok(sw.includes('Response.error()'), 'failed subresources must not be answered with the HTML shell');
   const pwa = read('js/core/12-pwa.js');
